@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="CRM Control logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#534AB7"/>
+      <stop offset="1" stop-color="#7F77DD"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <path d="M44 23c-3.2-3.2-7.4-4.8-11.6-4.8-8.6 0-15.6 7-15.6 15.6S23.8 49.4 32.4 49.4c4.2 0 8.4-1.6 11.6-4.8l-4.2-4.2c-2 2-4.7 3.1-7.4 3.1-5.8 0-10.5-4.7-10.5-10.5S26.6 22.5 32.4 22.5c2.7 0 5.4 1.1 7.4 3.1L44 23z" fill="#fff"/>
+  <circle cx="44" cy="22" r="4" fill="#fff"/>
+</svg>

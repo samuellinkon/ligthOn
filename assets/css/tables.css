@@ -1,0 +1,297 @@
+/* =========================================================
+   Tables, badges, paginação
+   ========================================================= */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+/* Chamado — itens do atendimento (sem table-layout:fixed + %/rem/auto: evita coluna Item colapsar) */
+.chamado-itens-table table {
+  width: 100%;
+  min-width: 52rem;
+}
+
+.chamado-itens-table--admin th:nth-child(2),
+.chamado-itens-table--admin td:nth-child(2) {
+  min-width: 16rem;
+  max-width: 28rem;
+  width: 30%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.45;
+  vertical-align: top;
+}
+
+.chamado-itens-table--admin td:nth-child(4),
+.chamado-itens-table--admin td:nth-child(5),
+.chamado-itens-table--admin td:nth-child(6),
+.chamado-itens-table--admin td:nth-child(8) {
+  white-space: nowrap;
+}
+
+.chamado-itens-table--admin td:nth-child(7) {
+  max-width: 14rem;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.chamado-itens-table--cliente th:nth-child(2),
+.chamado-itens-table--cliente td:nth-child(2) {
+  min-width: 14rem;
+  max-width: 36rem;
+  width: 40%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.45;
+  vertical-align: top;
+}
+
+.chamado-itens-table--cliente td:nth-child(3),
+.chamado-itens-table--cliente td:nth-child(4),
+.chamado-itens-table--cliente td:nth-child(5) {
+  white-space: nowrap;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 14px 20px;
+  font-size: 14px;
+  border-bottom: 1px solid #f2f2f7;
+  vertical-align: middle;
+}
+
+th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 700;
+  background: #fafafe;
+}
+
+tbody tr { transition: background .12s ease; }
+tbody tr:hover { background: #fafafe; }
+tbody tr:last-child td { border-bottom: none; }
+
+tr.table-subsection td {
+  background: #f1f5f9;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+tr.table-subsection:hover td {
+  background: #f1f5f9;
+}
+
+.td-id {
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.td-title {
+  font-weight: 600;
+}
+
+.td-strong {
+  font-weight: 600;
+}
+
+.td-mute {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.td-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.td-actions .action {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background .12s ease, color .12s ease;
+}
+
+.td-actions .action:hover {
+  background: #f0f0f7;
+  color: var(--text);
+}
+
+.td-actions .action.danger:hover {
+  background: rgba(226, 75, 74, 0.1);
+  color: var(--danger);
+}
+
+.td-actions .action.primary:hover {
+  background: rgba(83, 74, 183, 0.1);
+  color: var(--primary);
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .85;
+}
+
+.badge.open,
+.badge.status-open,
+.badge.status-aberto,
+.badge.status-aberta { background: rgba(83, 74, 183, 0.1); color: var(--primary); }
+
+.badge.progress,
+.badge.status-progress,
+.badge.status-em-andamento,
+.badge.status-respondendo { background: rgba(59, 130, 246, 0.1); color: var(--info); }
+
+.badge.waiting,
+.badge.status-waiting,
+.badge.status-aguardando,
+.badge.status-pendente { background: rgba(239, 159, 39, 0.13); color: var(--warning); }
+
+.badge.done,
+.badge.status-done,
+.badge.status-resolvido,
+.badge.status-fechado,
+.badge.status-pago,
+.badge.status-respondida,
+.badge.status-ativo { background: rgba(29, 158, 117, 0.12); color: var(--success); }
+
+.badge.urgent,
+.badge.status-urgent,
+.badge.status-urgente,
+.badge.status-vencido { background: rgba(226, 75, 74, 0.12); color: var(--danger); }
+
+.badge.cancelled,
+.badge.status-cancelado { background: rgba(107, 114, 128, 0.14); color: #4b5563; }
+
+.badge-plain { background: #f1f2f8; color: var(--muted); }
+
+.badge-lg { padding: 8px 12px; font-size: 13px; }
+
+/* ---------- Pagination ---------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-soft);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination .pag-info {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pagination .pag-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pag-btn {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  padding: 7px 12px;
+  min-width: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all .15s ease;
+}
+
+.pag-btn:hover {
+  background: #f5f5fa;
+  border-color: #d0d0dd;
+}
+
+.pag-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.pag-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+a.pag-btn {
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.pag-btn.pag-btn--static {
+  opacity: .45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pag-ellipsis {
+  padding: 7px 4px;
+  font-weight: 700;
+  color: var(--muted);
+  user-select: none;
+}
+
+/* ---------- Cliente cell with avatar ---------- */
+
+.cell-client {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cell-client .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.cell-client small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}

@@ -1,0 +1,17 @@
+# Overrides locais (credenciais de desenvolvimento)
+includes/config.local.php
+includes/config.php
+
+# Ficheiros carregados / temporários (não versionar)
+uploads/**
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

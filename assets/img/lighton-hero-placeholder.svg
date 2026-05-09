@@ -1,0 +1,39 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="1280" height="720" rx="28" fill="url(#paint0_linear_8_12)"/>
+<rect x="94" y="86" width="1092" height="548" rx="24" fill="#0C1C38" fill-opacity="0.9"/>
+<rect x="132" y="128" width="1020" height="42" rx="12" fill="#1A355F"/>
+<circle cx="162" cy="149" r="8" fill="#5EA0FF"/>
+<circle cx="188" cy="149" r="8" fill="#7FB5FF"/>
+<circle cx="214" cy="149" r="8" fill="#A3CAFF"/>
+<rect x="132" y="196" width="248" height="398" rx="16" fill="#122B4F"/>
+<rect x="154" y="224" width="204" height="18" rx="8" fill="#5EA0FF"/>
+<rect x="154" y="260" width="176" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="154" y="286" width="194" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="154" y="312" width="146" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="154" y="360" width="204" height="18" rx="8" fill="#5EA0FF"/>
+<rect x="154" y="396" width="188" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="154" y="422" width="204" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="154" y="448" width="168" height="10" rx="5" fill="#2A4D7E"/>
+<rect x="408" y="196" width="744" height="170" rx="16" fill="#122B4F"/>
+<rect x="432" y="222" width="250" height="18" rx="8" fill="#5EA0FF"/>
+<rect x="432" y="258" width="696" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="432" y="286" width="622" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="432" y="314" width="560" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="408" y="384" width="360" height="210" rx="16" fill="#122B4F"/>
+<rect x="432" y="410" width="150" height="18" rx="8" fill="#5EA0FF"/>
+<rect x="432" y="448" width="312" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="432" y="474" width="286" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="432" y="500" width="250" height="12" rx="6" fill="#2A4D7E"/>
+<rect x="792" y="384" width="360" height="210" rx="16" fill="#122B4F"/>
+<rect x="816" y="410" width="168" height="18" rx="8" fill="#5EA0FF"/>
+<path d="M828 542C858 520 881 522 904 535C923 547 954 557 987 530C1019 505 1052 517 1072 536C1094 556 1122 556 1132 549" stroke="#8EC0FF" stroke-width="10" stroke-linecap="round"/>
+<circle cx="904" cy="535" r="8" fill="#5EA0FF"/>
+<circle cx="987" cy="530" r="8" fill="#5EA0FF"/>
+<circle cx="1072" cy="536" r="8" fill="#5EA0FF"/>
+<defs>
+<linearGradient id="paint0_linear_8_12" x1="130" y1="58" x2="1132" y2="662" gradientUnits="userSpaceOnUse">
+<stop stop-color="#183868"/>
+<stop offset="1" stop-color="#081226"/>
+</linearGradient>
+</defs>
+</svg>

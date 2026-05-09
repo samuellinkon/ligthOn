@@ -1,0 +1,190 @@
+/* =========================================================
+   Modais globais — confirmação e aviso (substituem alert/confirm)
+   ========================================================= */
+
+.app-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.app-modal-overlay.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.app-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card, #fff);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.25);
+  border: 1px solid var(--border-soft, #f0f0f5);
+  padding: 24px 26px 22px;
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.22s ease;
+}
+
+.app-modal-overlay.is-open .app-modal {
+  transform: translateY(0) scale(1);
+}
+
+.app-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text, #1a1a2e);
+  margin: 0 0 10px;
+  line-height: 1.25;
+}
+
+.app-modal-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted, #6b7280);
+  margin: 0 0 22px;
+  white-space: pre-wrap;
+}
+
+.app-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.app-modal-actions .btn {
+  min-width: 108px;
+}
+
+.app-modal-actions .btn-danger {
+  background: linear-gradient(135deg, var(--danger, #e24b4a), #ef7a78);
+  border: none;
+  color: #fff;
+}
+
+.app-modal-actions .btn-danger:hover {
+  filter: brightness(1.05);
+}
+
+/* Toast rápido (ex.: copiado) */
+.app-toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10060;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.app-toast-item {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.app-toast-item.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-toast-item--ok {
+  background: linear-gradient(135deg, #1d9e75, #3cc696);
+}
+
+.app-toast-item--info {
+  background: linear-gradient(135deg, #534ab7, #7f77dd);
+}
+
+/* Catálogo (cliente_itens / catalogo): modal de item — fora do fluxo .main (position fixed) */
+.kb-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+  box-sizing: border-box;
+}
+
+.kb-modal.is-open {
+  display: flex;
+}
+
+.kb-modal-card {
+  width: 100%;
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  background: var(--card, #fff);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+  border: 1px solid var(--border-soft, #e8e8ef);
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-soft, #e8e8ef);
+  flex-shrink: 0;
+}
+
+.kb-modal-head h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.kb-modal-body {
+  padding: 18px 20px;
+  overflow: auto;
+}
+
+.kb-modal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border-soft, #e8e8ef);
+  flex-shrink: 0;
+}
+
+.kb-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 8px;
+}
+
+.kb-close:hover {
+  background: #f0f0f7;
+  color: var(--text);
+}

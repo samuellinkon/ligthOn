@@ -1,0 +1,713 @@
+<?php
+declare(strict_types=1);
+
+function medicao_csv_row_is_relatorio_header_row(array $row): bool
+{
+    $hasData = false;
+    $hasCodigo = false;
+    $hasDescItens = false;
+    $hasQtd = false;
+    $hasValorTotal = false;
+    foreach ($row as $c) {
+        $u = medicao_csv_header_norm_cell_for_match((string) $c);
+        if ($u === '') {
+            continue;
+        }
+        if (str_starts_with($u, 'DATA')) {
+            $hasData = true;
+        }
+        if ($u === 'CODIGO') {
+            $hasCodigo = true;
+        }
+        if (str_contains($u, 'DESCRI') && str_contains($u, 'ITEN')) {
+            $hasDescItens = true;
+        }
+        if (preg_match('/^QTD/', $u)) {
+            $hasQtd = true;
+        }
+        if (str_contains($u, 'VALOR') && str_contains($u, 'TOTAL')) {
+            $hasValorTotal = true;
+        }
+    }
+
+    return $hasData && $hasCodigo && $hasDescItens && $hasQtd && $hasValorTotal;
+}
+
+/**
+ * @return array<string,int|null>
+ */
+function medicao_csv_map_relatorio_header_row(array $row): ?array
+{
+    $m = [
+        'col_data'   => null,
+        'col_proto'  => null,
+        'col_codigo' => null,
+        'col_desc'   => null,
+        'col_qtd'    => null,
+        'col_vtot'   => null,
+        'col_vunit'  => null,
+        'col_bairro' => null,
+        'col_rua'    => null,
+        'col_tipo'   => null,
+        'col_equipe' => null,
+    ];
+    foreach ($row as $j => $c) {
+        $u = medicao_csv_header_norm_cell_for_match((string) $c);
+        if ($u === '') {
+            continue;
+        }
+        if (str_starts_with($u, 'DATA')) {
+            $m['col_data'] = $j;
+        } elseif (preg_match('/PROTOCOLO|PROCOCOLO|GIP/', $u)) {
+            $m['col_proto'] = $j;
+        } elseif ($u === 'CODIGO') {
+            $m['col_codigo'] = $j;
+        } elseif (str_contains($u, 'DESCRI') && str_contains($u, 'ITEN')) {
+            $m['col_desc'] = $j;
+        } elseif (preg_match('/^QTD/', $u)) {
+            $m['col_qtd'] = $j;
+        } elseif (str_contains($u, 'VALOR') && str_contains($u, 'UNIT')) {
+            $m['col_vunit'] = $j;
+        } elseif (str_contains($u, 'VALOR') && str_contains($u, 'TOTAL')) {
+            $m['col_vtot'] = $j;
+        } elseif ($u === 'BAIRRO') {
+            $m['col_bairro'] = $j;
+        } elseif (str_contains($u, 'RUA') || str_contains($u, 'AVENIDA')) {
+            $m['col_rua'] = $j;
+        } elseif (str_contains($u, 'TIPO') && str_contains($u, 'SERVI')) {
+            $m['col_tipo'] = $j;
+        } elseif (str_contains($u, 'EQUIPE')) {
+            $m['col_equipe'] = $j;
+        }
+    }
+    if ($m['col_codigo'] === null || $m['col_desc'] === null || $m['col_qtd'] === null || $m['col_vtot'] === null) {
+        return null;
+    }
+
+    return $m;
+}
+
+function medicao_csv_find_relatorio_header_row_index(array $rows): int
+{
+    $last = -1;
+    $lim = min(count($rows), 2500);
+    for ($i = 0; $i < $lim; $i++) {
+        if (medicao_csv_row_is_relatorio_header_row($rows[$i])) {
+            $last = $i;
+        }
+    }
+
+    return $last;
+}
+
+/**
+ * Formato «RELATÓRIO DETALHADO BM» (uma linha por intervenção).
+ *
+ * @param list<list<string>> $rows
+ * @return array{ok:bool,erro:string,idx_qtd_medido:?int,idx_valor_medido:?int,linhas:list<array<string,mixed>>}
+ */
+function medicao_csv_try_parse_relatorio_detalhado(array $rows): array
+{
+    $empty = [
+        'ok'               => false,
+        'erro'             => '',
+        'idx_qtd_medido'   => null,
+        'idx_valor_medido' => null,
+        'linhas'           => [],
+    ];
+
+    $h = medicao_csv_find_relatorio_header_row_index($rows);
+    if ($h < 0) {
+        return $empty;
+    }
+
+    $map = medicao_csv_map_relatorio_header_row($rows[$h]);
+    if ($map === null) {
+        return array_merge($empty, [
+            'erro' => 'Linha de cabeçalho do relatório detalhado incompleta (confira CÓDIGO, DESCRIÇÃO DOS ITENS, QTD. e VALOR TOTAL).',
+        ]);
+    }
+
+    $linhas = [];
+    $n = count($rows);
+    for ($r = $h + 1; $r < $n; $r++) {
+        $row = $rows[$r];
+        $desc = trim((string) ($row[$map['col_desc']] ?? ''));
+        if ($desc !== '' && str_starts_with($desc, '=')) {
+            continue;
+        }
+
+        $proto = $map['col_proto'] !== null ? trim((string) ($row[$map['col_proto']] ?? '')) : '';
+        $cod   = trim((string) ($row[$map['col_codigo']] ?? ''));
+        $dataT = $map['col_data'] !== null ? trim((string) ($row[$map['col_data']] ?? '')) : '';
+        $qtd   = medicao_br_decimal((string) ($row[$map['col_qtd']] ?? ''));
+        $vtot  = medicao_br_decimal((string) ($row[$map['col_vtot']] ?? ''));
+
+        if ($desc === '' && $proto === '' && $cod === '' && $vtot === null && $qtd === null) {
+            continue;
+        }
+        if (strtoupper($desc) === 'TOTAL' || strtoupper($proto) === 'TOTAL') {
+            continue;
+        }
+
+        $parts = array_filter([
+            $dataT !== '' ? $dataT : null,
+            $proto !== '' ? 'Prot. ' . $proto : null,
+            $map['col_bairro'] !== null ? trim((string) ($row[$map['col_bairro']] ?? '')) : null,
+            $map['col_rua'] !== null ? trim((string) ($row[$map['col_rua']] ?? '')) : null,
+            $map['col_equipe'] !== null ? trim((string) ($row[$map['col_equipe']] ?? '')) : null,
+            $map['col_tipo'] !== null ? trim((string) ($row[$map['col_tipo']] ?? '')) : null,
+            $desc !== '' ? $desc : null,
+        ], static fn ($x) => $x !== null && $x !== '');
+
+        $descricao = implode(' · ', $parts);
+        if ($descricao === '') {
+            continue;
+        }
+
+        $seq = count($linhas) + 1;
+        $itemCod = '';
+        $pNorm = preg_replace('/\s+/', '', $proto);
+        if ($pNorm !== '' && preg_match('/^\d{2,}$/', $pNorm)) {
+            $itemCod = $pNorm;
+            if ($cod !== '' && mb_strlen($itemCod) < 22) {
+                $itemCod .= '-' . preg_replace('/[^\d.\w]/u', '', mb_substr($cod, 0, 12));
+            }
+        } elseif ($cod !== '' && preg_match('/^[\d.\w]+$/u', $cod)) {
+            $itemCod = mb_substr($cod, 0, 32);
+        } else {
+            $itemCod = 'R' . (string) $seq;
+        }
+        $itemCod = mb_substr($itemCod, 0, 32);
+
+        $linhas[] = [
+            'item_codigo'          => $itemCod,
+            'descricao'            => $descricao,
+            'unidade'              => '',
+            'qtd_prevista'         => null,
+            'qtd_total'            => null,
+            'preco_unitario'       => $map['col_vunit'] !== null ? medicao_br_decimal((string) ($row[$map['col_vunit']] ?? '')) : null,
+            'qtd_medido_periodo'   => $qtd,
+            'valor_medido_periodo' => $vtot,
+        ];
+    }
+
+    if ($linhas === []) {
+        return array_merge($empty, ['erro' => 'Relatório detalhado: nenhuma linha de dados válida após o cabeçalho.']);
+    }
+
+    return [
+        'ok'               => true,
+        'erro'             => '',
+        'idx_qtd_medido'   => $map['col_qtd'],
+        'idx_valor_medido' => $map['col_vtot'],
+        'linhas'           => $linhas,
+    ];
+}
+
+/**
+ * Parser de CSV exportado de planilha BM (Excel → CSV).
+ * Formatos suportados:
+ * 1) Relatório detalhado BM (aba «RELATÓRIO DETALHADO BM …», ex.: `relatorio_detalhado.xlsx` exportado como CSV):
+ *    cabeçalho com DATA, CÓDIGO, DESCRIÇÃO DOS ITENS, QTD., VALOR TOTAL (R$), etc.
+ * 2) Matriz / boletim com coluna ITEM e colunas «medido no período» (quantidade e valor).
+ *
+ * @return array{
+ *   ok: bool,
+ *   erro: string,
+ *   idx_qtd_medido: int|null,
+ *   idx_valor_medido: int|null,
+ *   linhas: list<array{
+ *     item_codigo: string,
+ *     descricao: string,
+ *     unidade: string,
+ *     qtd_prevista: float|null,
+ *     qtd_total: float|null,
+ *     preco_unitario: float|null,
+ *     qtd_medido_periodo: float|null,
+ *     valor_medido_periodo: float|null
+ *   }>
+ * }
+ */
+function medicao_csv_parse_bm_planilha(string $path): array
+{
+    $empty = [
+        'ok'                 => false,
+        'erro'               => '',
+        'idx_qtd_medido'     => null,
+        'idx_valor_medido'   => null,
+        'linhas'             => [],
+    ];
+
+    if (!is_readable($path)) {
+        return array_merge($empty, ['erro' => 'Arquivo ilegível.']);
+    }
+
+    $full = file_get_contents($path);
+    if ($full === false || $full === '') {
+        return array_merge($empty, ['erro' => 'Arquivo vazio ou ilegível.']);
+    }
+    if (str_starts_with($full, "\xEF\xBB\xBF")) {
+        $full = substr($full, 3);
+    }
+
+    $headLen   = min(524288, strlen($full));
+    $delimiter = medicao_csv_sniff_delimiter_best(substr($full, 0, $headLen));
+
+    $rows = [];
+    $fp = fopen('php://memory', 'r+b');
+    if ($fp === false) {
+        return array_merge($empty, ['erro' => 'Memória temporária indisponível.']);
+    }
+    fwrite($fp, $full);
+    rewind($fp);
+    while (($row = fgetcsv($fp, 0, $delimiter, '"', '\\')) !== false) {
+        $rows[] = array_map(static function ($c): string {
+            if (!is_string($c)) {
+                return '';
+            }
+            return trim(str_replace("\xc2\xa0", ' ', $c));
+        }, $row);
+    }
+    fclose($fp);
+
+    if ($rows === []) {
+        return array_merge($empty, ['erro' => 'Nenhuma linha no CSV.']);
+    }
+
+    return medicao_parse_bm_from_rows($rows);
+}
+
+/**
+ * Interpreta linhas já normalizadas (CSV ou Excel) nos formatos relatório detalhado ou matriz BM.
+ *
+ * @param list<list<string>> $rows
+ * @return array{ok:bool,erro:string,idx_qtd_medido:?int,idx_valor_medido:?int,linhas:list<array<string,mixed>>}
+ */
+function medicao_parse_bm_from_rows(array $rows): array
+{
+    $empty = [
+        'ok'                 => false,
+        'erro'               => '',
+        'idx_qtd_medido'     => null,
+        'idx_valor_medido'   => null,
+        'linhas'             => [],
+    ];
+
+    if ($rows === []) {
+        return array_merge($empty, ['erro' => 'Nenhuma linha no arquivo.']);
+    }
+
+    $maxCols = 0;
+    foreach ($rows as $r) {
+        $maxCols = max($maxCols, count($r));
+    }
+    foreach ($rows as &$r) {
+        $r = array_pad($r, $maxCols, '');
+        $r = array_map(static function ($c): string {
+            if (!is_string($c)) {
+                return '';
+            }
+            return trim(str_replace(["\xc2\xa0", "\xe2\x80\xaf"], ' ', $c));
+        }, $r);
+    }
+    unset($r);
+
+    $rel = medicao_csv_try_parse_relatorio_detalhado($rows);
+    if (!empty($rel['ok'])) {
+        return $rel;
+    }
+    if (($rel['erro'] ?? '') !== '') {
+        return $rel;
+    }
+
+    $itemRowIdx = -1;
+    $itemCol    = -1;
+    foreach ($rows as $i => $row) {
+        foreach ($row as $j => $c) {
+            if (medicao_csv_header_norm($c) === 'ITEM') {
+                $itemRowIdx = $i;
+                $itemCol    = $j;
+                break 2;
+            }
+        }
+    }
+
+    if ($itemRowIdx < 0 || $itemCol < 0) {
+        return array_merge($empty, ['erro' => 'Não reconhecido como relatório detalhado BM nem como matriz com coluna ITEM. Exporte a aba «RELATÓRIO DETALHADO BM» ou a matriz em CSV/Excel.']);
+    }
+
+    $headerRow = $rows[$itemRowIdx];
+    $descCol   = medicao_csv_find_col_header($headerRow, static function (string $u): bool {
+        return str_starts_with($u, 'DESCRI');
+    });
+    $unidCol = medicao_csv_find_col_header($headerRow, static function (string $u): bool {
+        return str_starts_with($u, 'UNID');
+    });
+
+    $picked = medicao_csv_pick_medido_columns($rows, $itemRowIdx, $itemCol);
+    $subRowIdx = $picked['subRowIdx'];
+    $idxQtd    = $picked['idxQtd'];
+    $idxValor  = $picked['idxValor'];
+
+    if ($subRowIdx < 0 || $idxQtd === null || $idxValor === null) {
+        return array_merge($empty, ['erro' => 'Não foi possível localizar colunas de quantidade/valor «medido no período» (cabeçalhos MEDIDO NO PERÍODO ou equivalentes).']);
+    }
+
+    $subRow = $rows[$subRowIdx];
+    $colPrevista = medicao_csv_find_col_subheader($subRow, '/PREVIST/i');
+    $colTotal    = medicao_csv_find_col_subheader($subRow, '/\bTOTAL\b/i');
+    $colPreco    = medicao_csv_find_col_subheader($subRow, '/PRE[ÇC]O.*UNIT|UNIT.*PRE[ÇC]O/i');
+
+    $linhas = [];
+    for ($r = $subRowIdx + 1, $n = count($rows); $r < $n; $r++) {
+        $row = $rows[$r];
+        $cod = (string) ($row[$itemCol] ?? '');
+        if ($cod === '' || !preg_match('/^\d+(\.\d+)+$/', $cod)) {
+            continue;
+        }
+        $desc = $descCol !== null ? (string) ($row[$descCol] ?? '') : '';
+        $unid = $unidCol !== null ? (string) ($row[$unidCol] ?? '') : '';
+
+        $linhas[] = [
+            'item_codigo'          => $cod,
+            'descricao'            => $desc,
+            'unidade'              => $unid,
+            'qtd_prevista'         => $colPrevista !== null ? medicao_br_decimal((string) ($row[$colPrevista] ?? '')) : null,
+            'qtd_total'            => $colTotal !== null ? medicao_br_decimal((string) ($row[$colTotal] ?? '')) : null,
+            'preco_unitario'       => $colPreco !== null ? medicao_br_decimal((string) ($row[$colPreco] ?? '')) : null,
+            'qtd_medido_periodo'   => medicao_br_decimal((string) ($row[$idxQtd] ?? '')),
+            'valor_medido_periodo' => medicao_br_decimal((string) ($row[$idxValor] ?? '')),
+        ];
+    }
+
+    if ($linhas === []) {
+        return array_merge($empty, ['erro' => 'Nenhuma linha de itens numéricos (ex.: 1.1, 2.3) encontrada após o cabeçalho.']);
+    }
+
+    return [
+        'ok'               => true,
+        'erro'             => '',
+        'idx_qtd_medido'   => $idxQtd,
+        'idx_valor_medido' => $idxValor,
+        'linhas'           => $linhas,
+    ];
+}
+
+function medicao_csv_sniff_delimiter(string $firstLine): string
+{
+    $nComma = substr_count($firstLine, ',');
+    $nSemi  = substr_count($firstLine, ';');
+    return $nSemi > $nComma ? ';' : ',';
+}
+
+/**
+ * Escolhe `,` ou `;` pela linha que contém ITEM com mais colunas; empate favorece `;` (Excel PT-BR).
+ */
+function medicao_csv_sniff_delimiter_best(string $rawHead): string
+{
+    $bestDelim = ',';
+    $bestCols  = 0;
+    foreach ([',', ';'] as $d) {
+        $fp = fopen('php://memory', 'r+b');
+        if ($fp === false) {
+            continue;
+        }
+        fwrite($fp, $rawHead);
+        rewind($fp);
+        $maxOne = 0;
+        while (($row = fgetcsv($fp, 0, $d, '"', '\\')) !== false) {
+            $cnt = count($row);
+            foreach ($row as $c) {
+                if (is_string($c) && medicao_csv_header_norm($c) === 'ITEM') {
+                    $maxOne = max($maxOne, $cnt);
+                    break;
+                }
+            }
+            if (medicao_csv_row_is_relatorio_header_row($row)) {
+                $maxOne = max($maxOne, $cnt);
+            }
+        }
+        fclose($fp);
+        if ($maxOne > $bestCols) {
+            $bestCols = $maxOne;
+            $bestDelim = $d;
+        } elseif ($maxOne === $bestCols && $maxOne > 0 && $d === ';') {
+            $bestDelim = ';';
+        }
+    }
+
+    return $bestCols > 0 ? $bestDelim : medicao_csv_sniff_delimiter(strtok($rawHead, "\r\n") ?: '');
+}
+
+/**
+ * @return array{subRowIdx:int, idxQtd:?int, idxValor:?int}
+ */
+function medicao_csv_pick_medido_columns(array $rows, int $itemRowIdx, int $itemCol): array
+{
+    $lim = min(count($rows), $itemRowIdx + 22);
+    $best = ['subRowIdx' => -1, 'idxQtd' => null, 'idxValor' => null, 'score' => -1];
+
+    for ($r = $itemRowIdx; $r < $lim; $r++) {
+        $row = $rows[$r];
+        $medidoIdxs = [];
+        foreach ($row as $j => $c) {
+            if (medicao_csv_cell_is_medido_periodo($c)) {
+                $medidoIdxs[] = (int) $j;
+            }
+        }
+        if (count($medidoIdxs) >= 2) {
+            $iq = $medidoIdxs[0];
+            $iv = $medidoIdxs[count($medidoIdxs) - 1];
+            $sc = medicao_csv_score_qtd_valor_columns($rows, $r, $itemCol, $iq, $iv);
+            if ($sc > $best['score']) {
+                $best = ['subRowIdx' => $r, 'idxQtd' => $iq, 'idxValor' => $iv, 'score' => $sc];
+            }
+            if (count($medidoIdxs) > 2) {
+                for ($a = 0, $nm = count($medidoIdxs); $a < $nm - 1; $a++) {
+                    for ($b = $a + 1; $b < $nm; $b++) {
+                        $iq2 = $medidoIdxs[$a];
+                        $iv2 = $medidoIdxs[$b];
+                        $sc2 = medicao_csv_score_qtd_valor_columns($rows, $r, $itemCol, $iq2, $iv2);
+                        if ($sc2 > $best['score']) {
+                            $best = ['subRowIdx' => $r, 'idxQtd' => $iq2, 'idxValor' => $iv2, 'score' => $sc2];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if ($best['score'] > 0) {
+        return [
+            'subRowIdx' => $best['subRowIdx'],
+            'idxQtd'    => $best['idxQtd'],
+            'idxValor'  => $best['idxValor'],
+        ];
+    }
+
+    $best = ['subRowIdx' => -1, 'idxQtd' => null, 'idxValor' => null, 'score' => -1];
+
+    for ($r = $itemRowIdx; $r < $lim; $r++) {
+        $pair = medicao_csv_find_valor_medido_pair($rows[$r] ?? []);
+        if ($pair !== null) {
+            [$iq, $iv] = $pair;
+            $sc = medicao_csv_score_qtd_valor_columns($rows, $r, $itemCol, $iq, $iv);
+            if ($sc > $best['score']) {
+                $best = ['subRowIdx' => $r, 'idxQtd' => $iq, 'idxValor' => $iv, 'score' => $sc];
+            }
+        }
+    }
+
+    if ($best['idxQtd'] !== null && $best['idxValor'] !== null) {
+        return [
+            'subRowIdx' => $best['subRowIdx'],
+            'idxQtd'    => $best['idxQtd'],
+            'idxValor'  => $best['idxValor'],
+        ];
+    }
+
+    $bf = medicao_csv_brute_force_medido_columns($rows, $itemRowIdx, $itemCol);
+    if ($bf !== null) {
+        return $bf;
+    }
+
+    return ['subRowIdx' => -1, 'idxQtd' => null, 'idxValor' => null];
+}
+
+/**
+ * Último recurso: duas colunas à direita de ITEM com mais valores numéricos nas linhas de itens.
+ *
+ * @return array{subRowIdx:int, idxQtd:int, idxValor:int}|null
+ */
+function medicao_csv_brute_force_medido_columns(array $rows, int $itemRowIdx, int $itemCol): ?array
+{
+    $firstData = -1;
+    $limScan   = min(count($rows), $itemRowIdx + 60);
+    for ($r = $itemRowIdx + 1; $r < $limScan; $r++) {
+        $cod = (string) ($rows[$r][$itemCol] ?? '');
+        if ($cod !== '' && preg_match('/^\d+(\.\d+)+$/', $cod)) {
+            $firstData = $r;
+            break;
+        }
+    }
+    if ($firstData < 0) {
+        return null;
+    }
+    $fakeSub = $firstData - 1;
+    $maxCol  = 0;
+    for ($r = $firstData; $r < min(count($rows), $firstData + 200); $r++) {
+        $maxCol = max($maxCol, count($rows[$r]));
+    }
+    $maxCol = min($maxCol, 80);
+    $minJ   = min($itemCol + 1, $maxCol - 2);
+    $minJ   = max(0, $minJ);
+
+    $bestIq = null;
+    $bestIv = null;
+    $bestSc = 0;
+    for ($iq = $minJ; $iq < $maxCol - 1; $iq++) {
+        for ($iv = $iq + 1; $iv < $maxCol; $iv++) {
+            $sc = medicao_csv_score_qtd_valor_columns($rows, $fakeSub, $itemCol, $iq, $iv);
+            if ($sc > $bestSc) {
+                $bestSc = $sc;
+                $bestIq = $iq;
+                $bestIv = $iv;
+            }
+        }
+    }
+
+    if ($bestIq === null || $bestIv === null || $bestSc < 6) {
+        return null;
+    }
+
+    return [
+        'subRowIdx' => $fakeSub,
+        'idxQtd'    => $bestIq,
+        'idxValor'  => $bestIv,
+    ];
+}
+
+/**
+ * Conta células numéricas nas linhas de itens após a linha de subcabeçalho.
+ */
+function medicao_csv_score_qtd_valor_columns(
+    array $rows,
+    int $subRowIdx,
+    int $itemCol,
+    int $idxQtd,
+    int $idxValor
+): int {
+    $score = 0;
+    $n     = min(count($rows), $subRowIdx + 1 + 200);
+    for ($r = $subRowIdx + 1; $r < $n; $r++) {
+        $row = $rows[$r];
+        $cod = (string) ($row[$itemCol] ?? '');
+        if ($cod === '' || !preg_match('/^\d+(\.\d+)+$/', $cod)) {
+            continue;
+        }
+        $vq = medicao_br_decimal((string) ($row[$idxQtd] ?? ''));
+        $vv = medicao_br_decimal((string) ($row[$idxValor] ?? ''));
+        if ($vq !== null) {
+            $score += 3;
+        }
+        if ($vv !== null) {
+            $score += 3;
+        }
+    }
+
+    return $score;
+}
+
+/**
+ * Cabeçalhos alternativos: «VALOR MEDIDO» / «R$ …» sem repetir MEDIDO duas vezes.
+ *
+ * @return array{0:int,1:int}|null [qtdCol, valorCol]
+ */
+function medicao_csv_find_valor_medido_pair(array $row): ?array
+{
+    $idxQtd   = null;
+    $idxValor = null;
+    foreach ($row as $j => $c) {
+        $u = medicao_csv_header_norm_cell_for_match($c);
+        if ($u === '') {
+            continue;
+        }
+        if ($idxQtd === null && preg_match('/QTD.*MEDIDO|MEDIDO.*QTD|QUANT.*MEDIDO/i', $u)) {
+            $idxQtd = (int) $j;
+        }
+        if ($idxValor === null && preg_match('/VALOR.*MEDIDO|MEDIDO.*VALOR|VL\.?\s*MEDIDO|VALOR\s*\(?R\$\)?/i', $u)
+            && !preg_match('/UNIT|UNITÁRIO|UNITARIO/i', $u)) {
+            $idxValor = (int) $j;
+        }
+    }
+    if ($idxQtd !== null && $idxValor !== null && $idxQtd !== $idxValor) {
+        return [$idxQtd, $idxValor];
+    }
+
+    return null;
+}
+
+function medicao_csv_header_norm_cell_for_match(string $c): string
+{
+    $u = mb_strtoupper(trim($c), 'UTF-8');
+    $u = str_replace(
+        ['Á', 'À', 'Â', 'Ã', 'É', 'Ê', 'Í', 'Ì', 'Î', 'Ó', 'Ò', 'Ô', 'Õ', 'Ú', 'Ù', 'Ç'],
+        ['A', 'A', 'A', 'A', 'E', 'E', 'I', 'I', 'I', 'O', 'O', 'O', 'O', 'U', 'U', 'C'],
+        $u
+    );
+    return preg_replace('/\s+/u', ' ', $u) ?? $u;
+}
+
+function medicao_csv_header_norm(string $c): string
+{
+    $c = mb_strtoupper(trim($c), 'UTF-8');
+    return preg_replace('/\s+/u', ' ', $c) ?? $c;
+}
+
+/** @param callable(string):bool $pred recebe header já normalizado em maiúsculas */
+function medicao_csv_find_col_header(array $row, callable $pred): ?int
+{
+    foreach ($row as $j => $c) {
+        $u = medicao_csv_header_norm($c);
+        if ($u !== '' && $pred($u)) {
+            return (int) $j;
+        }
+    }
+
+    return null;
+}
+
+function medicao_csv_cell_is_medido_periodo(string $c): bool
+{
+    $u = mb_strtoupper(trim($c), 'UTF-8');
+    $u = str_replace(
+        ['Á', 'À', 'Â', 'Ã', 'É', 'Ê', 'Í', 'Ì', 'Î', 'Ó', 'Ò', 'Ô', 'Õ', 'Ú', 'Ù', 'Ç'],
+        ['A', 'A', 'A', 'A', 'E', 'E', 'I', 'I', 'I', 'O', 'O', 'O', 'O', 'U', 'U', 'C'],
+        $u
+    );
+    return str_contains($u, 'MEDIDO') && str_contains($u, 'PERIODO');
+}
+
+function medicao_csv_find_col_subheader(array $row, string $regex): ?int
+{
+    foreach ($row as $j => $c) {
+        $t = trim($c);
+        if ($t !== '' && preg_match($regex, $t)) {
+            return (int) $j;
+        }
+    }
+
+    return null;
+}
+
+function medicao_br_decimal(?string $s): ?float
+{
+    if ($s === null) {
+        return null;
+    }
+    $s = trim($s);
+    if ($s === '' || strtoupper($s) === '#N/A' || $s === '-' || $s === '—') {
+        return null;
+    }
+    $s = str_replace(["\xc2\xa0", ' ', "\xe2\x80\xaf"], '', $s);
+    $s = preg_replace('/^R\$\s*/iu', '', $s) ?? $s;
+    // Formato pt-BR: 1.234,56 ou 1234,56
+    if (preg_match('/,\d{1,6}$/', $s)) {
+        $s = str_replace('.', '', $s);
+        $s = str_replace(',', '.', $s);
+    } elseif (preg_match('/^\d+\.\d+$/', $s) && !str_contains($s, ',')) {
+        // Um único ponto como decimal (exportação en-US)
+    } elseif (preg_match('/^\d{1,3}(\.\d{3})+$/', $s)) {
+        // Só separador de milhar com ponto, sem parte decimal
+        $s = str_replace('.', '', $s);
+    } else {
+        $s = str_replace('.', '', $s);
+        $s = str_replace(',', '.', $s);
+    }
+    if ($s === '' || !is_numeric($s)) {
+        return null;
+    }
+
+    return (float) $s;
+}

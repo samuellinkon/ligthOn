@@ -1,0 +1,19 @@
+{
+  "name": "LightOn — Operador",
+  "short_name": "Operador",
+  "description": "Chamados e atendimento em campo",
+  "start_url": "./chamados.php",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e3a8a",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "../assets/img/lighton-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

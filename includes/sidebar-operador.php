@@ -1,0 +1,65 @@
+<?php
+/**
+ * Sidebar operador (mobile-first).
+ * Espera: $activePage (string) e $basePath (string).
+ */
+if (!isset($activePage)) {
+    $activePage = '';
+}
+if (!isset($basePath)) {
+    $basePath = '../';
+}
+
+$OP = (function_exists('current_user') ? current_user() : null)
+    ?? ($GLOBALS['MOCK_USER_OPERADOR'] ?? null)
+    ?? ['nome' => 'Operador', 'tipo' => 'Operador', 'iniciais' => 'OP', 'empresa' => ''];
+
+require_once __DIR__ . '/modules.php';
+require_once __DIR__ . '/sidebar_nav_icon.php';
+
+$items = [
+    ['key' => 'dashboard', 'label' => 'Início',    'href' => 'operador/index.php',    'tag' => ''],
+    ['key' => 'chamados',  'label' => 'Chamados', 'href' => 'operador/chamados.php', 'tag' => ''],
+];
+
+$itemsNav = [];
+foreach ($items as $it) {
+    $k = (string) ($it['key'] ?? '');
+    if ($k !== 'dashboard' && !app_modulo_habilitado('operador', $k, $OP)) {
+        continue;
+    }
+    $itemsNav[] = $it;
+}
+?>
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <img class="brand-logo-img" src="<?= htmlspecialchars($basePath . (defined('APP_BRAND_SIDEBAR_LOGO') ? APP_BRAND_SIDEBAR_LOGO : (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png'))) ?>" width="64" height="64" alt="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?>">
+    <div class="brand-text">
+      <small>Área do operador</small>
+      <h1><?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?></h1>
+    </div>
+  </div>
+
+  <div class="menu-label">Menu</div>
+  <nav class="nav">
+    <?php foreach ($itemsNav as $it): ?>
+      <a href="<?= $basePath . $it['href'] ?>" class="<?= $activePage === $it['key'] ? 'active' : '' ?>">
+        <span class="nav-link-main"><?= app_sidebar_nav_icon_svg((string) $it['key']) ?><span class="nav-link-label"><?= htmlspecialchars((string) $it['label']) ?></span></span>
+        <?php if (($it['tag'] ?? '') !== ''): ?>
+          <span class="tag"><?= htmlspecialchars((string) $it['tag']) ?></span>
+        <?php endif; ?>
+      </a>
+    <?php endforeach; ?>
+  </nav>
+
+  <div class="sidebar-footer" style="margin-top:auto;padding:16px 18px;border-top:1px solid var(--border);">
+    <div class="user-pill">
+      <div class="avatar avatar-sm"><?= htmlspecialchars((string) ($OP['iniciais'] ?? '?')) ?></div>
+      <div>
+        <strong style="font-size:13px;"><?= htmlspecialchars((string) ($OP['nome'] ?? '')) ?></strong>
+        <div class="muted" style="font-size:11px;"><?= htmlspecialchars((string) ($OP['empresa'] ?? '')) ?></div>
+      </div>
+    </div>
+    <a href="<?= $basePath ?>logout.php" class="btn btn-secondary btn-sm" style="width:100%;margin-top:10px;">Sair</a>
+  </div>
+</aside>
