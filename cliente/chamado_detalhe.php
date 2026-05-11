@@ -43,7 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $respostaId = null;
             if ($texto !== '') {
-                $respostaId = repo_create_chamado_resposta($id, $user['nome'], 'cliente', $texto, false);
+                $respostaId = repo_create_chamado_resposta(
+                    $id,
+                    $user['nome'],
+                    'cliente',
+                    $texto,
+                    false,
+                    (int) ($user['id'] ?? 0)
+                );
             }
             if ($temArq) {
                 $destino = upload_dir_chamado($id);

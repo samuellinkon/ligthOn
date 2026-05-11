@@ -2738,6 +2738,183 @@ function repo_chamados_admin_relatorio_resumo(
 }
 
 /**
+ * KPIs CRM para exportação XLSX «Medição / listagem chamados» (mesmos filtros que o admin).
+ *
+ * @return array{
+ *     total_chamados_crm: int,
+ *     em_andamento: int,
+ *     resolvidos: int,
+ *     urgentes_abertos: int,
+ *     valor_itens_utilizados: float,
+ *     quantidade_anexos: int,
+ *     resumo_admin: array
+ * }
+ */
+function repo_chamados_medicao_export_kpis(
+    string $filtro,
+    string $q,
+    ?int $clienteIdEscopo,
+    ?string $dataAbertaDe,
+    ?string $dataAbertaAte,
+    ?int $envolvidoUserId,
+    ?int $tecnicoUserId,
+    ?string $localQ,
+    bool $excluirCancelados
+): array {
+    $vazio = [
+        'total_chamados_crm'     => 0,
+        'em_andamento'           => 0,
+        'resolvidos'             => 0,
+        'urgentes_abertos'       => 0,
+        'valor_itens_utilizados' => 0.0,
+        'quantidade_anexos'      => 0,
+        'resumo_admin'           => [],
+    ];
+    $pdo = db();
+    if (!$pdo) {
+        return $vazio;
+    }
+    $resumo = repo_chamados_admin_relatorio_resumo(
+        $filtro,
+        $q,
+        $clienteIdEscopo,
+        $dataAbertaDe,
+        $dataAbertaAte,
+        $envolvidoUserId,
+        $tecnicoUserId,
+        $localQ,
+        $excluirCancelados
+    );
+    $ps               = $resumo['por_status'] ?? [];
+    $emAnd            = (int) ($ps['Em andamento'] ?? 0);
+    $resolvidos       = (int) ($ps['Resolvido'] ?? 0) + (int) ($ps['Fechado'] ?? 0);
+    $urgentesAbertos  = (int) ($resumo['urgentes_abertos'] ?? 0);
+    $totalCrm         = (int) ($resumo['total'] ?? 0);
+
+    [$sqlWhere, $params] = _repo_chamados_admin_sql_where(
+        $filtro,
+        $q,
+        $clienteIdEscopo,
+        $dataAbertaDe,
+        $dataAbertaAte,
+        $envolvidoUserId,
+        $tecnicoUserId,
+        $localQ,
+        $excluirCancelados
+    );
+    $baseFrom = '
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        JOIN clientes c ON c.id = ch.cliente_id
+        WHERE ci.movimento = \'utilizado\'
+          AND ' . $sqlWhere;
+    try {
+        $st = $pdo->prepare('SELECT COALESCE(SUM(ci.subtotal), 0) ' . $baseFrom);
+        $st->execute($params);
+        $valorItens = (float) $st->fetchColumn();
+    } catch (Throwable $e) {
+        $valorItens = 0.0;
+    }
+
+    try {
+        $st2 = $pdo->prepare('
+            SELECT COUNT(*)
+            FROM chamado_anexos ca
+            INNER JOIN chamados ch ON ch.id = ca.chamado_id
+            JOIN clientes c ON c.id = ch.cliente_id
+            WHERE ' . $sqlWhere);
+        $st2->execute($params);
+        $qAnexos = (int) $st2->fetchColumn();
+    } catch (Throwable $e) {
+        $qAnexos = 0;
+    }
+
+    return [
+        'total_chamados_crm'     => $totalCrm,
+        'em_andamento'           => $emAnd,
+        'resolvidos'             => $resolvidos,
+        'urgentes_abertos'       => $urgentesAbertos,
+        'valor_itens_utilizados' => $valorItens,
+        'quantidade_anexos'      => $qAnexos,
+        'resumo_admin'           => $resumo,
+    ];
+}
+
+/**
+ * Colunas extras + métricas por chamado para exportação XLSX tabular (lotes de IDs).
+ *
+ * @param list<int> $chamadoIds
+ *
+ * @return array<int, array<string,mixed>>
+ */
+function repo_chamados_export_metricas_por_ids(array $chamadoIds): array
+{
+    $out = [];
+    $pdo = db();
+    if (!$pdo || $chamadoIds === []) {
+        return $out;
+    }
+    $ids = array_values(array_unique(array_filter(array_map(static fn ($v) => (int) $v, $chamadoIds), static fn ($v) => $v > 0)));
+    if ($ids === []) {
+        return $out;
+    }
+
+    foreach (array_chunk($ids, 400) as $chunk) {
+        $ph         = implode(',', array_fill(0, count($chunk), '?'));
+        $sqlUltima = 'GREATEST(
+            COALESCE(ch.aberto_em, \'1970-01-01 00:00:00\'),
+            COALESCE((SELECT MAX(enviado_em) FROM chamado_respostas WHERE chamado_id = ch.id), ch.aberto_em),
+            COALESCE((SELECT MAX(enviado_em) FROM chamado_anexos WHERE chamado_id = ch.id), ch.aberto_em),
+            COALESCE(ch.finalizado_operador_em, ch.aberto_em),
+            COALESCE(ch.aprovado_gestor_em, ch.aberto_em)
+        )';
+        $sql = '
+            SELECT
+                ch.id,
+                ch.problema_os,
+                ch.tipo_os,
+                ch.origem_os,
+                sv.tipo AS servico_categoria_tipo,
+                ch.os_bairro,
+                pi.codigo_poste AS ponto_codigo_poste,
+                CASE
+                    WHEN ch.status IN (\'Resolvido\',\'Fechado\')
+                    THEN COALESCE(ch.finalizado_operador_em, ch.aprovado_gestor_em)
+                    ELSE NULL
+                END AS data_resolucao_raw,
+                (SELECT COUNT(*) FROM chamado_itens ci WHERE ci.chamado_id = ch.id AND ci.movimento = \'utilizado\') AS qtd_itens,
+                COALESCE((SELECT SUM(ci.subtotal) FROM chamado_itens ci WHERE ci.chamado_id = ch.id AND ci.movimento = \'utilizado\'), 0) AS total_utilizado,
+                (SELECT COUNT(*) FROM chamado_anexos ca WHERE ca.chamado_id = ch.id) AS qtd_anexos,
+                (SELECT COUNT(*) FROM chamado_respostas cr WHERE cr.chamado_id = ch.id) AS qtd_mensagens,
+                ' . $sqlUltima . ' AS ultima_atual_raw
+            FROM chamados ch
+            LEFT JOIN cliente_itens sv ON sv.id = ch.servico_id
+            LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
+            WHERE ch.id IN (' . $ph . ')
+        ';
+        $st = $pdo->prepare($sql);
+        $st->execute($chunk);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as $r) {
+            $id = (int) ($r['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $tipoTxt = trim((string) ($r['problema_os'] ?? ''));
+            if ($tipoTxt === '') {
+                $tipoTxt = trim((string) ($r['tipo_os'] ?? ''));
+            }
+            $r['tipo_export']     = $tipoTxt;
+            $r['categoria_export'] = trim((string) ($r['servico_categoria_tipo'] ?? ''));
+            $r['canal_export']    = trim((string) ($r['origem_os'] ?? ''));
+            $out[$id] = $r;
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Boletim de medição: chamados da matriz no período, com totais de itens do catálogo (produto/serviço) em chamado_itens.
  *
  * @return array{rows: list<array<string,mixed>>, totais: array{n_chamados:int, valor_materiais:float, valor_servicos:float, valor_total:float}}
@@ -2909,6 +3086,279 @@ function repo_chamados_itens_utilizados_periodo_linhas(int $empresaRaizId, strin
         $r['quantidade']    = (float) ($r['quantidade'] ?? 0);
         $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
         $r['subtotal']      = (float) ($r['subtotal'] ?? 0);
+    }
+    unset($r);
+
+    return $rows;
+}
+
+/**
+ * Lançamentos de itens do catálogo em chamados no período (uso e devolução), uma linha por chamado_itens.
+ *
+ * @return list<array<string,mixed>>
+ */
+function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe, string $dataAte, ?string $movimentoFiltro = null): array
+{
+    $pdo = db();
+    if (!$pdo || $empresaRaizId <= 0) {
+        return [];
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+    $movimentoFiltro = $movimentoFiltro !== null ? strtolower(trim($movimentoFiltro)) : '';
+    $movimentoSql    = '';
+    $params          = [$empresaRaizId, $empresaRaizId, $dataDe, $dataAte];
+    if ($movimentoFiltro === 'utilizado' || $movimentoFiltro === 'devolvido') {
+        $movimentoSql = ' AND ci.movimento = ? ';
+        $params[]     = $movimentoFiltro;
+    }
+
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
+    $tecSelect         = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome, \'\') AS tecnico_nomes'
+        : 'COALESCE(ut.nome, \'\') AS tecnico_nomes';
+    $tecJoin = $temTecnicosTabela
+        ? "
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR ', ') AS tecnico_nomes
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id"
+        : '';
+
+    $sql = '
+        SELECT
+            ch.id AS chamado_id,
+            ch.titulo AS chamado_titulo,
+            ch.status AS chamado_status,
+            DATE_FORMAT(ch.aberto_em, \'%Y-%m-%d %H:%i\') AS chamado_aberto_em,
+            c.empresa AS unidade_nome,
+            ci.id AS linha_id,
+            ci.movimento,
+            it.nome AS item_nome,
+            it.tipo AS item_tipo,
+            it.codigo AS item_codigo,
+            it.unidade AS catalogo_unidade,
+            ci.quantidade,
+            ci.valor_unitario,
+            ci.subtotal,
+            ci.observacao,
+            DATE_FORMAT(ci.criado_em, \'%Y-%m-%d %H:%i\') AS lancamento_em,
+            ' . $tecSelect . '
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        INNER JOIN clientes c ON c.id = ch.cliente_id
+        INNER JOIN cliente_itens it ON it.id = ci.item_id
+        LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        ' . $tecJoin . '
+        WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+          AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> \'Cancelado\'
+        ' . $movimentoSql . '
+        ORDER BY ch.aberto_em DESC, ch.id DESC, FIELD(ci.movimento, \'utilizado\', \'devolvido\'), ci.id ASC
+    ';
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$r) {
+        $r['chamado_id']     = (int) ($r['chamado_id'] ?? 0);
+        $r['linha_id']       = (int) ($r['linha_id'] ?? 0);
+        $r['quantidade']     = (float) ($r['quantidade'] ?? 0);
+        $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
+        $r['subtotal']       = (float) ($r['subtotal'] ?? 0);
+        $r['movimento']      = (string) ($r['movimento'] ?? 'utilizado');
+        $r['tecnico_nomes']  = (string) ($r['tecnico_nomes'] ?? '');
+    }
+    unset($r);
+
+    return $rows;
+}
+
+/**
+ * Itens de catálogo no período, filtrados pela data do LANÇAMENTO (criado_em; fallback na data usada no WHERE
+ * se criado_em for nulo). Uma linha por registo em chamado_itens (sem GROUP BY) — analítico para auditoria.
+ * Usado pelo boletim de medição (consolidação na tabela principal é feita no export, não aqui).
+ *
+ * @return list<array<string,mixed>>
+ */
+function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
+    int $empresaRaizId,
+    string $dataDe,
+    string $dataAte,
+    string $movimento = 'utilizado'
+): array {
+    $pdo = db();
+    if (!$pdo || $empresaRaizId <= 0) {
+        return [];
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+    $mov = strtolower(trim($movimento));
+    if ($mov !== 'utilizado' && $mov !== 'devolvido') {
+        return [];
+    }
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
+    $tecSelect         = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome, \'\') AS tecnico_nomes'
+        : 'COALESCE(ut.nome, \'\') AS tecnico_nomes';
+    $tecJoin = $temTecnicosTabela
+        ? '
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR \', \') AS tecnico_nomes
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id'
+        : '';
+    $sql = '
+        SELECT
+            ci.id AS chamado_item_id,
+            ch.id AS chamado_id,
+            DATE_FORMAT(ch.aberto_em, \'%Y-%m-%d %H:%i\') AS chamado_aberto_em,
+            DATE_FORMAT(ci.criado_em, \'%Y-%m-%d %H:%i\') AS item_criado_em,
+            ch.status AS chamado_status,
+            ch.prioridade AS chamado_prioridade,
+            TRIM(COALESCE(NULLIF(TRIM(ch.problema_os), \'\'), ch.tipo_os, \'\')) AS chamado_problema_tipo,
+            TRIM(COALESCE(ch.origem_os, \'\')) AS chamado_canal,
+            TRIM(COALESCE(ch.responsavel, \'\')) AS chamado_responsavel,
+            ch.endereco_completo,
+            svc.tipo AS servico_categoria_tipo,
+            pi.codigo_poste AS ponto_codigo_poste,
+            it.id AS item_id_catalogo,
+            it.nome AS item_nome,
+            it.tipo AS item_tipo,
+            it.codigo AS item_codigo,
+            it.unidade AS catalogo_unidade,
+            ci.movimento,
+            ci.quantidade,
+            ci.valor_unitario,
+            ci.subtotal,
+            ci.observacao,
+            ' . $tecSelect . '
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        INNER JOIN clientes c ON c.id = ch.cliente_id
+        INNER JOIN cliente_itens it ON it.id = ci.item_id
+        LEFT JOIN cliente_itens svc ON svc.id = ch.servico_id
+        LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
+        LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        ' . $tecJoin . '
+        WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+          AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
+          AND ch.status <> \'Cancelado\'
+          AND ci.movimento = ?
+        ORDER BY ch.id ASC, ci.id ASC
+    ';
+    $st = $pdo->prepare($sql);
+    $st->execute([$empresaRaizId, $empresaRaizId, $dataDe, $dataAte, $mov]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$r) {
+        $r['chamado_item_id'] = (int) ($r['chamado_item_id'] ?? 0);
+        $r['chamado_id']     = (int) ($r['chamado_id'] ?? 0);
+        $r['quantidade']     = (float) ($r['quantidade'] ?? 0);
+        $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
+        $r['subtotal']       = (float) ($r['subtotal'] ?? 0);
+        $r['item_id_catalogo'] = (int) ($r['item_id_catalogo'] ?? 0);
+        $r['tecnico_nomes']  = (string) ($r['tecnico_nomes'] ?? '');
+        $r['movimento']      = (string) ($r['movimento'] ?? '');
+        $r['observacao']    = isset($r['observacao']) ? (string) $r['observacao'] : '';
+        $r['item_criado_em'] = isset($r['item_criado_em']) && $r['item_criado_em'] !== null ? (string) $r['item_criado_em'] : '';
+    }
+    unset($r);
+
+    return $rows;
+}
+
+/**
+ * Lançamentos planos (uma linha por lançamento) com filtros — relatório «catálogo em chamados».
+ *
+ * @param array{
+ *   movimento?:''|'utilizado'|'devolvido',
+ *   chamado_id?:int,
+ *   item_id?:int,
+ *   tecnico_user_id?:int
+ * } $filtros
+ *
+ * @return list<array<string,mixed>>
+ */
+function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, string $dataDe, string $dataAte, array $filtros = []): array
+{
+    $pdo = db();
+    if (!$pdo || $empresaRaizId <= 0) {
+        return [];
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+    $mov = isset($filtros['movimento']) ? strtolower(trim((string) $filtros['movimento'])) : '';
+    if ($mov !== '' && !in_array($mov, ['utilizado', 'devolvido'], true)) {
+        $mov = '';
+    }
+    $fidChamado = isset($filtros['chamado_id']) ? (int) $filtros['chamado_id'] : 0;
+    $fidItem    = isset($filtros['item_id']) ? (int) $filtros['item_id'] : 0;
+    $fidTec     = isset($filtros['tecnico_user_id']) ? (int) $filtros['tecnico_user_id'] : 0;
+
+    $params = [$empresaRaizId, $empresaRaizId, $dataDe, $dataAte];
+    $extra  = '';
+    if ($mov !== '') {
+        $extra .= ' AND ci.movimento = ? ';
+        $params[] = $mov;
+    }
+    if ($fidChamado > 0) {
+        $extra .= ' AND ch.id = ? ';
+        $params[] = $fidChamado;
+    }
+    if ($fidItem > 0) {
+        $extra .= ' AND ci.item_id = ? ';
+        $params[] = $fidItem;
+    }
+    if ($fidTec > 0) {
+        $extra .= ' AND ch.tecnico_user_id = ? ';
+        $params[] = $fidTec;
+    }
+
+    $sql = '
+        SELECT
+            ch.id AS chamado_id,
+            ch.titulo AS chamado_titulo,
+            DATE_FORMAT(ch.aberto_em, \'%Y-%m-%d %H:%i\') AS chamado_aberto_em,
+            ch.status AS chamado_status,
+            u.nome AS tecnico_nome,
+            ci.id AS linha_id,
+            ci.movimento,
+            it.nome AS item_nome,
+            it.tipo AS item_tipo,
+            it.codigo AS item_codigo,
+            it.unidade AS catalogo_unidade,
+            ci.quantidade,
+            ci.valor_unitario,
+            ci.subtotal,
+            ci.observacao
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        INNER JOIN cliente_itens it ON it.id = ci.item_id
+        LEFT JOIN usuarios u ON u.id = ch.tecnico_user_id
+        WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+          AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> \'Cancelado\'
+        ' . $extra . '
+        ORDER BY ch.aberto_em DESC, ch.id DESC, ci.id ASC
+    ';
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$r) {
+        $r['chamado_id']     = (int) ($r['chamado_id'] ?? 0);
+        $r['linha_id']       = (int) ($r['linha_id'] ?? 0);
+        $r['quantidade']     = (float) ($r['quantidade'] ?? 0);
+        $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
+        $r['subtotal']       = (float) ($r['subtotal'] ?? 0);
+        $r['movimento']      = (string) ($r['movimento'] ?? 'utilizado');
     }
     unset($r);
 
@@ -4067,13 +4517,13 @@ function repo_cliente_itens_list(int $clienteId, bool $somenteAtivos = false): a
     }
     $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, descricao, ativo, ordem,
             DATE_FORMAT(criado_em, \'%Y-%m-%d %H:%i\') AS criado_em
-            FROM cliente_itens WHERE cliente_id = ? OR empresa_id = ?';
+            FROM cliente_itens WHERE cliente_id = ? OR empresa_id = ? OR cliente_id = ?';
     if ($somenteAtivos) {
         $sql .= ' AND ativo = 1';
     }
     $sql .= ' ORDER BY ordem ASC, tipo ASC, nome ASC';
     $st = $pdo->prepare($sql);
-    $st->execute([$catalogoClienteId, $catalogoClienteId]);
+    $st->execute([$catalogoClienteId, $catalogoClienteId, $clienteId]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     foreach ($rows as &$r) {
         $r['id']              = (int) $r['id'];
@@ -4107,8 +4557,10 @@ function repo_cliente_item_por_id(int $itemId, int $clienteId): ?array
     if ($catalogoClienteId <= 0) {
         return null;
     }
-    $st = $pdo->prepare('SELECT * FROM cliente_itens WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1');
-    $st->execute([$itemId, $catalogoClienteId, $catalogoClienteId]);
+    $st = $pdo->prepare(
+        'SELECT * FROM cliente_itens WHERE id = ? AND (cliente_id = ? OR empresa_id = ? OR cliente_id = ?) LIMIT 1'
+    );
+    $st->execute([$itemId, $catalogoClienteId, $catalogoClienteId, $clienteId]);
     $r = $st->fetch(PDO::FETCH_ASSOC);
     if (!$r) {
         return null;
@@ -4423,8 +4875,13 @@ function repo_chamado_item_adicionar(int $chamadoId, int $itemId, float $quantid
     }
     $cid = (int) $ch['cliente_id'];
     $it  = repo_cliente_item_por_id($itemId, $cid);
-    if (!$it || empty($it['ativo'])) {
+    $ativoOk = $it && (int) ($it['ativo'] ?? 0) === 1;
+    if (!$ativoOk) {
         return ['ok' => false, 'err' => 'Item não disponível para este cliente.'];
+    }
+    $tipoItem = strtolower(trim((string) ($it['tipo'] ?? '')));
+    if ($movimento === 'devolvido' && $tipoItem !== 'produto') {
+        return ['ok' => false, 'err' => 'Recolhimentos aceitam apenas produtos (materiais) do catálogo.'];
     }
     $vu = (float) ($it['valor_unitario'] ?? 0);
     $sub = round($quantidade * $vu, 4);
@@ -4459,6 +4916,29 @@ function repo_chamado_item_atualizar_quantidade(int $linhaId, int $chamadoId, fl
     $up  = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, subtotal = ? WHERE id = ? AND chamado_id = ?');
 
     return (bool) $up->execute([$quantidade, $sub, $linhaId, $chamadoId]);
+}
+
+/**
+ * Atualiza quantidade e observação de uma linha (mantém valor unitário gravado).
+ */
+function repo_chamado_item_atualizar_linha(int $linhaId, int $chamadoId, float $quantidade, ?string $observacao): bool
+{
+    $pdo = db();
+    if (!$pdo || $linhaId <= 0 || $chamadoId <= 0 || $quantidade <= 0) {
+        return false;
+    }
+    $st = $pdo->prepare('SELECT valor_unitario FROM chamado_itens WHERE id = ? AND chamado_id = ? LIMIT 1');
+    $st->execute([$linhaId, $chamadoId]);
+    $vu = $st->fetchColumn();
+    if ($vu === false) {
+        return false;
+    }
+    $vu  = (float) $vu;
+    $sub = round($quantidade * $vu, 4);
+    $obs = trim((string) $observacao);
+    $up  = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, subtotal = ?, observacao = ? WHERE id = ? AND chamado_id = ?');
+
+    return (bool) $up->execute([$quantidade, $sub, $obs !== '' ? $obs : null, $linhaId, $chamadoId]);
 }
 
 function repo_chamado_item_remover(int $linhaId, int $chamadoId): bool
@@ -4650,7 +5130,8 @@ function repo_chamado_aprovar_gestor(int $chamadoId, int $gestorUserId, string $
             $gestorNome !== '' ? $gestorNome : 'Gestor',
             'admin',
             'Atendimento aprovado pelo gestor.',
-            false
+            false,
+            $gestorUserId
         );
         $pdo->commit();
 
@@ -4704,7 +5185,8 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
             $nomeAutor !== '' ? $nomeAutor : 'Operador',
             'operador',
             'Atendimento finalizado pelo técnico e enviado para aprovação do gestor.',
-            false
+            false,
+            $operadorUserId
         );
         $pdo->commit();
 
@@ -4718,7 +5200,7 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
     }
 }
 
-function repo_create_chamado_resposta(int $chamadoId, string $autor, string $tipo, string $texto, bool $interna = false): ?int
+function repo_create_chamado_resposta(int $chamadoId, string $autor, string $tipo, string $texto, bool $interna = false, ?int $autorUsuarioId = null): ?int
 {
     $pdo = db();
     if (!$pdo) return null;
@@ -4727,7 +5209,249 @@ function repo_create_chamado_resposta(int $chamadoId, string $autor, string $tip
         VALUES (?,?,?,?,?,NOW())
     ');
     $stmt->execute([$chamadoId, $autor, $tipo, $texto, $interna ? 1 : 0]);
-    return (int) $pdo->lastInsertId();
+    $newId = (int) $pdo->lastInsertId();
+    if ($newId > 0 && $autorUsuarioId !== null && $autorUsuarioId > 0) {
+        require_once __DIR__ . '/notificacoes.php';
+        criarNotificacoesChamado($chamadoId, $newId, $autorUsuarioId, $interna);
+    }
+
+    return $newId;
+}
+
+function repo_notificacoes_table_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+
+        return false;
+    }
+    try {
+        $st  = $pdo->query("SHOW TABLES LIKE 'notificacoes'");
+        $row = $st ? $st->fetch(PDO::FETCH_NUM) : false;
+        $cache = $row !== false;
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+/**
+ * Destinatários que devem receber alerta de nova mensagem no chamado.
+ *
+ * @return list<int>
+ */
+function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMensagemInterna): array
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $chamadoId <= 0) {
+        return [];
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return [];
+    }
+    $empresaRaiz = repo_cliente_catalogo_dono_id((int) ($ch['cliente_id'] ?? 0));
+    $ids           = [];
+
+    $pushIds = static function (array $rows) use (&$ids): void {
+        foreach ($rows as $v) {
+            $id = (int) $v;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+    };
+
+    try {
+        if ($somenteMensagemInterna) {
+            $st = $pdo->query('SELECT id FROM usuarios WHERE perfil = \'admin\'');
+            $pushIds($st ? $st->fetchAll(PDO::FETCH_COLUMN, 0) : []);
+            if ($empresaRaiz > 0) {
+                $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'gestor\' AND empresa_id = ?');
+                $st->execute([$empresaRaiz]);
+                $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+            }
+
+            return array_values(array_unique($ids));
+        }
+
+        $st = $pdo->query('SELECT id FROM usuarios WHERE perfil = \'admin\'');
+        $pushIds($st ? $st->fetchAll(PDO::FETCH_COLUMN, 0) : []);
+
+        if ($empresaRaiz > 0) {
+            $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'gestor\' AND empresa_id = ?');
+            $st->execute([$empresaRaiz]);
+            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+
+            $st = $pdo->prepare(
+                'SELECT id FROM usuarios WHERE perfil = \'cliente\' AND cliente_id IN (
+                    SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
+                )'
+            );
+            $st->execute([$empresaRaiz, $empresaRaiz]);
+            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+        }
+
+        foreach (repo_chamado_tecnicos_list($chamadoId) as $tec) {
+            $tid = (int) ($tec['id'] ?? 0);
+            if ($tid > 0) {
+                $ids[] = $tid;
+            }
+        }
+        $tu = isset($ch['tecnico_user_id']) && $ch['tecnico_user_id'] !== null ? (int) $ch['tecnico_user_id'] : 0;
+        if ($tu > 0) {
+            $ids[] = $tu;
+        }
+
+        return array_values(array_unique($ids));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function repo_notificacao_insert(
+    int $usuarioId,
+    int $chamadoId,
+    ?int $mensagemId,
+    string $titulo,
+    ?string $descricao,
+    string $tipo = 'chamado_mensagem'
+): bool {
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0 || $chamadoId <= 0) {
+        return false;
+    }
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO notificacoes (usuario_id, chamado_id, mensagem_id, tipo, titulo, descricao, lida, data_criacao)
+             VALUES (?,?,?,?,?,?,0,NOW())'
+        );
+
+        return $stmt->execute([
+            $usuarioId,
+            $chamadoId,
+            $mensagemId,
+            $tipo,
+            $titulo,
+            $descricao,
+        ]);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * @return list<array{id:int,chamado_id:int,titulo:string,descricao:?string,lida:int,data_criacao:string,link:string}>
+ */
+function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
+        return [];
+    }
+    $limit = max(1, min(100, $limit));
+    try {
+        $st = $pdo->prepare(
+            'SELECT id, chamado_id, titulo, descricao, lida,
+                    DATE_FORMAT(data_criacao, \'%Y-%m-%d %H:%i:%s\') AS data_criacao
+             FROM notificacoes
+             WHERE usuario_id = ?
+             ORDER BY data_criacao DESC, id DESC
+             LIMIT ' . (int) $limit
+        );
+        $st->execute([$usuarioId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            $cid           = (int) ($r['chamado_id'] ?? 0);
+            $r['id']       = (int) ($r['id'] ?? 0);
+            $r['chamado_id'] = $cid;
+            $r['lida']     = (int) ($r['lida'] ?? 0);
+            $r['titulo']   = (string) ($r['titulo'] ?? '');
+            $r['descricao'] = isset($r['descricao']) ? ($r['descricao'] !== '' ? (string) $r['descricao'] : null) : null;
+            $r['link']     = 'chamado_detalhe.php?id=' . $cid;
+        }
+        unset($r);
+
+        return $rows;
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function repo_notificacoes_count_unread(int $usuarioId): int
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
+        return 0;
+    }
+    try {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM notificacoes WHERE usuario_id = ? AND lida = 0');
+        $st->execute([$usuarioId]);
+
+        return (int) $st->fetchColumn();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function repo_notificacao_marcar_lida(int $notificacaoId, int $usuarioId): bool
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $notificacaoId <= 0 || $usuarioId <= 0) {
+        return false;
+    }
+    try {
+        $st = $pdo->prepare(
+            'UPDATE notificacoes SET lida = 1, data_leitura = NOW() WHERE id = ? AND usuario_id = ? AND lida = 0'
+        );
+
+        return $st->execute([$notificacaoId, $usuarioId]);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function repo_notificacoes_marcar_todas_lidas(int $usuarioId): int
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
+        return 0;
+    }
+    try {
+        $st = $pdo->prepare(
+            'UPDATE notificacoes SET lida = 1, data_leitura = NOW() WHERE usuario_id = ? AND lida = 0'
+        );
+        $st->execute([$usuarioId]);
+
+        return $st->rowCount();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function repo_notificacoes_marcar_lidas_chamado(int $usuarioId, int $chamadoId): int
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0 || $chamadoId <= 0) {
+        return 0;
+    }
+    try {
+        $st = $pdo->prepare(
+            'UPDATE notificacoes SET lida = 1, data_leitura = NOW()
+             WHERE usuario_id = ? AND chamado_id = ? AND lida = 0'
+        );
+        $st->execute([$usuarioId, $chamadoId]);
+
+        return $st->rowCount();
+    } catch (Throwable $e) {
+        return 0;
+    }
 }
 
 /* ---- Anexos de chamados ---- */

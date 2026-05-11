@@ -1169,6 +1169,49 @@ form.info-row {
   padding: 0;
 }
 
+.chamado-materiais-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.chamado-materiais-subsection {
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+
+.chamado-materiais-subsection:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.chamado-materiais-subhead {
+  margin-bottom: 12px;
+}
+
+.chamado-materiais-subtitle {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.chamado-materiais-subsection--uso .chamado-materiais-subtitle {
+  color: var(--text, inherit);
+}
+
+.chamado-materiais-subsection--dev {
+  border-radius: 10px;
+  padding: 14px 14px 2px;
+  background: var(--surface-raised, rgba(99, 102, 241, 0.04));
+  border: 1px solid var(--border-soft, var(--border));
+  border-left: 4px solid rgba(99, 102, 241, 0.45);
+}
+
+.chamado-materiais-subsection--dev.chamado-materiais-subsection {
+  padding-top: 14px;
+}
+
 .chamado-item-add-toprow {
   display: flex;
   flex-wrap: wrap;
@@ -1217,6 +1260,440 @@ form.info-row {
   font-size: 13px;
   line-height: 1.35;
   overflow-y: auto;
+}
+
+/* Itens do atendimento — painel materiais (admin chamado_detalhe) */
+.chamado-materiais-card__head {
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.chamado-materiais-card__intro .panel-sub {
+  max-width: 36rem;
+}
+
+.chamado-materiais-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.chamado-materiais-card__pill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft, var(--border));
+  background: var(--surface-raised, #fafafa);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  min-width: 7rem;
+}
+
+.chamado-materiais-card__pill strong {
+  font-size: 15px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.chamado-materiais-card__pill--valor strong {
+  color: var(--primary, #534ab7);
+}
+
+.chamado-materiais-block {
+  margin-bottom: 24px;
+}
+
+.chamado-materiais-block:last-of-type {
+  margin-bottom: 0;
+}
+
+.chamado-materiais-block__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.chamado-materiais-block__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.chamado-materiais-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.chamado-materiais-block--dev .chamado-materiais-block__title {
+  color: var(--muted);
+}
+
+.chamado-materiais-empty {
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 28px 20px;
+  text-align: center;
+  background: var(--surface-raised, #f8fafc);
+}
+
+.chamado-materiais-empty p {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chamado-materiais-empty small {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chamado-materiais-empty--muted {
+  opacity: 0.95;
+}
+
+/* Tabelas materiais: compactas; Item utilizados = 30% */
+.chamado-materiais-card .chamado-materiais-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.chamado-materiais-card .chamado-materiais-table th,
+.chamado-materiais-card .chamado-materiais-table td {
+  padding: 9px 10px;
+  font-size: 13px;
+}
+
+.chamado-materiais-table--uso th:first-child,
+.chamado-materiais-table--uso td:first-child {
+  width: 30%;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.chamado-materiais-table--uso th:nth-child(2),
+.chamado-materiais-table--uso td:nth-child(2) {
+  width: 9%;
+  max-width: 5.5rem;
+  min-width: 0;
+}
+
+.chamado-materiais-table--uso th:nth-child(3),
+.chamado-materiais-table--uso td:nth-child(3),
+.chamado-materiais-table--uso th:nth-child(4),
+.chamado-materiais-table--uso td:nth-child(4),
+.chamado-materiais-table--uso th:nth-child(5),
+.chamado-materiais-table--uso td:nth-child(5) {
+  width: 10%;
+}
+
+.chamado-materiais-table--uso th:nth-child(6),
+.chamado-materiais-table--uso td:nth-child(6) {
+  width: 30%;
+}
+
+/* Devolvidos: Item, Tipo, Qtd, Ações */
+.chamado-materiais-table--dev th:first-child,
+.chamado-materiais-table--dev td:first-child {
+  width: 38%;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.chamado-materiais-table--dev th:nth-child(2),
+.chamado-materiais-table--dev td:nth-child(2) {
+  width: 14%;
+  min-width: 0;
+}
+
+.chamado-materiais-table--dev th:nth-child(3),
+.chamado-materiais-table--dev td:nth-child(3) {
+  width: 12%;
+}
+
+.chamado-materiais-table--dev th:nth-child(4),
+.chamado-materiais-table--dev td:nth-child(4) {
+  width: 18%;
+}
+
+.chamado-materiais-table .td-actions {
+  white-space: nowrap;
+}
+
+.chamado-materiais-table .td-actions .btn {
+  margin-left: 6px;
+}
+
+.chamado-materiais-table .td-actions .btn:first-child {
+  margin-left: 0;
+}
+
+.chamado-materiais-catalog-empty {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+/* Modal — escolha no catálogo (produto / serviço) */
+.chamado-mat-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10045;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.chamado-mat-modal[hidden] {
+  display: none !important;
+}
+
+.chamado-mat-modal__scrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.48);
+  cursor: pointer;
+}
+
+.chamado-mat-modal__box {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 720px);
+  max-height: min(90vh, 520px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid var(--border-soft, var(--border));
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.chamado-mat-modal__box--pick {
+  width: min(100%, 520px);
+  max-height: min(92vh, 620px);
+}
+
+.chamado-mat-modal__body--pick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chamado-mat-results--modal {
+  max-height: min(38vh, 260px);
+  overflow-y: auto;
+  margin: 0 0 10px;
+  padding-right: 2px;
+}
+
+.chamado-mat-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-soft, var(--border));
+  flex-shrink: 0;
+}
+
+.chamado-mat-modal__head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.chamado-mat-modal__body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.chamado-mat-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.chamado-mat-modal__table th,
+.chamado-mat-modal__table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft, #f2f2f7);
+  text-align: left;
+  vertical-align: top;
+}
+
+.chamado-mat-modal__table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: #fafafe;
+}
+
+.chamado-mat-modal__total {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  font-size: 14px;
+}
+
+.chamado-mat-modal__foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-soft, var(--border));
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* Drawer catálogo */
+.chamado-mat-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chamado-mat-drawer[hidden] {
+  display: none !important;
+}
+
+.chamado-mat-drawer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.chamado-mat-drawer__panel {
+  position: relative;
+  width: min(100%, 440px);
+  height: 100%;
+  background: #fff;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-soft, var(--border));
+}
+
+.chamado-mat-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-soft, var(--border));
+}
+
+.chamado-mat-drawer__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.chamado-mat-drawer__body {
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chamado-mat-results {
+  max-height: min(220px, 40vh);
+  overflow-y: auto;
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 12px;
+  margin-bottom: 14px;
+  background: var(--surface-raised, #fafafa);
+}
+
+.chamado-mat-results-empty {
+  margin: 0;
+  padding: 14px;
+  font-size: 13px;
+}
+
+.chamado-mat-results__opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.chamado-mat-results__opt:last-child {
+  border-bottom: 0;
+}
+
+.chamado-mat-results__opt:hover,
+.chamado-mat-results__opt.is-active {
+  background: rgba(83, 74, 183, 0.08);
+}
+
+.chamado-mat-results__nome {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.chamado-mat-results__sub {
+  font-size: 12px;
+}
+
+.chamado-mat-preview {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(83, 74, 183, 0.25);
+  background: rgba(83, 74, 183, 0.06);
+  margin-bottom: 14px;
+}
+
+.chamado-mat-preview strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.chamado-mat-preview__meta {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.chamado-mat-drawer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.chamado-mat-edit-itemline {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-raised, #f1f5f9);
+  font-weight: 600;
+  font-size: 14px;
 }
 
 /* ---------- Equipe no chamado (operadores — dupla / trio) ---------- */
@@ -1727,5 +2204,140 @@ select.crm-custom-select-native,
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+/* ---------- Chamado detalhe (admin): cabeçalho compacto operacional ---------- */
+
+.ticket-header.chamado-header-toolbar {
+  display: block;
+  padding: 10px 14px 11px;
+  margin-bottom: 12px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.chamado-header-toolbar__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: flex-start;
+}
+
+.chamado-header-toolbar__identity {
+  min-width: 0;
+}
+
+.chamado-header-toolbar__eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin: 0 0 2px;
+}
+
+.chamado-header-toolbar__title {
+  margin: 0 0 2px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.chamado-header-toolbar__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.chamado-header-toolbar__chip.badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 7px;
+  line-height: 1.35;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.chamado-header-toolbar__chip--muted {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 7px;
+  line-height: 1.35;
+  color: var(--text);
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.chamado-header-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.chamado-header-toolbar__form-inline {
+  margin: 0;
+  display: inline-block;
+}
+
+.chamado-header-toolbar__ghost.btn {
+  font-weight: 600;
+  padding-left: 10px;
+  padding-right: 10px;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+
+.chamado-header-toolbar__ghost.btn:hover {
+  color: var(--primary);
+  border-color: rgba(83, 74, 183, 0.25);
+}
+
+@media (max-width: 820px) {
+  .chamado-header-toolbar__body {
+    grid-template-columns: 1fr;
+  }
+
+  .chamado-header-toolbar__actions {
+    justify-content: flex-start;
+    width: 100%;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+    margin-top: 4px;
+    padding-top: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .chamado-header-toolbar__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .chamado-header-toolbar__actions .chamado-header-toolbar__form-inline {
+    display: block;
+    margin: 0;
+  }
+
+  .chamado-header-toolbar__actions .chamado-header-toolbar__form-inline .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .chamado-header-toolbar__actions > .btn,
+  .chamado-header-toolbar__actions > .btn-ghost {
+    width: 100%;
+    justify-content: center;
+  }
 }
 

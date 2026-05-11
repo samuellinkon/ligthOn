@@ -202,6 +202,7 @@ include __DIR__ . '/../includes/head.php';
         <button class="btn btn-primary btn-sm" type="button" data-open-item-modal data-tipo="produto">+ Produto</button>
         <button class="btn btn-secondary btn-sm" type="button" data-open-item-modal data-tipo="servico">+ Serviço</button>
         <a class="btn btn-secondary btn-sm" href="cliente_itens_importar.php?cliente_id=<?= $clienteId ?>">Importar planilha</a>
+        <a class="btn btn-secondary btn-sm" href="catalogo_chamados_materiais.php?cliente_id=<?= $clienteId ?>" title="Lançamentos de itens do catálogo em chamados">Catálogo aplicado em chamados</a>
       </div>
     </div>
 

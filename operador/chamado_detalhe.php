@@ -28,8 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
     }
 
     if ($acao === 'enviar_os') {
-        $msgs = [];
-        $falhas = [];
+        $msgs      = [];
+        $falhas    = [];
+        $salvos    = 0;
+        $anexosPre = repo_chamado_anexos($id);
+        $countFotosAntes = 0;
+        foreach ($anexosPre as $axPre) {
+            $mimePre = strtolower((string) ($axPre['mime'] ?? ''));
+            $nomePre = strtolower((string) ($axPre['nome_original'] ?? ''));
+            if (strpos($mimePre, 'image/') === 0 || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomePre)) {
+                $countFotosAntes++;
+            }
+        }
 
         $end = trim((string) ($_POST['endereco_completo'] ?? ''));
         if ($end !== '' && isset($ch['latitude'], $ch['longitude']) && $ch['latitude'] !== null && $ch['longitude'] !== null) {
@@ -51,11 +61,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             }
         }
 
-        $temArq = !empty($_FILES['imagens']['name'][0]);
+        $temArq = !empty($_FILES['imagens']['name']) && (is_array($_FILES['imagens']['name'])
+            ? count(array_filter($_FILES['imagens']['name'], fn ($n) => $n !== '' && $n !== null)) > 0
+            : (string) ($_FILES['imagens']['name'] ?? '') !== '');
         if ($temArq) {
             $destino = upload_dir_chamado($id);
             $res = upload_gravar_multiplos($_FILES['imagens'], $destino);
-            $salvos = 0;
             foreach ($res['salvos'] as $arq) {
                 repo_create_chamado_anexo([
                     'chamado_id'    => $id,
@@ -75,6 +86,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             if (!empty($res['erros'])) {
                 $falhas[] = 'Algumas imagens não foram aceitas: ' . implode(' | ', $res['erros']);
             }
+        }
+
+        if (empty($falhas) && ($countFotosAntes + $salvos) < 1) {
+            $falhas[] = 'Inclua pelo menos uma foto do atendimento antes de enviar a OS.';
         }
 
         if (empty($falhas)) {
@@ -149,7 +164,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             flash_set('err', 'Não foi possível remover.');
         }
     } elseif ($acao === 'fotos') {
-        $temArq = !empty($_FILES['imagens']['name'][0]);
+        $temArq = !empty($_FILES['imagens']['name']) && (is_array($_FILES['imagens']['name'])
+            ? count(array_filter($_FILES['imagens']['name'], fn ($n) => $n !== '' && $n !== null)) > 0
+            : (string) ($_FILES['imagens']['name'] ?? '') !== '');
         if (!$temArq) {
             flash_set('err', 'Selecione ou tire ao menos uma imagem.');
         } else {
@@ -214,6 +231,9 @@ foreach ($anexos as $ax) {
         $imagensOp[] = $ax;
     }
 }
+$qtdFotosExistentes = count($imagensOp);
+$jaFechado          = in_array((string) ($chamado['status'] ?? ''), ['Resolvido', 'Fechado'], true)
+    || !empty($chamado['finalizado_operador_em']);
 $anexosPorResposta = [];
 foreach ($anexos as $a) {
     if (!empty($a['resposta_id'])) {
@@ -282,6 +302,7 @@ include __DIR__ . '/../includes/head.php';
     .op-photo-preview figure{margin:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#f8fafc}
     .op-photo-preview img{width:100%;height:110px;object-fit:cover;display:block}
     .op-photo-preview figcaption{padding:6px 8px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .op-sr-file{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0.01;clip:auto;overflow:hidden}
     @media(max-width:720px){
       .content{padding:12px}
       .ticket-header{padding:14px 16px;border-radius:18px}
@@ -311,80 +332,44 @@ include __DIR__ . '/../includes/head.php';
   </div>
 
   <div class="op-mobile-shell">
-      <form id="op-os-form" method="post" enctype="multipart/form-data" data-confirm="Enviar esta OS para aprovação do gestor?">
-        <input type="hidden" name="acao" value="enviar_os">
-      </form>
-
-      <div class="op-card">
+      <form id="op-os-form" class="op-card" method="post" enctype="multipart/form-data"
+            data-max-file-bytes="<?= (int) UPLOAD_MAX_BYTES ?>"
+            data-fotos-salvas="<?= (int) $qtdFotosExistentes ?>">
+        <input type="hidden" name="acao" id="op-form-acao" value="enviar_os">
         <div class="op-card-head">
-          <h4>Endereço do atendimento</h4>
+          <h4>Atendimento</h4>
+          <span class="panel-sub"><?= (int) $qtdFotosExistentes ?> no chamado</span>
         </div>
-        <div class="op-card-body">
-          <?php if (!empty($chamado['endereco_completo'])): ?>
-            <p style="color:var(--muted); line-height:1.55; margin:0 0 12px;"><?= nl2br(htmlspecialchars((string) $chamado['endereco_completo'])) ?></p>
-          <?php else: ?>
-            <p class="muted" style="margin:0 0 12px;">Sem endereço informado. Capture o GPS e adicione uma referência.</p>
+        <div class="op-card-body flex-col" style="gap:14px;">
+          <?php if ($jaFechado): ?>
+            <p class="muted" style="margin:0;font-size:14px;line-height:1.5;">Esta OS já foi enviada ao gestor. Você ainda pode <strong>Salvar fotos</strong> neste chamado.</p>
           <?php endif; ?>
-          <?php if ($loadLeaflet): ?>
-            <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.5;">
-              Coordenadas: <strong><?= htmlspecialchars(number_format((float) $chamado['latitude'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $chamado['longitude'], 6, '.', '')) ?></strong>
-            </p>
-            <div class="op-actions" style="margin-bottom:12px;">
-              <?php
-                $latUrl = number_format((float) $chamado['latitude'], 7, '.', '');
-                $lngUrl = number_format((float) $chamado['longitude'], 7, '.', '');
-                $coordUrl = rawurlencode($latUrl . ',' . $lngUrl);
-              ?>
-              <a class="btn btn-primary" target="_blank" rel="noopener"
-                 href="https://www.google.com/maps/search/?api=1&amp;query=<?= $coordUrl ?>">Abrir no Google Maps</a>
-              <a class="btn btn-secondary" target="_blank" rel="noopener"
-                 href="https://waze.com/ul?ll=<?= $coordUrl ?>&amp;navigate=yes">Abrir no Waze</a>
-            </div>
-            <div id="chamado-map-mini" class="op-map" aria-label="Mapa do local do chamado"></div>
-          <?php else: ?>
-            <p class="muted" style="margin:0;font-size:13px;">Sem coordenadas no cadastro. Use o formulário abaixo para capturar o GPS e salvar.</p>
-          <?php endif; ?>
-        </div>
-      </div>
 
-      <div class="op-card">
-        <div class="op-card-head"><h4>Ações rápidas</h4></div>
-        <div class="op-card-body flex-col" style="gap:12px;">
+          <div class="form-group" style="margin:0;">
+            <label for="endereco_completo">Endereço / referência (opcional)</label>
+            <textarea class="textarea" id="endereco_completo" name="endereco_completo" rows="2" placeholder="Ex.: Rua X, próximo ao mercado"<?= $jaFechado ? ' readonly' : '' ?>><?= htmlspecialchars((string) ($chamado['endereco_completo'] ?? '')) ?></textarea>
+          </div>
+          <?php if ($jaFechado): ?>
+            <small class="muted" style="display:block;margin-top:-6px;">Alteração de endereço após envio depende do gestor.</small>
+          <?php endif; ?>
 
           <div class="flex-col" style="gap:10px;">
-            <div class="form-group" style="margin:0;">
-              <label for="endereco_completo">Endereço / referência (opcional)</label>
-              <textarea class="textarea" id="endereco_completo" name="endereco_completo" form="op-os-form" rows="2" placeholder="Ex.: Rua X, próximo ao mercado"><?= htmlspecialchars((string) ($chamado['endereco_completo'] ?? '')) ?></textarea>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <strong style="font-size:14px;">Fotos do atendimento</strong>
+              <span class="panel-sub" id="op-photo-count-hint"><?= (int) $qtdFotosExistentes ?> salva(s)<span id="op-photo-pending-hint"></span></span>
             </div>
-          </div>
-
-          <?php
-            $jaFechado = in_array((string) ($chamado['status'] ?? ''), ['Resolvido', 'Fechado'], true) || !empty($chamado['finalizado_operador_em']);
-          ?>
-          <button type="submit" form="op-os-form" class="btn btn-primary" style="width:100%;" <?= $jaFechado ? 'disabled' : '' ?>>
-            <?= $jaFechado ? 'OS já enviada' : 'Enviar OS' ?>
-          </button>
-          <small class="muted" style="display:block;margin-top:8px;">As imagens e o endereço/referência serão salvos junto com o envio.</small>
-        </div>
-      </div>
-
-      <div class="op-card">
-        <div class="op-card-head">
-          <h4>Fotos do atendimento</h4>
-          <span class="panel-sub"><?= count($imagensOp) ?> foto(s)</span>
-        </div>
-        <div class="op-card-body flex-col" style="gap:12px;">
-          <div class="flex-col" style="gap:8px;">
-            <label class="btn btn-secondary" style="width:100%;justify-content:center;">
-              Abrir câmera
-              <input type="file" name="imagens[]" form="op-os-form" accept="image/*" capture="environment" multiple hidden data-op-photo-input>
-            </label>
-            <label class="btn btn-secondary" style="width:100%;justify-content:center;">
-              Escolher da galeria
-              <input type="file" name="imagens[]" form="op-os-form" accept="image/*" multiple hidden data-op-photo-input>
-            </label>
+            <p class="muted" style="margin:0;font-size:13px;line-height:1.45;">Para <strong>Enviar OS</strong> é obrigatório haver ao menos uma foto (já salva ou nova). Formatos: PNG, JPG, GIF ou WEBP. Máx. <?= htmlspecialchars(upload_formatar_tamanho((int) UPLOAD_MAX_BYTES)) ?> por arquivo.</p>
+            <input type="file" id="op-pick-cam" class="op-sr-file crm-no-custom-file" accept="image/*" capture="environment" multiple tabindex="-1" aria-hidden="true">
+            <input type="file" id="op-pick-gal" class="op-sr-file crm-no-custom-file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
+            <input type="file" name="imagens[]" id="op-imagens-master" class="op-sr-file crm-no-custom-file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/*" multiple tabindex="-1" aria-hidden="true">
+            <div class="op-actions">
+              <button type="button" class="btn btn-secondary" id="op-btn-cam">Abrir câmera</button>
+              <button type="button" class="btn btn-secondary" id="op-btn-gal">Galeria</button>
+            </div>
+            <button type="button" class="btn btn-ghost" id="op-photo-clear" style="width:100%;display:none;">Limpar fotos selecionadas</button>
             <div class="op-photo-preview" id="op-photo-preview" aria-live="polite"></div>
           </div>
+
           <?php if (!empty($imagensOp)): ?>
             <div class="op-photo-grid">
               <?php foreach (array_slice($imagensOp, 0, 6) as $img): ?>
@@ -394,8 +379,18 @@ include __DIR__ . '/../includes/head.php';
               <?php endforeach; ?>
             </div>
           <?php endif; ?>
+
+          <div class="flex-col" style="gap:10px;">
+            <?php if (!$jaFechado): ?>
+              <button type="button" class="btn btn-primary" id="op-btn-enviar-os" style="width:100%;">Enviar OS</button>
+              <button type="button" class="btn btn-secondary" id="op-btn-salvar-fotos" style="width:100%;">Salvar fotos agora</button>
+              <small class="muted" style="display:block;margin:0;">O envio grava referência e fotos novas e encaminha ao gestor. Use <strong>Salvar fotos agora</strong> para gravar imagens sem finalizar.</small>
+            <?php else: ?>
+              <button type="button" class="btn btn-primary" id="op-btn-salvar-fotos" style="width:100%;">Salvar fotos</button>
+            <?php endif; ?>
+          </div>
         </div>
-      </div>
+      </form>
 
       <div class="op-card">
         <div class="op-card-head">
@@ -502,6 +497,38 @@ include __DIR__ . '/../includes/head.php';
               <p class="muted" style="margin:0;font-size:14px;">Nenhum item recolhido/devolvido lançado ainda.</p>
             <?php endif; ?>
           </div>
+        </div>
+      </div>
+
+      <div class="op-card">
+        <div class="op-card-head">
+          <h4>Endereço e mapa</h4>
+        </div>
+        <div class="op-card-body">
+          <?php if (!empty($chamado['endereco_completo'])): ?>
+            <p style="color:var(--muted); line-height:1.55; margin:0 0 12px;"><?= nl2br(htmlspecialchars((string) $chamado['endereco_completo'])) ?></p>
+          <?php else: ?>
+            <p class="muted" style="margin:0 0 12px;">Sem endereço neste cadastro. Use o campo de referência em <strong>Atendimento</strong>.</p>
+          <?php endif; ?>
+          <?php if ($loadLeaflet): ?>
+            <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.5;">
+              Coordenadas: <strong><?= htmlspecialchars(number_format((float) $chamado['latitude'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $chamado['longitude'], 6, '.', '')) ?></strong>
+            </p>
+            <div class="op-actions" style="margin-bottom:12px;">
+              <?php
+                $latUrl = number_format((float) $chamado['latitude'], 7, '.', '');
+                $lngUrl = number_format((float) $chamado['longitude'], 7, '.', '');
+                $coordUrl = rawurlencode($latUrl . ',' . $lngUrl);
+              ?>
+              <a class="btn btn-primary" target="_blank" rel="noopener"
+                 href="https://www.google.com/maps/search/?api=1&amp;query=<?= $coordUrl ?>">Abrir no Google Maps</a>
+              <a class="btn btn-secondary" target="_blank" rel="noopener"
+                 href="https://waze.com/ul?ll=<?= $coordUrl ?>&amp;navigate=yes">Abrir no Waze</a>
+            </div>
+            <div id="chamado-map-mini" class="op-map" aria-label="Mapa do local do chamado"></div>
+          <?php else: ?>
+            <p class="muted" style="margin:0;font-size:13px;">Sem coordenadas no cadastro. Complemente com referência no bloco Atendimento.</p>
+          <?php endif; ?>
         </div>
       </div>
 
@@ -761,37 +788,194 @@ include __DIR__ . '/../includes/head.php';
   });
   if (tabButtons.length) setTab('utilizado');
 
-  var inputs = Array.prototype.slice.call(document.querySelectorAll('[data-op-photo-input]'));
+  var opForm = document.getElementById('op-os-form');
+  var master = document.getElementById('op-imagens-master');
+  var pickCam = document.getElementById('op-pick-cam');
+  var pickGal = document.getElementById('op-pick-gal');
+  var btnCam = document.getElementById('op-btn-cam');
+  var btnGal = document.getElementById('op-btn-gal');
+  var btnClear = document.getElementById('op-photo-clear');
   var preview = document.getElementById('op-photo-preview');
-  if (!inputs.length || !preview) return;
+  var acaoInput = document.getElementById('op-form-acao');
+  var btnEnviar = document.getElementById('op-btn-enviar-os');
+  var btnSalvarFotos = document.getElementById('op-btn-salvar-fotos');
+  var pendingHint = document.getElementById('op-photo-pending-hint');
 
-  inputs.forEach(function (input) {
-    input.addEventListener('change', function () {
-      preview.innerHTML = '';
-      var files = Array.prototype.slice.call(input.files || []).filter(function (file) {
-        return file.type && file.type.indexOf('image/') === 0;
-      });
+  if (!opForm || !master || !preview || !acaoInput) {
+    return;
+  }
 
-      preview.classList.toggle('active', files.length > 0);
-      if (!files.length) return;
+  var maxBytes = parseInt(opForm.getAttribute('data-max-file-bytes') || '15728640', 10) || 15728640;
+  var fotosSalvas = parseInt(opForm.getAttribute('data-fotos-salvas') || '0', 10) || 0;
 
-      files.forEach(function (file) {
-        var url = URL.createObjectURL(file);
-        var fig = document.createElement('figure');
-        var img = document.createElement('img');
-        var cap = document.createElement('figcaption');
+  var dt = new DataTransfer();
 
-        img.src = url;
-        img.alt = file.name;
-        img.onload = function () { URL.revokeObjectURL(url); };
-        cap.textContent = file.name;
+  function extOk(name) {
+    var m = (name || '').toLowerCase().match(/\.([a-z0-9]+)$/i);
+    var ext = m ? m[1] : '';
+    return ['png', 'jpg', 'jpeg', 'gif', 'webp'].indexOf(ext) !== -1;
+  }
 
-        fig.appendChild(img);
-        fig.appendChild(cap);
-        preview.appendChild(fig);
-      });
+  function fileAceito(file) {
+    if (!file) return false;
+    var t = file.type || '';
+    if (t === 'image/heic' || t === 'image/heif') return false;
+    if (t === 'image/svg+xml') return false;
+    if (extOk(file.name)) return true;
+    if (t.indexOf('image/') !== 0) return false;
+    return (
+      t === 'image/png' ||
+      t === 'image/jpeg' ||
+      t === 'image/jpg' ||
+      t === 'image/pjpeg' ||
+      t === 'image/gif' ||
+      t === 'image/webp' ||
+      t === 'image/x-png'
+    );
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1).replace('.', ',') + ' KB';
+    return (n / 1048576).toFixed(1).replace('.', ',') + ' MB';
+  }
+
+  function alertMsg(msg, titulo) {
+    titulo = titulo || 'Fotos';
+    if (typeof window.appAlert === 'function') {
+      window.appAlert(msg, titulo);
+    } else {
+      window.alert(msg);
+    }
+  }
+
+  function syncMasterFiles() {
+    master.files = dt.files;
+    updatePendingUi();
+    renderPreview();
+  }
+
+  function updatePendingUi() {
+    var n = dt.files.length;
+    if (pendingHint) {
+      pendingHint.textContent = n ? ' · +' + n + ' nova(s)' : '';
+    }
+    if (btnClear) {
+      btnClear.style.display = n ? 'block' : 'none';
+    }
+  }
+
+  function renderPreview() {
+    preview.innerHTML = '';
+    var files = Array.prototype.slice.call(dt.files || []);
+    preview.classList.toggle('active', files.length > 0);
+    files.forEach(function (file) {
+      var url = URL.createObjectURL(file);
+      var fig = document.createElement('figure');
+      var img = document.createElement('img');
+      var cap = document.createElement('figcaption');
+      img.src = url;
+      img.alt = file.name;
+      img.onload = function () { URL.revokeObjectURL(url); };
+      cap.textContent = file.name + ' (' + formatBytes(file.size) + ')';
+      fig.appendChild(img);
+      fig.appendChild(cap);
+      preview.appendChild(fig);
     });
-  });
+  }
+
+  function addFilesFromList(list) {
+    var erros = [];
+    var novos = Array.prototype.slice.call(list || []);
+    novos.forEach(function (file) {
+      if (!fileAceito(file)) {
+        erros.push(file.name + ': use PNG, JPG, GIF ou WEBP (HEIC não é aceito).');
+        return;
+      }
+      if (file.size > maxBytes) {
+        erros.push(file.name + ': arquivo maior que ' + formatBytes(maxBytes) + '.');
+        return;
+      }
+      dt.items.add(file);
+    });
+    if (erros.length) {
+      alertMsg(erros.join('\n'), 'Fotos inválidas');
+    }
+    syncMasterFiles();
+  }
+
+  if (pickCam && btnCam) {
+    btnCam.addEventListener('click', function () { pickCam.click(); });
+    pickCam.addEventListener('change', function () {
+      if (pickCam.files && pickCam.files.length) addFilesFromList(pickCam.files);
+      pickCam.value = '';
+    });
+  }
+  if (pickGal && btnGal) {
+    btnGal.addEventListener('click', function () { pickGal.click(); });
+    pickGal.addEventListener('change', function () {
+      if (pickGal.files && pickGal.files.length) addFilesFromList(pickGal.files);
+      pickGal.value = '';
+    });
+  }
+  if (btnClear) {
+    btnClear.addEventListener('click', function () {
+      dt = new DataTransfer();
+      syncMasterFiles();
+    });
+  }
+
+  function validatePendingFiles() {
+    var errs = [];
+    Array.prototype.slice.call(dt.files || []).forEach(function (file) {
+      if (!fileAceito(file)) errs.push(file.name + ': tipo não permitido.');
+      if (file.size > maxBytes) errs.push(file.name + ': arquivo muito grande.');
+    });
+    return errs;
+  }
+
+  function doSubmit(acao) {
+    var pendErros = validatePendingFiles();
+    if (pendErros.length) {
+      alertMsg(pendErros.join('\n'), 'Fotos inválidas');
+      return;
+    }
+    acaoInput.value = acao;
+    if (typeof opForm.requestSubmit === 'function') {
+      opForm.requestSubmit();
+    } else {
+      HTMLFormElement.prototype.submit.call(opForm);
+    }
+  }
+
+  if (btnEnviar) {
+    btnEnviar.addEventListener('click', function () {
+      var novas = dt.files.length;
+      if (fotosSalvas + novas < 1) {
+        alertMsg('Inclua pelo menos uma foto do atendimento antes de enviar a OS.', 'Enviar OS');
+        return;
+      }
+      var msg = 'Enviar esta OS para aprovação do gestor?';
+      if (typeof window.appConfirm === 'function') {
+        window.appConfirm({ message: msg, title: 'Confirmar', danger: false }).then(function (ok) {
+          if (!ok) return;
+          doSubmit('enviar_os');
+        });
+      } else if (window.confirm(msg)) {
+        doSubmit('enviar_os');
+      }
+    });
+  }
+
+  if (btnSalvarFotos) {
+    btnSalvarFotos.addEventListener('click', function () {
+      if (dt.files.length < 1) {
+        alertMsg('Selecione ou tire ao menos uma imagem para salvar.');
+        return;
+      }
+      doSubmit('fotos');
+    });
+  }
 })();
 </script>
 

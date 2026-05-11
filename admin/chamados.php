@@ -576,6 +576,122 @@ if ($exportFmt === 'csv_itens') {
     exit;
 }
 
+if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
+    if (!db_ok()) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Exportação disponível com base de dados ativa.';
+        exit;
+    }
+    require_once __DIR__ . '/../includes/chamados_medicao_export_xlsx.php';
+
+    if ($periodoLimpar) {
+        $periodoTextoBr = 'Todo o período';
+    } elseif ($medicaoMes !== '') {
+        $ym = explode('-', $medicaoMes);
+        if (count($ym) === 2) {
+            $ma = (int) $ym[1];
+            $ya = (int) $ym[0];
+            $mesesPt = [
+                1 => 'janeiro', 2 => 'fevereiro', 3 => 'março', 4 => 'abril', 5 => 'maio', 6 => 'junho',
+                7 => 'julho', 8 => 'agosto', 9 => 'setembro', 10 => 'outubro', 11 => 'novembro', 12 => 'dezembro',
+            ];
+            $periodoTextoBr = isset($mesesPt[$ma]) ? (mb_convert_case($mesesPt[$ma], MB_CASE_TITLE, 'UTF-8') . ' de ' . $ya) : $medicaoMes;
+        } else {
+            $periodoTextoBr = $medicaoMes;
+        }
+    } elseif ($periodoDe !== null && $periodoAte !== null) {
+        $d1 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoDe);
+        $d2 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoAte);
+        if ($d1 instanceof DateTimeImmutable && $d2 instanceof DateTimeImmutable) {
+            $periodoTextoBr = $d1->format('d/m/Y') . ' até ' . $d2->format('d/m/Y');
+        } else {
+            $periodoTextoBr = $periodoDe . ' — ' . $periodoAte;
+        }
+    } else {
+        $periodoTextoBr = '—';
+    }
+
+    $nomeOp = trim((string) ($me['nome'] ?? ''));
+    if ($nomeOp === '') {
+        $nomeOp = trim((string) ($me['email'] ?? '')) ?: '—';
+    }
+    $tipoOp = trim((string) ($me['tipo'] ?? ''));
+    if ($tipoOp !== '') {
+        $nomeOp .= ' · ' . $tipoOp;
+    }
+
+    $matrizItensId = ($escopoLista !== null && $escopoLista > 0)
+        ? $escopoLista
+        : (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+    $pDeIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoDe : '';
+    $pAtIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoAte : '';
+
+    /** Linhas do boletim BM importadas (lista «mês atual» virtual) — alimentação da aba MEDIÇÃO */
+    $bmLinhasBoletim = [];
+    if ($medicaoMatrizId > 0 && preg_match('/^\d{4}-\d{2}$/', $refYmBm)) {
+        $__impBk = repo_medicao_import_fetch($medicaoMatrizId, $refYmBm);
+        if (!empty($__impBk['linhas']) && is_array($__impBk['linhas'])) {
+            $bmLinhasBoletim = $__impBk['linhas'];
+        }
+    }
+
+    /** Detalhamento CRM: período pela data em que o item foi registrado em chamado_itens.criado_em */
+    $detalheLinhasBoletim = [];
+    if ($matrizItensId > 0 && $pDeIt !== '' && $pAtIt !== '') {
+        $detalheLinhasBoletim = repo_catalogo_chamados_itens_periodo_por_data_lancamento(
+            $matrizItensId,
+            $pDeIt,
+            $pAtIt,
+            'utilizado'
+        );
+    }
+
+    $kpMed = repo_chamados_medicao_export_kpis(
+        $f,
+        $q,
+        $escopoLista,
+        $periodoDe,
+        $periodoAte,
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        false
+    );
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+    chamados_medicao_export_xlsx_send(
+        [],
+        [],
+        [],
+        '',
+        '',
+        [
+            'periodo_label'         => $periodoTextoBr,
+            'usuario_nome'           => $nomeOp,
+            'matriz_cliente_id'       => $matrizItensId,
+            'matriz_label'            => ($medicaoMatrizNome !== '' ? $medicaoMatrizNome : ($matrizItensId > 0 ? 'Matriz #' . $matrizItensId : '—')),
+            'periodo_de'              => $pDeIt,
+            'periodo_ate'             => $pAtIt,
+            'ref_ym'                  => preg_match('/^\d{4}-\d{2}$/', $refYmBm) ? $refYmBm : '',
+            'bm_linhas'               => $bmLinhasBoletim,
+            'detalhe_itens_linhas'    => $detalheLinhasBoletim,
+            'kpis'                    => [
+                'total_chamados'   => (int) ($kpMed['total_chamados_crm'] ?? 0) + ($mergeBmExport ? $nBm : 0),
+                'resolvidos'       => (int) ($kpMed['resolvidos'] ?? 0),
+                'em_andamento'     => (int) ($kpMed['em_andamento'] ?? 0),
+                'valor_utilizado'  => (float) ($kpMed['valor_itens_utilizados'] ?? 0),
+                'total_anexos'     => (int) ($kpMed['quantidade_anexos'] ?? 0),
+            ],
+            'incluir_detalhamento_chamados' => ($exportFmt === 'xlsx_detalhes'),
+            'arquivo_suffix'               => $exportFmt === 'xlsx_detalhes' ? 'com_detalhes_chamados' : '',
+        ]
+    );
+    exit;
+}
+
 if (in_array($exportFmt, ['csv_crm', 'json_crm'], true)) {
     if (!db_ok()) {
         http_response_code(503);
@@ -820,7 +936,8 @@ include __DIR__ . '/../includes/head.php';
       <?php if (db_ok()): ?>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <span class="muted" style="font-size:12px;">Exportar:</span>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('csv', $f, $q, $admChPeriodoCtx)) ?>">Exportar CSV</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('xlsx', $f, $q, $admChPeriodoCtx)) ?>" title="Boletim de medição e tabela principal (sem secção «DETALHAMENTO DOS CHAMADOS»)">Excel — boletim</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('xlsx_detalhes', $f, $q, $admChPeriodoCtx)) ?>" title="Igual ao boletim, mais a tabela «DETALHAMENTO DOS CHAMADOS» linha a linha">Excel — com detalhes</a>
         <?php if (!$periodoLimpar): ?>
         <?php
           $hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', $f, $q, $admChPeriodoCtx);
@@ -861,10 +978,10 @@ include __DIR__ . '/../includes/head.php';
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($urlMesAtual) ?>">Mês atual</a>
       </div>
 
-      <form method="get" action="chamados.php" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+      <form method="get" action="chamados.php" style="display:flex;flex-wrap:nowrap;gap:12px;align-items:flex-end;width:100%;min-width:0;overflow-x:auto;">
         <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
         <?php if ($envolvidoUser > 0): ?><input type="hidden" name="envolvido_user" value="<?= (int) $envolvidoUser ?>"><?php endif; ?>
-        <div class="form-group" style="margin:0;flex:1 1 200px;max-width:260px;">
+        <div class="form-group" style="margin:0;flex:0 0 150px;min-width:0;max-width:180px;">
           <label for="filtro_status" style="font-size:12px;">Status</label>
           <select id="filtro_status" name="f" class="select">
             <option value=""<?= $f === '' ? ' selected' : '' ?>>Todos</option>
@@ -876,23 +993,23 @@ include __DIR__ . '/../includes/head.php';
             <option value="urgentes"<?= $f === 'urgentes' ? ' selected' : '' ?>>Urgentes</option>
           </select>
         </div>
-        <div class="form-group" style="margin:0;flex:0 0 auto;width:min(100%,158px);">
+        <div class="form-group" style="margin:0;flex:0 0 142px;min-width:0;">
           <label for="periodo_de" style="font-size:12px;">De</label>
           <input type="date" id="periodo_de" name="periodo_de" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoDe) ?>">
         </div>
-        <div class="form-group" style="margin:0;flex:0 0 auto;width:min(100%,158px);">
+        <div class="form-group" style="margin:0;flex:0 0 142px;min-width:0;">
           <label for="periodo_ate" style="font-size:12px;">Até</label>
           <input type="date" id="periodo_ate" name="periodo_ate" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoAte) ?>">
         </div>
-        <div class="form-group" style="margin:0;flex:2 1 340px;min-width:min(100%,280px);">
+        <div class="form-group" style="margin:0;flex:1 1 0;min-width:140px;">
           <label for="q" style="font-size:12px;">Buscar</label>
-          <input type="search" id="q" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID, título ou órgão" style="width:100%;min-height:40px;font-size:14px;">
+          <input type="search" id="q" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID, título ou órgão" style="width:100%;min-width:0;min-height:40px;font-size:14px;">
         </div>
-        <div class="form-group" style="margin:0;flex:2 1 340px;min-width:min(100%,280px);">
+        <div class="form-group" style="margin:0;flex:1 1 0;min-width:140px;">
           <label for="local_q" style="font-size:12px;">Local (endereço, bairro…)</label>
-          <input type="search" id="local_q" name="local_q" class="input" value="<?= htmlspecialchars($localQ) ?>" placeholder="Filtrar por texto no local" style="width:100%;min-height:40px;font-size:14px;">
+          <input type="search" id="local_q" name="local_q" class="input" value="<?= htmlspecialchars($localQ) ?>" placeholder="Filtrar por texto no local" style="width:100%;min-width:0;min-height:40px;font-size:14px;">
         </div>
-        <div class="form-group" style="margin:0;flex:1 1 200px;max-width:280px;">
+        <div class="form-group" style="margin:0;flex:0 1 160px;min-width:120px;max-width:200px;">
           <label for="tecnico_user_id" style="font-size:12px;">Técnico</label>
           <select id="tecnico_user_id" name="tecnico_user_id" class="select">
             <option value="0">Todos</option>
@@ -901,9 +1018,9 @@ include __DIR__ . '/../includes/head.php';
             <?php endforeach; ?>
           </select>
         </div>
-        <button type="submit" class="btn btn-primary" style="justify-content:center;flex:0 0 auto;">Aplicar filtros</button>
+        <button type="submit" class="btn btn-primary" style="justify-content:center;flex:0 0 auto;flex-shrink:0;">Aplicar filtros</button>
         <?php if ($q !== '' || $localQ !== '' || $tecnicoUserId > 0): ?>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, $f, '', $admChClearBuscaCtx)) ?>" class="btn">Limpar busca</a>
+        <a href="<?= htmlspecialchars(adm_chamados_url(1, $f, '', $admChClearBuscaCtx)) ?>" class="btn" style="flex-shrink:0;">Limpar busca</a>
         <?php endif; ?>
       </form>
     </div>

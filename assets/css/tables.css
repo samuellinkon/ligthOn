@@ -12,8 +12,13 @@
   min-width: 52rem;
 }
 
-.chamado-itens-table--admin th:nth-child(2),
-.chamado-itens-table--admin td:nth-child(2) {
+.chamado-itens-table table.chamado-materiais-table {
+  min-width: 0;
+}
+
+/* Estrutura antiga: coluna 2 = Item (detalhe OS). Não aplicar em .chamado-materiais-table (Item = coluna 1). */
+.chamado-itens-table--admin table:not(.chamado-materiais-table) th:nth-child(2),
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(2) {
   min-width: 16rem;
   max-width: 28rem;
   width: 30%;
@@ -23,14 +28,14 @@
   vertical-align: top;
 }
 
-.chamado-itens-table--admin td:nth-child(4),
-.chamado-itens-table--admin td:nth-child(5),
-.chamado-itens-table--admin td:nth-child(6),
-.chamado-itens-table--admin td:nth-child(8) {
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(4),
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(5),
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(6),
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(8) {
   white-space: nowrap;
 }
 
-.chamado-itens-table--admin td:nth-child(7) {
+.chamado-itens-table--admin table:not(.chamado-materiais-table) td:nth-child(7) {
   max-width: 14rem;
   word-break: break-word;
   overflow-wrap: break-word;
@@ -166,14 +171,17 @@ table.chamados-admin-list td.td-ch-endereco {
   line-height: 1.35;
   word-break: break-word;
   overflow-wrap: break-word;
-  vertical-align: top;
 }
 
 table.chamados-admin-list td.td-ch-geo {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  vertical-align: top;
+}
+
+/* Mesma altura visual na linha (antes endereço/geo forçavam top) */
+table.chamados-admin-list tbody td {
+  vertical-align: middle;
 }
 
 /* ---------- Badges ---------- */

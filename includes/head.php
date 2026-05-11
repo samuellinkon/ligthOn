@@ -42,6 +42,9 @@ $cssBust = static function (string $file): int {
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/dashboard.css?v=<?= $cssBust('dashboard.css') ?>">
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/responsive.css?v=<?= $cssBust('responsive.css') ?>">
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/modal.css?v=<?= $cssBust('modal.css') ?>">
+  <?php if (function_exists('current_user_painel_interno') && current_user_painel_interno()): ?>
+  <link rel="stylesheet" href="<?= $basePath ?>assets/css/notificacoes.css?v=<?= $cssBust('notificacoes.css') ?>">
+  <?php endif; ?>
   <?php if (!empty($loadLeaflet)): ?>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <?php endif; ?>

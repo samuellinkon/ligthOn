@@ -47,7 +47,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $respostaId = null;
             if ($texto !== '') {
-                $respostaId = repo_create_chamado_resposta($id, $user['nome'], 'admin', $texto, $interna);
+                $respostaId = repo_create_chamado_resposta(
+                    $id,
+                    $user['nome'],
+                    'admin',
+                    $texto,
+                    $interna,
+                    (int) ($user['id'] ?? 0)
+                );
             }
 
             if ($temArq) {
@@ -177,6 +184,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash_set('err', 'Não foi possível atualizar a linha.');
             }
 
+        } elseif ($acao === 'chamado_item_edit') {
+            $lid = (int) ($_POST['linha_id'] ?? 0);
+            $qtd = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
+            $obs = trim((string) ($_POST['observacao'] ?? ''));
+            if ($lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_linha($lid, $id, $qtd, $obs !== '' ? $obs : null)) {
+                flash_set('ok', 'Item do atendimento atualizado.');
+            } else {
+                flash_set('err', 'Não foi possível atualizar o lançamento.');
+            }
+
         } elseif ($acao === 'chamado_item_del') {
             $lid = (int) ($_POST['linha_id'] ?? 0);
             if ($lid > 0 && repo_chamado_item_remover($lid, $id)) {
@@ -203,11 +220,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* --------------------------------------------------------------
- * Exportação (GET): um chamado — CSV ou JSON
+ * Exportação (GET): um chamado — XLSX ou PDF (HTML para impressão / guardar como PDF)
  * ------------------------------------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
-    if (in_array($exportFmt, ['csv', 'json', 'html', 'pdf'], true)) {
+    if (in_array($exportFmt, ['xlsx', 'pdf'], true)) {
+        $pontoFotosEx = [];
         if (db_ok()) {
             $chEx = repo_chamado($id);
             if (!$chEx) {
@@ -218,6 +236,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $respostasEx = repo_chamado_respostas_do_ticket($id, false);
             $materiaisEx = repo_chamado_itens_list($id);
             $anexosEx    = repo_chamado_anexos($id);
+            $pidEx       = (int) ($chEx['ponto_iluminacao_id'] ?? 0);
+            if ($pidEx > 0) {
+                $pontoEx = repo_ponto_iluminacao($pidEx);
+                if ($pontoEx && (int) ($pontoEx['cliente_id'] ?? 0) === (int) ($chEx['cliente_id'] ?? 0)) {
+                    $pontoFotosEx = repo_ponto_iluminacao_imagens_list($pidEx);
+                }
+            }
         } else {
             $chEx = find_by_id($MOCK_CHAMADOS, $id);
             if (!$chEx) {
@@ -229,113 +254,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $anexosEx    = [];
         }
 
-        $payload = [
-            'exportado_em' => date('c'),
-            'chamado_id'   => $id,
-            'chamado'      => $chEx,
-            'respostas'    => $respostasEx,
-            'materiais'    => $materiaisEx,
-            'anexos'       => $anexosEx,
-        ];
-
         $stamp = date('Y-m-d_His');
-        if (in_array($exportFmt, ['html', 'pdf'], true)) {
+        if ($exportFmt === 'pdf') {
             require_once __DIR__ . '/../includes/chamado_export_document.php';
-            $htmlOut = chamado_export_document_html($chEx, $respostasEx, $materiaisEx, $anexosEx, $exportFmt === 'pdf');
-            if ($exportFmt === 'pdf') {
-                header('Content-Type: text/html; charset=UTF-8');
-                header('Content-Disposition: inline; filename="chamado_' . $id . '_impressao.html"');
-                echo $htmlOut;
-                exit;
-            }
+            $htmlOut = chamado_export_document_html($chEx, $respostasEx, $materiaisEx, $anexosEx, true, $pontoFotosEx, false);
             header('Content-Type: text/html; charset=UTF-8');
-            header('Content-Disposition: attachment; filename="chamado_' . $id . '_' . $stamp . '.html"');
+            header('Content-Disposition: inline; filename="chamado_' . $id . '_impressao.html"');
             echo $htmlOut;
             exit;
         }
 
-        if ($exportFmt === 'json') {
-            header('Content-Type: application/json; charset=UTF-8');
-            header('Content-Disposition: attachment; filename="chamado_' . $id . '_' . $stamp . '.json"');
-            echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-            exit;
-        }
-
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="chamado_' . $id . '_' . $stamp . '.csv"');
-        $out = fopen('php://output', 'w');
-        if ($out === false) {
-            http_response_code(500);
-            exit;
-        }
-        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        $sep = ';';
-        $flatVal = static function ($v): string {
-            if ($v === null || $v === '') {
-                return '';
-            }
-            if (is_bool($v)) {
-                return $v ? '1' : '0';
-            }
-            if (is_scalar($v)) {
-                return (string) $v;
-            }
-
-            return json_encode($v, JSON_UNESCAPED_UNICODE);
-        };
-        fputcsv($out, ['# Chamado — campo; valor'], $sep);
-        fputcsv($out, ['campo', 'valor'], $sep);
-        foreach ($chEx as $k => $v) {
-            $cell = $flatVal($v);
-            $cell = str_replace(["\r", "\n"], ' ', $cell);
-            fputcsv($out, [(string) $k, $cell], $sep);
-        }
-        fputcsv($out, [], $sep);
-        fputcsv($out, ['# Respostas'], $sep);
-        fputcsv($out, ['id', 'data', 'autor', 'tipo', 'interna', 'texto'], $sep);
-        foreach ($respostasEx as $r) {
-            fputcsv($out, [
-                (string) ($r['id'] ?? ''),
-                (string) ($r['data'] ?? ''),
-                (string) ($r['autor'] ?? ''),
-                (string) ($r['tipo'] ?? ''),
-                isset($r['interna']) ? (string) (int) $r['interna'] : '',
-                str_replace(["\r", "\n"], ' ', (string) ($r['texto'] ?? '')),
-            ], $sep);
-        }
-        fputcsv($out, [], $sep);
-        fputcsv($out, ['# Materiais / itens'], $sep);
-        fputcsv($out, ['id', 'item_nome', 'item_tipo', 'item_codigo', 'movimento', 'quantidade', 'valor_unitario', 'subtotal', 'observacao'], $sep);
-        foreach ($materiaisEx as $m) {
-            fputcsv($out, [
-                (string) ($m['id'] ?? ''),
-                (string) ($m['item_nome'] ?? ''),
-                (string) ($m['item_tipo'] ?? ''),
-                (string) ($m['item_codigo'] ?? ''),
-                (string) ($m['movimento'] ?? ''),
-                isset($m['quantidade']) ? (string) $m['quantidade'] : '',
-                isset($m['valor_unitario']) ? (string) $m['valor_unitario'] : '',
-                isset($m['subtotal']) ? (string) $m['subtotal'] : '',
-                str_replace(["\r", "\n"], ' ', (string) ($m['observacao'] ?? '')),
-            ], $sep);
-        }
-        fputcsv($out, [], $sep);
-        fputcsv($out, ['# Anexos (metadados — ficheiros não incluídos)'], $sep);
-        fputcsv($out, ['id', 'resposta_id', 'nome_original', 'nome_armazenado', 'mime', 'tamanho_bytes', 'enviado_por', 'enviado_tipo', 'enviado_em'], $sep);
-        foreach ($anexosEx as $a) {
-            fputcsv($out, [
-                (string) ($a['id'] ?? ''),
-                $a['resposta_id'] !== null && $a['resposta_id'] !== '' ? (string) $a['resposta_id'] : '',
-                (string) ($a['nome_original'] ?? ''),
-                (string) ($a['nome_arquivo'] ?? ''),
-                (string) ($a['mime'] ?? ''),
-                isset($a['tamanho']) ? (string) $a['tamanho'] : '',
-                (string) ($a['enviado_por'] ?? ''),
-                (string) ($a['enviado_tipo'] ?? ''),
-                (string) ($a['enviado_em'] ?? ''),
-            ], $sep);
-        }
-        fclose($out);
+        require_once __DIR__ . '/../includes/chamado_export_xlsx.php';
+        $totalEx = db_ok() ? repo_chamado_itens_valor_total($id) : 0.0;
+        chamado_export_xlsx_send($chEx, $respostasEx, $materiaisEx, $anexosEx, $pontoFotosEx, $id, $user, $totalEx);
         exit;
     }
 }
@@ -357,6 +288,9 @@ if (db_ok()) {
         header('Location: chamados.php');
         exit;
     }
+    if (function_exists('repo_notificacoes_marcar_lidas_chamado') && repo_notificacoes_table_exists()) {
+        repo_notificacoes_marcar_lidas_chamado((int) ($user['id'] ?? 0), $id);
+    }
     $respostas = repo_chamado_respostas_do_ticket($id, false);
     try {
         $empresaChamadoId      = repo_cliente_catalogo_dono_id((int) $chamado['cliente_id']);
@@ -367,6 +301,14 @@ if (db_ok()) {
     } catch (Throwable $e) {
         $chamadoMateriais = [];
     }
+    $chamadoMateriaisUtil = array_values(array_filter(
+        $chamadoMateriais,
+        static fn (array $m): bool => (($m['movimento'] ?? '') !== 'devolvido')
+    ));
+    $chamadoMateriaisDev = array_values(array_filter(
+        $chamadoMateriais,
+        static fn (array $m): bool => (($m['movimento'] ?? '') === 'devolvido')
+    ));
     $pontosOsForm = repo_pontos_iluminacao_options((int) ($chamado['cliente_id'] ?? 0));
 
     $pidPonto = (int) ($chamado['ponto_iluminacao_id'] ?? 0);
@@ -387,6 +329,8 @@ if (db_ok()) {
     }
     $respostas = $MOCK_CHAMADO_RESPOSTAS[$chamado['id']] ?? [];
     $pontosOsForm = [];
+    $chamadoMateriaisUtil = [];
+    $chamadoMateriaisDev  = [];
 }
 
 $cliente   = find_by_id($MOCK_CLIENTES, $chamado['cliente_id']);
@@ -413,6 +357,32 @@ foreach ($anexos as $a) {
         $anexosPorResposta[(int) $a['resposta_id']][] = $a;
     }
 }
+
+/* Cabeçalho: segmentos do título (tipo · problema · origem) */
+$tituloRaw = trim((string) ($chamado['titulo'] ?? ''));
+$tituloPartes = $tituloRaw !== ''
+    ? preg_split('/\s*·\s*/u', $tituloRaw, -1, PREG_SPLIT_NO_EMPTY)
+    : [];
+$tituloPartes = array_values(array_filter(array_map('trim', $tituloPartes), static fn ($p) => $p !== ''));
+$chamadoTituloPrincipal = $tituloPartes[0] ?? ($tituloRaw !== '' ? $tituloRaw : 'Chamado');
+
+$lblPosteHeader = '';
+if (db_ok() && (int) ($chamado['ponto_iluminacao_id'] ?? 0) > 0) {
+    $lblPosteHeader = $pontoChamado
+        ? (string) ($pontoChamado['codigo_poste'] ?? '')
+        : (string) ($chamado['ponto_codigo_poste'] ?? '');
+    $lblPosteHeader = $lblPosteHeader !== '' ? $lblPosteHeader : '#' . (int) $chamado['ponto_iluminacao_id'];
+}
+
+$tsAberto = strtotime((string) ($chamado['data'] ?? ''));
+$chamadoAbertoStr = ($tsAberto !== false)
+    ? 'Aberto em ' . date('d/m/Y', $tsAberto) . ' às ' . date('H:i', $tsAberto)
+    : 'Aberto em —';
+$chamadoAbertoCurto = ($tsAberto !== false)
+    ? 'Aberto ' . date('d/m/y', $tsAberto) . ' · ' . date('H:i', $tsAberto)
+    : '—';
+
+$lblCanalHeader = trim((string) ($chamado['origem_os'] ?? ''));
 
 $topTitle    = 'Chamado #' . $chamado['id'];
 $topSubtitle = $chamado['titulo'];
@@ -578,40 +548,149 @@ include __DIR__ . '/../includes/head.php';
       color: var(--text);
     }
 
+    /* Anexos: miniatura para imagens (URL = chamado_download.php, como operador/cliente) */
+    .file-item.file-item--thumb {
+      align-items: center;
+    }
+
+    .file-item__thumb {
+      flex-shrink: 0;
+      display: block;
+      width: 72px;
+      height: 72px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border-soft);
+      background: var(--surface-raised, #f0f0f7);
+    }
+
+    .file-item__thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      pointer-events: none;
+    }
+
+    button.file-item__thumb {
+      cursor: zoom-in;
+      padding: 0;
+      margin: 0;
+      border: none;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+    }
+
+    /* Preview anexo (sem nova aba) */
+    .chamado-anexo-preview {
+      position: fixed;
+      inset: 0;
+      z-index: 10050;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .chamado-anexo-preview[hidden] {
+      display: none !important;
+    }
+
+    .chamado-anexo-preview__scrim {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border: 0;
+      padding: 0;
+      background: rgba(15, 23, 42, 0.82);
+      cursor: pointer;
+    }
+
+    .chamado-anexo-preview__box {
+      position: relative;
+      z-index: 1;
+      max-width: min(96vw, 1100px);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .chamado-anexo-preview__box img {
+      max-width: 100%;
+      max-height: calc(90vh - 100px);
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 14px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      background: #0f172a;
+    }
+
+    .chamado-anexo-preview__close {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      z-index: 2;
+      border-radius: 999px;
+      min-width: 40px;
+      min-height: 40px;
+      padding: 0 12px;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+
+    .chamado-anexo-preview__name {
+      margin: 0;
+      font-size: 13px;
+      color: #e2e8f0;
+      text-align: center;
+      max-width: 100%;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
   </style>
 
-  <div class="ticket-header">
-    <div>
-      <div class="ticket-id">CHAMADO #<?= $chamado['id'] ?></div>
-      <h2><?= htmlspecialchars($chamado['titulo']) ?></h2>
-      <div class="ticket-meta">
-        <span class="badge <?= status_class($chamado['status']) ?>"><?= htmlspecialchars($chamado['status']) ?></span>
-        <span class="badge <?= status_class($chamado['prioridade']) ?>">Prioridade: <?= htmlspecialchars($chamado['prioridade']) ?></span>
-        <span class="badge badge-plain">Aberto em <?= date('d/m/Y H:i', strtotime($chamado['data'])) ?></span>
-        <?php if (db_ok() && (int) ($chamado['ponto_iluminacao_id'] ?? 0) > 0): ?>
-          <?php
-            $lblPontoPi = $pontoChamado
-                ? (string) ($pontoChamado['codigo_poste'] ?? '')
-                : (string) ($chamado['ponto_codigo_poste'] ?? '');
-            $lblPontoPi = $lblPontoPi !== '' ? $lblPontoPi : '#' . (int) $chamado['ponto_iluminacao_id'];
-          ?>
-          <span class="badge badge-plain" title="Ponto de iluminação vinculado"><?= htmlspecialchars($lblPontoPi) ?></span>
-        <?php endif; ?>
+  <div class="ticket-header chamado-header-toolbar">
+    <div class="chamado-header-toolbar__body">
+      <div class="chamado-header-toolbar__identity">
+        <div class="chamado-header-toolbar__eyebrow">CHAMADO #<?= (int) $chamado['id'] ?></div>
+        <h2 class="chamado-header-toolbar__title"><?= htmlspecialchars($chamadoTituloPrincipal) ?></h2>
+        <div class="chamado-header-toolbar__badges" aria-label="Status e metadados">
+          <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--status badge <?= status_class($chamado['status']) ?>"><?= htmlspecialchars($chamado['status']) ?></span>
+          <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--prio badge <?= status_class($chamado['prioridade']) ?>" title="Prioridade"><?= htmlspecialchars($chamado['prioridade']) ?></span>
+          <?php if ($lblPosteHeader !== ''): ?>
+            <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="Poste / ponto"><?= htmlspecialchars($lblPosteHeader) ?></span>
+          <?php endif; ?>
+          <?php if ($lblCanalHeader !== ''): ?>
+            <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="Canal / origem"><?= htmlspecialchars($lblCanalHeader) ?></span>
+          <?php endif; ?>
+          <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="<?= htmlspecialchars($chamadoAbertoStr) ?>"><?= htmlspecialchars($chamadoAbertoCurto) ?></span>
+        </div>
       </div>
-    </div>
-    <div class="ticket-actions" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-      <?php if (!in_array($chamado['status'], ['Resolvido', 'Fechado', 'Cancelado'], true)): ?>
-        <form method="post" style="display:inline;">
-          <input type="hidden" name="acao" value="resolver">
-          <button class="btn btn-primary" type="submit">Marcar como resolvido</button>
-        </form>
-      <?php endif; ?>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-        <span class="muted" style="font-size:12px;">Exportar:</span>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'html'])) ?>" title="Ficha formatada para arquivo ou impressão">HTML</a>
-        <a class="btn btn-primary btn-sm" href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'pdf'])) ?>" title="Abre a ficha e sugere imprimir como PDF">PDF</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'csv'])) ?>">CSV</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'json'])) ?>">JSON</a>
+      <div class="chamado-header-toolbar__actions" aria-label="Ações rápidas">
+        <?php if (db_ok()): ?>
+          <button type="submit" form="chamado-form-os-dados"
+                  class="btn btn-secondary btn-sm chamado-header-toolbar__btn-save"
+                  id="chamado_os_salvar_manual"
+                  disabled
+                  title="Altere a ficha da OS para habilitar o salvamento">Salvar</button>
+        <?php endif; ?>
+        <?php if (!in_array($chamado['status'], ['Resolvido', 'Fechado', 'Cancelado'], true)): ?>
+          <form method="post" class="chamado-header-toolbar__form-inline">
+            <input type="hidden" name="acao" value="resolver">
+            <button class="btn btn-primary btn-sm" type="submit">Resolver</button>
+          </form>
+        <?php endif; ?>
+        <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
+           href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'pdf'])) ?>"
+           title="Resumo do chamado com anexos e fotos do poste — use Imprimir para gerar PDF">PDF</a>
+        <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
+           href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'xlsx'])) ?>"
+           title="Relatório Excel com várias abas: resumo, conversa, itens e anexos">Excel</a>
       </div>
     </div>
   </div>
@@ -636,9 +715,6 @@ include __DIR__ . '/../includes/head.php';
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
           ?>
         </div>
-        <div class="form-actions" style="margin:0;border-top:1px solid var(--border-soft);">
-          <button type="submit" class="btn btn-primary" id="chamado_os_salvar_manual">Salvar ficha</button>
-        </div>
       </form>
       <?php else: ?>
       <div class="card">
@@ -650,157 +726,244 @@ include __DIR__ . '/../includes/head.php';
       <?php endif; ?>
 
       <?php if (db_ok()): ?>
-      <div class="card">
-        <div class="panel-head" style="flex-wrap:wrap;gap:10px;">
-          <div>
+      <?php
+        $nMatU = count($chamadoMateriaisUtil);
+        $nMatD = count($chamadoMateriaisDev);
+        $nCatalogoProduto = 0;
+        $nCatalogoServico = 0;
+        $catalogoJsonForJs = [];
+        foreach ($catalogoItensChamado as $_ci) {
+            $catalogoJsonForJs[] = [
+                'id' => (int) ($_ci['id'] ?? 0),
+                'tipo' => (string) ($_ci['tipo'] ?? ''),
+                'nome' => (string) ($_ci['nome'] ?? ''),
+                'codigo' => (string) ($_ci['codigo'] ?? ''),
+                'unidade' => (string) ($_ci['unidade'] ?? ''),
+                'valor_unitario' => (float) ($_ci['valor_unitario'] ?? 0),
+            ];
+            $tt = strtolower(trim((string) ($_ci['tipo'] ?? '')));
+            if ($tt === 'produto') {
+                $nCatalogoProduto++;
+            } elseif ($tt === 'servico') {
+                $nCatalogoServico++;
+            }
+        }
+      ?>
+      <div class="card chamado-materiais-card">
+        <div class="panel-head chamado-materiais-card__head">
+          <div class="chamado-materiais-card__intro">
             <h4>Itens do atendimento</h4>
-            <span class="panel-sub">Usados e devolvidos pelo técnico, a partir do catálogo da empresa</span>
+            <span class="panel-sub">Controle de materiais utilizados e recolhidos neste chamado</span>
           </div>
-          <strong style="font-size:15px;">Valor do chamado: R$ <?= number_format($totalMateriaisChamado, 2, ',', '.') ?></strong>
+          <div class="chamado-materiais-card__stats" aria-label="Resumo rápido">
+            <div class="chamado-materiais-card__pill chamado-materiais-card__pill--valor">
+              <span>Valor do chamado</span>
+              <strong>R$ <?= number_format($totalMateriaisChamado, 2, ',', '.') ?></strong>
+            </div>
+            <div class="chamado-materiais-card__pill">
+              <span>Utilizados</span>
+              <strong><?= (int) $nMatU ?></strong>
+            </div>
+            <div class="chamado-materiais-card__pill">
+              <span>Recolhidos</span>
+              <strong><?= (int) $nMatD ?></strong>
+            </div>
+          </div>
         </div>
-        <div class="panel-body">
-          <?php if (empty($chamadoMateriais)): ?>
-            <p class="muted" style="margin:0 0 12px;">Nenhum item lançado ainda.</p>
-          <?php else: ?>
-            <div class="table-wrap chamado-itens-table chamado-itens-table--admin" style="margin-bottom:16px;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Movimento</th>
-                    <th>Item</th>
-                    <th>Tipo</th>
-                    <th class="text-right">Qtd</th>
-                    <th class="text-right">V. unit.</th>
-                    <th class="text-right">Subtotal</th>
-                    <th>Observação</th>
-                    <th class="text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <?php foreach ($chamadoMateriais as $lm): ?>
-                  <tr>
-                    <td><span class="badge <?= ($lm['movimento'] ?? '') === 'devolvido' ? 'info' : 'success' ?>"><?= ($lm['movimento'] ?? '') === 'devolvido' ? 'Devolvido' : 'Usado' ?></span></td>
-                    <td><?= htmlspecialchars((string) ($lm['item_nome'] ?? '')) ?></td>
-                    <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
-                    <td class="text-right">
-                      <form method="post" style="display:inline-flex;gap:6px;align-items:center;justify-content:flex-end;">
-                        <input type="hidden" name="acao" value="chamado_item_qtd">
-                        <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                        <input type="text" name="quantidade" class="input" style="width:88px;text-align:right;" placeholder="Qtd."
-                               value="<?= htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.')) ?>">
-                        <button type="submit" class="btn btn-secondary btn-sm">OK</button>
-                      </form>
-                    </td>
-                    <td class="text-right td-mute">R$ <?= number_format((float) ($lm['valor_unitario'] ?? 0), 4, ',', '.') ?></td>
-                    <td class="text-right"><strong>R$ <?= number_format((float) ($lm['subtotal'] ?? 0), 2, ',', '.') ?></strong></td>
-                    <td class="td-mute"><?= htmlspecialchars((string) ($lm['observacao'] ?? '')) ?></td>
-                    <td class="text-right">
-                      <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
-                        <input type="hidden" name="acao" value="chamado_item_del">
-                        <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                        <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                      </form>
-                    </td>
-                  </tr>
-                  <?php endforeach; ?>
-                </tbody>
-              </table>
+        <div class="panel-body chamado-materiais-card__body">
+          <section class="chamado-materiais-block chamado-materiais-block--uso" aria-labelledby="ch-mat-uso-title">
+            <div class="chamado-materiais-block__bar">
+              <h5 id="ch-mat-uso-title" class="chamado-materiais-block__title">Itens utilizados</h5>
+              <div class="chamado-materiais-block__actions">
+                <button type="button" class="btn btn-primary btn-sm js-cham-mat-open-pick" data-pick-mov="utilizado" data-catalog-tipo="produto"
+                  <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo da empresa"' : '' ?>>Novo item</button>
+                <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-pick" data-pick-mov="utilizado" data-catalog-tipo="servico"
+                  <?= $nCatalogoServico < 1 ? 'disabled title="Sem serviços no catálogo da empresa"' : '' ?>>Novo serviço</button>
+              </div>
             </div>
-          <?php endif; ?>
+            <?php if (empty($chamadoMateriaisUtil)): ?>
+              <div class="chamado-materiais-empty">
+                <p>Nenhum item utilizado lançado ainda.</p>
+                <small>Adicione produtos ou serviços aplicados neste atendimento.</small>
+              </div>
+            <?php else: ?>
+              <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
+                <table class="chamado-materiais-table chamado-materiais-table--uso">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Tipo</th>
+                      <th class="text-right">Qtd</th>
+                      <th class="text-right">V. unit.</th>
+                      <th class="text-right">Total</th>
+                      <th class="text-right td-actions">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($chamadoMateriaisUtil as $lm): ?>
+                    <?php
+                      $qDisp = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
+                      $lblItem = (string) ($lm['item_nome'] ?? '');
+                      $codLm = trim((string) ($lm['item_codigo'] ?? ''));
+                    ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($lblItem) ?></strong>
+                        <?php if ($codLm !== ''): ?>
+                          <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLm) ?></div>
+                        <?php endif; ?>
+                      </td>
+                      <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
+                      <td class="text-right"><?= $qDisp ?></td>
+                      <td class="text-right td-mute">R$ <?= number_format((float) ($lm['valor_unitario'] ?? 0), 4, ',', '.') ?></td>
+                      <td class="text-right"><strong>R$ <?= number_format((float) ($lm['subtotal'] ?? 0), 2, ',', '.') ?></strong></td>
+                      <td class="text-right td-actions">
+                        <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
+                          data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
+                          data-qty="<?= $qDisp ?>"
+                          data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                          data-item-label="<?= htmlspecialchars($lblItem, ENT_QUOTES, 'UTF-8') ?>"
+                          data-movimento="utilizado">Editar</button>
+                        <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
+                          <input type="hidden" name="acao" value="chamado_item_del">
+                          <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
+                          <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+                        </form>
+                      </td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            <?php endif; ?>
+          </section>
 
-          <form method="post" class="form-grid form-grid--chamado-item-add">
-            <input type="hidden" name="acao" value="chamado_item_add">
-            <div class="chamado-item-add-toprow">
-              <div class="form-group chamado-item-add-field--mov">
-                <label for="movimento_mat">Movimento</label>
-                <select id="movimento_mat" name="movimento" class="select">
-                  <option value="utilizado">Usado no chamado</option>
-                  <option value="devolvido">Devolvido/recolhido</option>
-                </select>
-              </div>
-              <div class="form-group chamado-item-add-field--qtd">
-                <label for="qtd_mat">Quantidade</label>
-                <input type="text" id="qtd_mat" name="quantidade" class="input" value="1" inputmode="decimal" required placeholder="Ex.: 1 ou 1,5">
-              </div>
-              <div class="chamado-item-add-submit">
-                <button type="submit" class="btn btn-primary">Lançar</button>
-              </div>
+          <section class="chamado-materiais-block chamado-materiais-block--dev" aria-labelledby="ch-mat-dev-title">
+            <div class="chamado-materiais-block__bar">
+              <h5 id="ch-mat-dev-title" class="chamado-materiais-block__title">Devolvidos / recolhidos</h5>
+              <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-pick" data-pick-mov="devolvido" data-catalog-tipo="produto"
+                <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo para recolhimento"' : '' ?>>Recolher produto</button>
             </div>
-            <div class="form-group chamado-item-add-catalog">
-              <label for="filtro_catalogo_chamado_mat">Item do catálogo</label>
-              <div class="chamado-catalog-combo">
-                <input type="search" class="input chamado-catalog-search" id="filtro_catalogo_chamado_mat" autocomplete="off"
-                       placeholder="Digite para buscar — a lista abaixo mostra só algumas linhas filtradas"
-                       aria-describedby="hint_catalogo_chamado_mat">
-                <select id="item_id_mat" name="item_id" class="select chamado-catalog-select" required size="5"
-                        aria-label="Itens do catálogo (use setas ou clique)">
-                  <option value="">— Selecione —</option>
-                  <?php foreach ($catalogoItensChamado as $ci): ?>
-                    <option value="<?= (int) $ci['id'] ?>">
-                      <?= htmlspecialchars((string) ($ci['tipo'] ?? '')) ?> · <?= htmlspecialchars((string) ($ci['nome'] ?? '')) ?>
-                      (R$ <?= number_format((float) ($ci['valor_unitario'] ?? 0), 2, ',', '.') ?>)
-                    </option>
-                  <?php endforeach; ?>
-                </select>
+            <?php if (empty($chamadoMateriaisDev)): ?>
+              <div class="chamado-materiais-empty chamado-materiais-empty--muted">
+                <p>Nenhum item recolhido lançado ainda.</p>
+                <small>Registre materiais retirados, devolvidos ou recolhidos no atendimento.</small>
               </div>
-              <span class="hint" id="hint_catalogo_chamado_mat">Digite para filtrar · seta ↓ no campo de busca abre a lista · depois use «Lançar».</span>
-            </div>
-            <div class="form-group">
-              <label for="obs_mat">Observação</label>
-              <input type="text" id="obs_mat" name="observacao" class="input" placeholder="Ex.: lâmpada queimada recolhida">
-            </div>
-          </form>
+            <?php else: ?>
+              <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
+                <table class="chamado-materiais-table chamado-materiais-table--dev">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Tipo</th>
+                      <th class="text-right">Qtd</th>
+                      <th class="text-right td-actions">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($chamadoMateriaisDev as $lm): ?>
+                    <?php
+                      $qDispD = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
+                      $lblItemD = (string) ($lm['item_nome'] ?? '');
+                      $codLmD = trim((string) ($lm['item_codigo'] ?? ''));
+                    ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($lblItemD) ?></strong>
+                        <?php if ($codLmD !== ''): ?>
+                          <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLmD) ?></div>
+                        <?php endif; ?>
+                      </td>
+                      <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
+                      <td class="text-right"><?= $qDispD ?></td>
+                      <td class="text-right td-actions">
+                        <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
+                          data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
+                          data-qty="<?= $qDispD ?>"
+                          data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                          data-item-label="<?= htmlspecialchars($lblItemD, ENT_QUOTES, 'UTF-8') ?>"
+                          data-movimento="devolvido">Editar</button>
+                        <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
+                          <input type="hidden" name="acao" value="chamado_item_del">
+                          <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
+                          <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+                        </form>
+                      </td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            <?php endif; ?>
+          </section>
+
           <?php if (empty($catalogoItensChamado)): ?>
-            <p class="muted" style="margin-top:12px;margin-bottom:0;font-size:13px;">
-              Sem itens ativos no catálogo desta empresa.
-            </p>
+            <p class="muted chamado-materiais-catalog-empty">Sem itens ativos no catálogo desta empresa.</p>
           <?php endif; ?>
         </div>
       </div>
-      <?php endif; ?>
 
-      <?php if (db_ok()): ?>
-      <div class="card">
-        <div class="panel-head">
-          <h4>Aprovação do gestor</h4>
-          <span class="panel-sub">Checklist do que foi realizado e aprovação final do chamado</span>
-        </div>
-        <div class="panel-body">
-          <?php if (!empty($chamado['aprovado_gestor_em'])): ?>
-            <div class="panel-note">
-              <div class="panel-head"><h4>Atendimento aprovado</h4></div>
-              <div class="panel-body" style="line-height:1.6;">
-                <p class="muted" style="margin:0 0 8px;">
-                  Aprovado por <?= htmlspecialchars((string) ($chamado['aprovado_gestor_nome'] ?? 'gestor')) ?>
-                  em <?= date('d/m/Y H:i', strtotime((string) $chamado['aprovado_gestor_em'])) ?>.
-                </p>
-                <?php if (!empty($chamado['checklist_realizado'])): ?>
-                  <strong>Checklist realizado</strong>
-                  <p style="margin:6px 0 0;color:var(--muted);"><?= nl2br(htmlspecialchars((string) $chamado['checklist_realizado'])) ?></p>
-                <?php endif; ?>
+      <div id="chamado-mat-modal-pick" class="chamado-mat-modal" hidden aria-hidden="true">
+        <button type="button" class="chamado-mat-modal__scrim" data-cham-mat-pick-close tabindex="-1" aria-label="Fechar"></button>
+        <div class="chamado-mat-modal__box chamado-mat-modal__box--pick" role="dialog" aria-modal="true" aria-labelledby="chamado-mat-pick-title">
+          <header class="chamado-mat-modal__head">
+            <h3 id="chamado-mat-pick-title">Catálogo</h3>
+            <button type="button" class="btn btn-ghost btn-sm" data-cham-mat-pick-close aria-label="Fechar">✕</button>
+          </header>
+          <div class="chamado-mat-modal__body chamado-mat-modal__body--pick">
+            <form id="chamado-mat-form-pick" method="post" class="chamado-mat-form">
+              <input type="hidden" name="acao" value="chamado_item_add">
+              <input type="hidden" name="movimento" id="chamado-mat-pick-mov" value="utilizado">
+              <input type="hidden" name="item_id" id="chamado-mat-pick-item-id" value="">
+              <div class="form-group">
+                <label for="chamado-mat-pick-busca">Buscar no catálogo</label>
+                <input type="search" id="chamado-mat-pick-busca" class="input" autocomplete="off" placeholder="Nome ou código">
               </div>
-            </div>
-          <?php elseif (!empty($chamado['finalizado_operador_em'])): ?>
-            <form method="post" class="form-stack" style="display:flex;flex-direction:column;gap:12px;">
-              <input type="hidden" name="acao" value="aprovar_execucao">
-              <p class="muted" style="margin:0;">
-                Técnico finalizou em <?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?>.
-                Confira os itens usados/devolvidos e registre o checklist antes de aprovar.
-              </p>
-              <div class="form-group" style="margin:0;">
-                <label for="checklist_realizado">Checklist do que foi realizado</label>
-                <textarea id="checklist_realizado" name="checklist_realizado" class="textarea" rows="4"
-                          placeholder="Ex.: troca de 2 lâmpadas, teste de funcionamento, recolhimento dos itens queimados..."><?= htmlspecialchars((string) ($chamado['checklist_realizado'] ?? '')) ?></textarea>
+              <div id="chamado-mat-pick-results" class="chamado-mat-results chamado-mat-results--modal" role="listbox" aria-label="Itens filtrados"></div>
+              <div id="chamado-mat-pick-preview" class="chamado-mat-preview" hidden>
+                <strong id="chamado-mat-pick-preview-nome"></strong>
+                <div class="chamado-mat-preview__meta" id="chamado-mat-pick-preview-meta"></div>
               </div>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Aprovar execução e resolver chamado</button>
+              <div class="form-group">
+                <label for="chamado-mat-pick-qty">Quantidade</label>
+                <input type="text" name="quantidade" id="chamado-mat-pick-qty" class="input" value="1" inputmode="decimal" required placeholder="Ex.: 1 ou 1,5">
               </div>
             </form>
-          <?php else: ?>
-            <p class="muted" style="margin:0;">Aguardando o técnico finalizar o atendimento pelo PWA.</p>
-          <?php endif; ?>
+          </div>
+          <footer class="chamado-mat-modal__foot">
+            <button type="button" class="btn btn-secondary" data-cham-mat-pick-close>Cancelar</button>
+            <button type="submit" form="chamado-mat-form-pick" class="btn btn-primary" id="chamado-mat-pick-submit">Adicionar ao chamado</button>
+          </footer>
         </div>
       </div>
+
+      <div id="chamado-mat-drawer" class="chamado-mat-drawer" hidden aria-hidden="true">
+        <div class="chamado-mat-drawer__backdrop" data-cham-mat-close tabindex="-1"></div>
+        <aside class="chamado-mat-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="chamado-mat-drawer-title">
+          <header class="chamado-mat-drawer__header">
+            <h3 id="chamado-mat-drawer-title">Adicionar item</h3>
+            <button type="button" class="btn btn-ghost btn-sm" data-cham-mat-close aria-label="Fechar">✕</button>
+          </header>
+          <div class="chamado-mat-drawer__body">
+            <form id="chamado-mat-form-edit" method="post" class="chamado-mat-form" hidden>
+              <input type="hidden" name="acao" value="chamado_item_edit">
+              <input type="hidden" name="linha_id" id="chamado-mat-edit-linha-id" value="">
+              <p class="chamado-mat-edit-itemline" id="chamado-mat-edit-itemlabel"></p>
+              <div class="form-group">
+                <label for="chamado-mat-qty-edit">Quantidade</label>
+                <input type="text" name="quantidade" id="chamado-mat-qty-edit" class="input" inputmode="decimal" required>
+              </div>
+              <input type="hidden" name="observacao" id="chamado-mat-obs-edit-preserve" value="">
+              <div class="chamado-mat-drawer__actions">
+                <button type="button" class="btn btn-secondary" data-cham-mat-close>Cancelar</button>
+                <button type="submit" class="btn btn-primary">Salvar alterações</button>
+              </div>
+            </form>
+          </div>
+        </aside>
+      </div>
+
+      <script type="application/json" id="chamado-catalogo-json"><?= json_encode($catalogoJsonForJs, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS) ?></script>
       <?php endif; ?>
 
       <!-- CONVERSA -->
@@ -880,6 +1043,50 @@ include __DIR__ . '/../includes/head.php';
     </div>
 
     <aside class="flex-col" style="gap:18px;">
+      <?php if (db_ok()): ?>
+      <div class="card">
+        <div class="panel-head">
+          <h4>Aprovação do gestor</h4>
+          <span class="panel-sub">Checklist do que foi realizado e aprovação final do chamado</span>
+        </div>
+        <div class="panel-body">
+          <?php if (!empty($chamado['aprovado_gestor_em'])): ?>
+            <div class="panel-note">
+              <div class="panel-head"><h4>Atendimento aprovado</h4></div>
+              <div class="panel-body" style="line-height:1.6;">
+                <p class="muted" style="margin:0 0 8px;">
+                  Aprovado por <?= htmlspecialchars((string) ($chamado['aprovado_gestor_nome'] ?? 'gestor')) ?>
+                  em <?= date('d/m/Y H:i', strtotime((string) $chamado['aprovado_gestor_em'])) ?>.
+                </p>
+                <?php if (!empty($chamado['checklist_realizado'])): ?>
+                  <strong>Checklist realizado</strong>
+                  <p style="margin:6px 0 0;color:var(--muted);"><?= nl2br(htmlspecialchars((string) $chamado['checklist_realizado'])) ?></p>
+                <?php endif; ?>
+              </div>
+            </div>
+          <?php elseif (!empty($chamado['finalizado_operador_em'])): ?>
+            <form method="post" class="form-stack" style="display:flex;flex-direction:column;gap:12px;">
+              <input type="hidden" name="acao" value="aprovar_execucao">
+              <p class="muted" style="margin:0;">
+                Técnico finalizou em <?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?>.
+                Confira os itens usados/devolvidos e registre o checklist antes de aprovar.
+              </p>
+              <div class="form-group" style="margin:0;">
+                <label for="checklist_realizado">Checklist do que foi realizado</label>
+                <textarea id="checklist_realizado" name="checklist_realizado" class="textarea" rows="4"
+                          placeholder="Ex.: troca de 2 lâmpadas, teste de funcionamento, recolhimento dos itens queimados..."><?= htmlspecialchars((string) ($chamado['checklist_realizado'] ?? '')) ?></textarea>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Aprovar execução e resolver chamado</button>
+              </div>
+            </form>
+          <?php else: ?>
+            <p class="muted" style="margin:0;">Aguardando o técnico finalizar o atendimento pelo PWA.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <!-- INFORMAÇÕES -->
       <div class="card">
         <div class="panel-head"><h4>Informações</h4></div>
@@ -914,7 +1121,6 @@ include __DIR__ . '/../includes/head.php';
           </div>
 
           <div class="info-row"><span>Prioridade</span><strong><?= htmlspecialchars($chamado['prioridade']) ?></strong></div>
-          <div class="info-row"><span>Valor do chamado</span><strong>R$ <?= number_format($totalMateriaisChamado, 2, ',', '.') ?></strong></div>
           <?php if (!empty($chamado['finalizado_operador_em'])): ?>
             <div class="info-row"><span>Finalizado pelo técnico</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?></strong></div>
           <?php endif; ?>
@@ -1057,7 +1263,7 @@ include __DIR__ . '/../includes/head.php';
       <div class="card equipe-picker-card">
         <div class="panel-head">
           <h4>Equipe no chamado</h4>
-          <span class="panel-sub">Quem vai ao campo neste atendimento — em geral dupla ou trio. Toque no nome para incluir ou tirar.</span>
+          <span class="panel-sub">Quem vai ao campo neste atendimento — em geral dupla ou trio. Toque no nome para incluir ou tirar; use <strong>Salvar equipe</strong> para gravar.</span>
         </div>
         <div class="panel-body">
           <?php if (empty($tecnicosChamado)): ?>
@@ -1165,7 +1371,22 @@ include __DIR__ . '/../includes/head.php';
               <small>Use "+ Anexo" no formulário de resposta.</small>
             </div>
           <?php else: foreach ($anexos as $a): ?>
-            <div class="file-item">
+            <?php
+              $nomeAnexo = (string) ($a['nome_original'] ?? '');
+              $mimeAnexo = strtolower((string) ($a['mime'] ?? ''));
+              $anexoEhImagem = upload_extensao_imagem($nomeAnexo)
+                  || (strncmp($mimeAnexo, 'image/', 8) === 0 && strpos($mimeAnexo, 'svg') === false);
+              $urlAnexoDl = 'chamado_download.php?id=' . (int) $a['id'];
+            ?>
+            <div class="file-item<?= $anexoEhImagem ? ' file-item--thumb' : '' ?>">
+              <?php if ($anexoEhImagem): ?>
+                <button type="button" class="file-item__thumb js-chamado-anexo-preview"
+                        data-preview-src="<?= htmlspecialchars($urlAnexoDl, ENT_QUOTES, 'UTF-8') ?>"
+                        data-preview-title="<?= htmlspecialchars($nomeAnexo, ENT_QUOTES, 'UTF-8') ?>"
+                        aria-label="Ver imagem em tamanho maior">
+                  <img src="<?= htmlspecialchars($urlAnexoDl) ?>" alt="" loading="lazy" width="72" height="72">
+                </button>
+              <?php endif; ?>
               <span class="file-item__meta">
                 <?= upload_icone_por_ext($a['nome_original']) ?>
                 <strong><?= htmlspecialchars($a['nome_original']) ?></strong><br>
@@ -1177,7 +1398,7 @@ include __DIR__ . '/../includes/head.php';
                 </small>
               </span>
               <div class="file-item-actions">
-                <a class="btn btn-primary btn-sm" href="chamado_download.php?id=<?= (int) $a['id'] ?>">Baixar</a>
+                <a class="btn btn-primary btn-sm" href="<?= htmlspecialchars($urlAnexoDl) ?>">Baixar</a>
                 <form method="post" action="chamado_detalhe.php?id=<?= (int) $id ?>">
                   <input type="hidden" name="acao" value="excluir_anexo">
                   <input type="hidden" name="anexo_id" value="<?= (int) $a['id'] ?>">
@@ -1193,7 +1414,74 @@ include __DIR__ . '/../includes/head.php';
 
     </aside>
   </div>
+
+  <div id="chamado-anexo-preview" class="chamado-anexo-preview" hidden role="dialog" aria-modal="true"
+       aria-labelledby="chamado-anexo-preview-title">
+    <button type="button" class="chamado-anexo-preview__scrim" data-chamado-anexo-preview-close aria-label="Fechar pré-visualização"></button>
+    <div class="chamado-anexo-preview__box">
+      <button type="button" class="chamado-anexo-preview__close btn btn-secondary" data-chamado-anexo-preview-close>Fechar</button>
+      <img id="chamado-anexo-preview-img" src="" alt="" decoding="async">
+      <p id="chamado-anexo-preview-title" class="chamado-anexo-preview__name"></p>
+    </div>
+  </div>
 </section>
+
+<script>
+(function () {
+  var root = document.getElementById('chamado-anexo-preview');
+  if (!root) return;
+  var img = document.getElementById('chamado-anexo-preview-img');
+  var titleEl = document.getElementById('chamado-anexo-preview-title');
+  var lastFocus = null;
+
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+  }
+
+  function close() {
+    root.hidden = true;
+    root.setAttribute('aria-hidden', 'true');
+    if (img) {
+      img.removeAttribute('src');
+      img.alt = '';
+    }
+    if (titleEl) titleEl.textContent = '';
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', onKey);
+    if (lastFocus && typeof lastFocus.focus === 'function') {
+      try { lastFocus.focus(); } catch (err) {}
+    }
+    lastFocus = null;
+  }
+
+  function open(src, title) {
+    if (!img || !src) return;
+    lastFocus = document.activeElement;
+    img.src = src;
+    img.alt = title || '';
+    if (titleEl) titleEl.textContent = title || '';
+    root.hidden = false;
+    root.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKey);
+    var btnFechar = root.querySelector('.chamado-anexo-preview__close');
+    if (btnFechar) setTimeout(function () { try { btnFechar.focus(); } catch (e2) {} }, 0);
+  }
+
+  document.addEventListener('click', function (e) {
+    var thumb = e.target.closest('.js-chamado-anexo-preview');
+    if (thumb) {
+      e.preventDefault();
+      open(thumb.getAttribute('data-preview-src'), thumb.getAttribute('data-preview-title') || '');
+      return;
+    }
+    if (e.target.closest('[data-chamado-anexo-preview-close]')) {
+      e.preventDefault();
+      close();
+    }
+  });
+})();
+</script>
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -1210,55 +1498,222 @@ include __DIR__ . '/../includes/head.php';
 <?php endif; ?>
 <script>
 (function () {
-  var sel = document.getElementById('item_id_mat');
-  var filtro = document.getElementById('filtro_catalogo_chamado_mat');
-  if (!sel || !filtro) return;
-  var opts = Array.from(sel.options);
+  var jsonEl = document.getElementById('chamado-catalogo-json');
+  var drawer = document.getElementById('chamado-mat-drawer');
+  var formEdit = document.getElementById('chamado-mat-form-edit');
+  var titleEl = document.getElementById('chamado-mat-drawer-title');
+  var pickModal = document.getElementById('chamado-mat-modal-pick');
+  var pickBusca = document.getElementById('chamado-mat-pick-busca');
+  var pickResults = document.getElementById('chamado-mat-pick-results');
+  var pickPreview = document.getElementById('chamado-mat-pick-preview');
+  var pickPreviewNome = document.getElementById('chamado-mat-pick-preview-nome');
+  var pickPreviewMeta = document.getElementById('chamado-mat-pick-preview-meta');
+  var pickInpItemId = document.getElementById('chamado-mat-pick-item-id');
+  var pickQty = document.getElementById('chamado-mat-pick-qty');
+  var pickTitle = document.getElementById('chamado-mat-pick-title');
+  var pickMovInput = document.getElementById('chamado-mat-pick-mov');
+  var pickSubmitBtn = document.getElementById('chamado-mat-pick-submit');
+  var formPick = document.getElementById('chamado-mat-form-pick');
+  var pickTipoFilter = 'produto';
+  var pickContextMov = 'utilizado';
+  if (!drawer || !formEdit) return;
 
-  function firstVisibleWithValue() {
-    for (var i = 0; i < sel.options.length; i++) {
-      var o = sel.options[i];
-      if (!o.hidden && o.value !== '') return i;
+  var catalog = [];
+  if (jsonEl) {
+    try {
+      catalog = JSON.parse(jsonEl.textContent || '[]');
+    } catch (e) {
+      catalog = [];
     }
-    return 0;
   }
 
-  function applyFilter() {
-    var q = filtro.value.trim().toLowerCase();
-    opts.forEach(function (o) {
-      if (o.value === '') {
-        o.hidden = false;
-        return;
-      }
-      if (!q) {
-        o.hidden = false;
-        return;
-      }
-      o.hidden = o.textContent.toLowerCase().indexOf(q) === -1;
+  function fmtMoney(n) {
+    return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function normTipo(t) {
+    return String(t == null ? '' : t).trim().toLowerCase();
+  }
+
+  function closeDrawer() {
+    drawer.hidden = true;
+    drawer.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  function openDrawer() {
+    drawer.hidden = false;
+    drawer.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function clearPickSelection() {
+    if (!pickInpItemId || !pickPreview || !pickPreviewNome || !pickPreviewMeta) return;
+    pickInpItemId.value = '';
+    pickPreview.hidden = true;
+    pickPreviewNome.textContent = '';
+    pickPreviewMeta.textContent = '';
+  }
+
+  function selectPickItem(it) {
+    if (!pickInpItemId || !pickPreview || !pickPreviewNome || !pickPreviewMeta) return;
+    pickInpItemId.value = String(it.id);
+    pickPreview.hidden = false;
+    pickPreviewNome.textContent = it.nome || '';
+    var parts = [];
+    parts.push('Tipo: ' + (it.tipo || '—'));
+    if (it.codigo) parts.push('Cód.: ' + String(it.codigo));
+    parts.push('Valor unit.: R$ ' + fmtMoney(it.valor_unitario));
+    if (it.unidade) parts.push('Un.: ' + it.unidade);
+    pickPreviewMeta.textContent = parts.join(' · ');
+  }
+
+  function renderPickResults(q) {
+    if (!pickResults) return;
+    q = (q || '').trim().toLowerCase();
+    pickResults.innerHTML = '';
+    var base = catalog.filter(function (it) {
+      return normTipo(it.tipo) === pickTipoFilter;
     });
-    var cur = sel.selectedOptions[0];
-    if (cur && cur.hidden) {
-      sel.selectedIndex = 0;
-    }
-  }
-
-  filtro.addEventListener('input', applyFilter);
-
-  filtro.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      sel.focus();
-      sel.selectedIndex = firstVisibleWithValue();
+    var list = base.filter(function (it) {
+      if (!q) return true;
+      var blob = [it.nome, it.tipo, it.codigo || ''].join(' ').toLowerCase();
+      return blob.indexOf(q) !== -1;
+    });
+    if (!list.length) {
+      var emptyMsg = pickContextMov === 'devolvido'
+        ? 'Nenhum produto disponível no catálogo para recolhimento.'
+        : 'Nenhum item encontrado neste filtro.';
+      pickResults.innerHTML = '<p class="chamado-mat-results-empty muted">' + escHtml(emptyMsg) + '</p>';
       return;
     }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      sel.focus();
-      if (sel.selectedIndex <= 0 || (sel.selectedOptions[0] && sel.selectedOptions[0].hidden)) {
-        sel.selectedIndex = firstVisibleWithValue();
-      }
+    list.slice(0, 120).forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chamado-mat-results__opt';
+      b.setAttribute('role', 'option');
+      b.innerHTML = '<span class="chamado-mat-results__nome">' + escHtml(it.nome || '') + '</span>' +
+        '<span class="chamado-mat-results__sub muted">' + escHtml(it.codigo ? String(it.codigo) : '—') +
+        ' · R$ ' + fmtMoney(it.valor_unitario) + '</span>';
+      b.addEventListener('click', function () {
+        pickResults.querySelectorAll('.chamado-mat-results__opt.is-active').forEach(function (x) {
+          x.classList.remove('is-active');
+        });
+        b.classList.add('is-active');
+        selectPickItem(it);
+      });
+      pickResults.appendChild(b);
+    });
+  }
+
+  function closePickModal() {
+    if (!pickModal) return;
+    pickModal.hidden = true;
+    pickModal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  function openPickModal(opts) {
+    opts = opts || {};
+    var mov = opts.mov === 'devolvido' ? 'devolvido' : 'utilizado';
+    var catTipo = opts.catalogTipo === 'servico' ? 'servico' : 'produto';
+    pickContextMov = mov;
+    if (pickMovInput) pickMovInput.value = mov;
+    if (mov === 'devolvido') {
+      pickTipoFilter = 'produto';
+      if (pickTitle) pickTitle.textContent = 'Recolher produto';
+      if (pickSubmitBtn) pickSubmitBtn.textContent = 'Registrar recolhimento';
+    } else {
+      pickTipoFilter = catTipo === 'servico' ? 'servico' : 'produto';
+      if (pickTitle) pickTitle.textContent = catTipo === 'servico' ? 'Novo serviço' : 'Novo item';
+      if (pickSubmitBtn) pickSubmitBtn.textContent = 'Adicionar ao chamado';
     }
+    if (!pickModal) return;
+    clearPickSelection();
+    if (pickBusca) pickBusca.value = '';
+    renderPickResults('');
+    if (pickQty) pickQty.value = '1';
+    pickModal.hidden = false;
+    pickModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    setTimeout(function () { if (pickBusca) pickBusca.focus(); }, 50);
+  }
+
+  document.querySelectorAll('.js-cham-mat-open-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      formEdit.hidden = false;
+      var lid = document.getElementById('chamado-mat-edit-linha-id');
+      var qe = document.getElementById('chamado-mat-qty-edit');
+      var oe = document.getElementById('chamado-mat-obs-edit-preserve');
+      var lbl = document.getElementById('chamado-mat-edit-itemlabel');
+      if (lid) lid.value = btn.getAttribute('data-linha-id') || '';
+      if (qe) qe.value = btn.getAttribute('data-qty') || '1';
+      if (oe) oe.value = btn.getAttribute('data-obs') || '';
+      if (lbl) lbl.textContent = btn.getAttribute('data-item-label') || '';
+      if (titleEl) titleEl.textContent = 'Editar lançamento';
+      openDrawer();
+      setTimeout(function () { if (qe) qe.focus(); }, 50);
+    });
   });
+
+  drawer.querySelectorAll('[data-cham-mat-close]').forEach(function (el) {
+    el.addEventListener('click', closeDrawer);
+  });
+
+  document.querySelectorAll('.js-cham-mat-open-pick').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      var mov = btn.getAttribute('data-pick-mov') || 'utilizado';
+      var catalogTipo = btn.getAttribute('data-catalog-tipo') || 'produto';
+      openPickModal({ mov: mov, catalogTipo: catalogTipo });
+    });
+  });
+
+  if (pickModal) {
+    pickModal.querySelectorAll('[data-cham-mat-pick-close]').forEach(function (el) {
+      el.addEventListener('click', closePickModal);
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (pickModal && !pickModal.hidden) {
+      closePickModal();
+      return;
+    }
+    if (!drawer.hidden) closeDrawer();
+  });
+
+  if (pickBusca && pickResults) {
+    pickBusca.addEventListener('input', function () {
+      renderPickResults(pickBusca.value);
+      clearPickSelection();
+      pickResults.querySelectorAll('.chamado-mat-results__opt.is-active').forEach(function (x) {
+        x.classList.remove('is-active');
+      });
+    });
+  }
+
+  if (formPick) {
+    formPick.addEventListener('submit', function (e) {
+      if (!pickInpItemId || !pickInpItemId.value) {
+        e.preventDefault();
+        if (typeof window.appAlert === 'function') {
+          window.appAlert('Selecione um item do catálogo na lista.');
+        } else {
+          alert('Selecione um item do catálogo na lista.');
+        }
+      }
+    });
+  }
 })();
 
 (function () {
@@ -1308,7 +1763,7 @@ include __DIR__ . '/../includes/head.php';
   updateCount();
 })();
 
-/** Recarrega chamado_detalhe após edição: salva ficha OS e equipe automaticamente. */
+/** Autosave da ficha OS (select/datas/checkbox rápido; texto com debounce). Equipe só grava em «Salvar equipe». */
 (function () {
   var DEBOUNCE_TEXT_MS = 1100;
 
@@ -1325,7 +1780,38 @@ include __DIR__ . '/../includes/head.php';
   var osForm = document.getElementById('chamado-form-os-dados');
   var osSilent = document.getElementById('chamado_os_silent_autosave');
   var osBtnManual = document.getElementById('chamado_os_salvar_manual');
+
+  function osFormSnapshot() {
+    if (!osForm) return '';
+    try {
+      var fd = new FormData(osForm);
+      var parts = [];
+      fd.forEach(function (v, k) {
+        if (k === 'silent_autosave') return;
+        parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(String(v)));
+      });
+      parts.sort();
+      return parts.join('&');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  var osInitialSnap = '';
+  function osUpdateSalvarButton() {
+    if (!osBtnManual || !osForm) return;
+    var dirty = osFormSnapshot() !== osInitialSnap;
+    osBtnManual.disabled = !dirty;
+    osBtnManual.title = dirty ? 'Gravar alterações da ordem de serviço' : 'Altere a ficha da OS para habilitar o salvamento';
+    osBtnManual.classList.toggle('is-dirty', dirty);
+    osBtnManual.classList.toggle('btn-primary', dirty);
+    osBtnManual.classList.toggle('btn-secondary', !dirty);
+  }
+
   if (osForm && osSilent) {
+    osInitialSnap = osFormSnapshot();
+    osUpdateSalvarButton();
+
     var osTimer = null;
     function scheduleOsSave(e) {
       var delay = e && immediateTarget(e.target) ? 60 : DEBOUNCE_TEXT_MS;
@@ -1339,11 +1825,13 @@ include __DIR__ . '/../includes/head.php';
     osForm.addEventListener('change', function (e) {
       var t = e.target;
       if (!t || !t.name || t.name === 'acao' || t.name === 'silent_autosave') return;
+      osUpdateSalvarButton();
       scheduleOsSave(e);
     });
     osForm.addEventListener('input', function (e) {
       var t = e.target;
       if (!t || !t.name || t.name === 'acao' || t.name === 'silent_autosave') return;
+      osUpdateSalvarButton();
       if (immediateTarget(t)) return;
       scheduleOsSave(e);
     });
@@ -1358,31 +1846,6 @@ include __DIR__ . '/../includes/head.php';
         osSilent.value = '';
       });
     }
-  }
-
-  var equipeForm = document.getElementById('equipe_picker_form');
-  var equipeSilent = document.getElementById('chamado_equipe_silent_autosave');
-  if (equipeForm && equipeSilent) {
-    var eqTimer = null;
-    equipeForm.addEventListener('change', function (e) {
-      var t = e.target;
-      if (!t || t.name !== 'tecnico_user_ids[]') return;
-      if (eqTimer) clearTimeout(eqTimer);
-      eqTimer = window.setTimeout(function () {
-        eqTimer = null;
-        equipeSilent.value = '1';
-        equipeForm.submit();
-      }, 400);
-    });
-    equipeForm.addEventListener('submit', function (e) {
-      if (eqTimer) {
-        clearTimeout(eqTimer);
-        eqTimer = null;
-      }
-      if (e.submitter && e.submitter.type === 'submit') {
-        equipeSilent.value = '';
-      }
-    });
   }
 })();
 </script>

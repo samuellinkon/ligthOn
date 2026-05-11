@@ -2,6 +2,7 @@
     "require": {
         "dompdf/dompdf": "^3.1",
         "setasign/fpdi": "^2.6",
-        "fpdf/fpdf": "^1.86"
+        "fpdf/fpdf": "^1.86",
+        "phpoffice/phpspreadsheet": "^2.2"
     }
 }
