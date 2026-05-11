@@ -321,27 +321,27 @@ include __DIR__ . '/../includes/head.php';
               </div>
               <div class="form-group full">
                 <label for="titulo2">Título</label>
-                <input class="input" id="titulo2" name="titulo" value="<?= htmlspecialchars((string) $os['titulo']) ?>" required>
+                <input class="input" id="titulo2" name="titulo" value="<?= htmlspecialchars((string) $os['titulo']) ?>" required placeholder="Resumo da ordem de serviço">
               </div>
               <div class="form-group full">
                 <label for="desc2">Descrição</label>
-                <textarea class="textarea" id="desc2" name="descricao" rows="4"><?= htmlspecialchars((string) ($os['descricao'] ?? '')) ?></textarea>
+                <textarea class="textarea" id="desc2" name="descricao" rows="4" placeholder="Detalhes do serviço, materiais, observações"><?= htmlspecialchars((string) ($os['descricao'] ?? '')) ?></textarea>
               </div>
               <div class="form-group full">
                 <label for="end2">Endereço / local</label>
-                <textarea class="textarea" id="end2" name="endereco_completo" rows="2"><?= htmlspecialchars((string) ($os['endereco_completo'] ?? '')) ?></textarea>
+                <textarea class="textarea" id="end2" name="endereco_completo" rows="2" placeholder="Endereço ou local do serviço"><?= htmlspecialchars((string) ($os['endereco_completo'] ?? '')) ?></textarea>
               </div>
               <div class="form-group">
                 <label for="resp2">Responsável interno</label>
-                <input class="input" id="resp2" name="responsavel" value="<?= htmlspecialchars((string) ($os['responsavel'] ?? '')) ?>">
+                <input class="input" id="resp2" name="responsavel" value="<?= htmlspecialchars((string) ($os['responsavel'] ?? '')) ?>" placeholder="Nome do responsável interno">
               </div>
               <div class="form-group">
                 <label>Latitude</label>
-                <input class="input" name="latitude" value="<?= $os['latitude'] !== null && $os['latitude'] !== '' ? htmlspecialchars((string) $os['latitude']) : '' ?>">
+                <input class="input" name="latitude" value="<?= $os['latitude'] !== null && $os['latitude'] !== '' ? htmlspecialchars((string) $os['latitude']) : '' ?>" placeholder="-8.123456">
               </div>
               <div class="form-group">
                 <label>Longitude</label>
-                <input class="input" name="longitude" value="<?= $os['longitude'] !== null && $os['longitude'] !== '' ? htmlspecialchars((string) $os['longitude']) : '' ?>">
+                <input class="input" name="longitude" value="<?= $os['longitude'] !== null && $os['longitude'] !== '' ? htmlspecialchars((string) $os['longitude']) : '' ?>" placeholder="-35.123456">
               </div>
               <div class="form-group full">
                 <label for="serv2">Item principal do catálogo (opcional)</label>
@@ -523,7 +523,8 @@ include __DIR__ . '/../includes/head.php';
                       <form method="post" style="display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;">
                         <input type="hidden" name="acao" value="os_item_qtd">
                         <input type="hidden" name="linha_id" value="<?= (int) $lm['id'] ?>">
-                        <input type="text" name="quantidade" class="input" style="width:88px;" value="<?= htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.')) ?>">
+                        <input type="text" name="quantidade" class="input" style="width:88px;" placeholder="Qtd."
+                               value="<?= htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.')) ?>">
                         <button type="submit" class="btn btn-secondary btn-sm">OK</button>
                       </form>
                     <?php else: ?>
@@ -571,7 +572,7 @@ include __DIR__ . '/../includes/head.php';
             </div>
             <div class="form-group" style="margin:0;width:100px;">
               <label class="small">Qtd</label>
-              <input name="quantidade" class="input" value="1" inputmode="decimal">
+              <input name="quantidade" class="input" value="1" inputmode="decimal" placeholder="Ex.: 1">
             </div>
             <div class="form-group" style="margin:0;min-width:160px;flex:1;">
               <label class="small">Obs.</label>

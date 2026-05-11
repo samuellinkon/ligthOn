@@ -34,8 +34,8 @@ function medicao_export_planilha_csv(
         fputcsv($out, $row, ';');
     };
 
-    $w(['BOLETIM DE MEDIÇÃO', '', '', '', '', '', '', '', '', '', '']);
-    $w(['', '', '', '', '', '', '', '', '', '', '']);
+    $w(['BOLETIM DE MEDIÇÃO', '', '', '', '', '', '', '', '', '']);
+    $w(['', '', '', '', '', '', '', '', '', '']);
 
     $w([
         'Cliente / contratante',
@@ -48,9 +48,8 @@ function medicao_export_planilha_csv(
         '',
         '',
         '',
-        '',
     ]);
-    $w(['', '', '', '', '', '', '', '', '', '', '']);
+    $w(['', '', '', '', '', '', '', '', '', '']);
 
     $w([
         'Valor materiais aplicados',
@@ -63,18 +62,16 @@ function medicao_export_planilha_csv(
         (string) (int) ($tot['n_chamados'] ?? 0),
         '',
         '',
-        '',
     ]);
-    $w(['', '', '', '', '', '', '', '', '', '', '']);
+    $w(['', '', '', '', '', '', '', '', '', '']);
 
     $w([
         'Data',
         'Chamado',
         'Unidade',
-        'Título',
         'Status',
         'Prioridade',
-        'Técnico',
+        'Técnicos',
         'Serviço (cat.)',
         'Materiais',
         'Serv. itens',
@@ -86,7 +83,6 @@ function medicao_export_planilha_csv(
             (string) ($r['aberto_em_br'] ?? ''),
             isset($r['id']) ? '#' . (string) (int) $r['id'] : '',
             (string) ($r['unidade_nome'] ?? ''),
-            (string) ($r['titulo'] ?? ''),
             (string) ($r['status'] ?? ''),
             (string) ($r['prioridade'] ?? ''),
             (string) ($r['tecnico_nome'] ?? ''),
@@ -99,7 +95,6 @@ function medicao_export_planilha_csv(
 
     $w([
         'TOTAIS',
-        '',
         '',
         '',
         '',

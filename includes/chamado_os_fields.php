@@ -44,13 +44,9 @@ function chamado_os_opcoes_tipo(): array
     ];
 }
 
-/** Gera o título do chamado a partir do resumo da OS ou campo explícito. */
+/** Gera o título do chamado a partir da classificação da OS (tipo, problema, origem). */
 function chamado_os_titulo_from_post(array $post): string
 {
-    $t = trim((string) ($post['titulo'] ?? ''));
-    if ($t !== '') {
-        return mb_substr($t, 0, 200);
-    }
     $tipo = trim((string) ($post['tipo_os'] ?? ''));
     $prob = trim((string) ($post['problema_os'] ?? ''));
     $orig = trim((string) ($post['origem_os'] ?? ''));

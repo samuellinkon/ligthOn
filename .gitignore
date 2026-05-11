@@ -10,6 +10,13 @@ uploads/**
 Thumbs.db
 *.log
 
+# Composer
+/vendor/
+composer.phar
+
+# Dompdf / export PDF (temp, cache, logs locais)
+writable/
+
 # IDEs
 .idea/
 .vscode/

@@ -243,6 +243,16 @@ CREATE TABLE chamados (
     INDEX idx_chamados_aprovado (aprovado_gestor_em)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 AUTO_INCREMENT=1001;
 
+CREATE TABLE chamado_tecnicos (
+    chamado_id INT UNSIGNED NOT NULL,
+    usuario_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chamado_id, usuario_id),
+    INDEX idx_chamado_tecnicos_usuario (usuario_id),
+    FOREIGN KEY (chamado_id) REFERENCES chamados(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- -----------------------------------------------------
 -- Materiais / itens consumidos no chamado (quantidade × valor)
 -- -----------------------------------------------------

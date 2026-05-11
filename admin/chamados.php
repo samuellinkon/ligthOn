@@ -14,6 +14,10 @@ if ($clienteIdListagem > 0) {
     gestor_assert_escopo_cliente($clienteIdListagem, 'chamados.php');
 }
 $envolvidoUser = max(0, (int) ($_GET['envolvido_user'] ?? 0));
+$tecnicoUserId = max(0, (int) ($_GET['tecnico_user_id'] ?? 0));
+$localQ        = trim((string) ($_GET['local_q'] ?? ''));
+$tecnicoRepo   = $tecnicoUserId > 0 ? $tecnicoUserId : null;
+$localQRepo    = $localQ !== '' ? $localQ : null;
 
 $escopoLista = $escopoCh;
 if ($clienteIdListagem > 0 && db_ok()) {
@@ -95,6 +99,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'excluir
     if ($peu > 0) {
         $qsRed['envolvido_user'] = $peu;
     }
+    $ptec = max(0, (int) ($_POST['tecnico_user_id_ctx'] ?? 0));
+    if ($ptec > 0) {
+        $qsRed['tecnico_user_id'] = $ptec;
+    }
+    $ploc = trim((string) ($_POST['local_q_ctx'] ?? ''));
+    if ($ploc !== '') {
+        $qsRed['local_q'] = $ploc;
+    }
+    $pf = strtolower(trim((string) ($_POST['f_ctx'] ?? '')));
+    if ($pf !== '' && in_array($pf, ['abertos', 'andamento', 'aguardando', 'resolvidos', 'cancelados', 'urgentes'], true)) {
+        $qsRed['f'] = $pf;
+    }
     $redir = 'chamados.php' . ($qsRed !== [] ? '?' . http_build_query($qsRed) : '');
     header('Location: ' . $redir);
     exit;
@@ -125,8 +141,13 @@ if (db_ok()) {
     }
 }
 
+$tecnicosLista = [];
+if (db_ok() && $medicaoMatrizId > 0) {
+    $tecnicosLista = repo_operadores_empresa($medicaoMatrizId);
+}
+
 $bmLista = [];
-$bmMergeActive = $medicaoMatrizId > 0 && $refYmBm !== '' && $f === '' && $envolvidoUser <= 0 && $clienteIdListagem <= 0 && db_ok();
+$bmMergeActive = $medicaoMatrizId > 0 && $refYmBm !== '' && $f === '' && $envolvidoUser <= 0 && $clienteIdListagem <= 0 && $tecnicoUserId <= 0 && $localQ === '' && db_ok();
 if ($bmMergeActive) {
     $impPkg = repo_medicao_import_fetch($medicaoMatrizId, $refYmBm);
     $bmLista = medicao_import_linhas_para_chamados_listagem(
@@ -142,7 +163,7 @@ $envolvidoRepo = $envolvidoUser > 0 ? $envolvidoUser : null;
 
 if (db_ok()) {
     if ($periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f === '' && $bmMergeActive) {
-        $resT     = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo);
+        $resT     = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
         $totalCh  = $resT['total'];
         $totalRows = $nBm + $totalCh;
         $totalPagesCalc = max(1, (int) ceil($totalRows / $perPage));
@@ -156,13 +177,13 @@ if (db_ok()) {
         }
         if ($remain > 0) {
             $chOff = max(0, $start - $nBm);
-            $resCh = repo_chamados_admin_list($f, $q, 1, $remain, $escopoLista, $periodoDe, $periodoAte, $chOff, $envolvidoRepo);
+            $resCh = repo_chamados_admin_list($f, $q, 1, $remain, $escopoLista, $periodoDe, $periodoAte, $chOff, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
             foreach ($resCh['rows'] as $row) {
                 $lista[] = $row;
             }
         }
     } else {
-        $res       = repo_chamados_admin_list($f, $q, $page, $perPage, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo);
+        $res       = repo_chamados_admin_list($f, $q, $page, $perPage, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
         $lista     = $res['rows'];
         $totalRows = $res['total'];
     }
@@ -207,7 +228,7 @@ $page       = min($page, $totalPages);
 $dash = db_ok() ? repo_dashboard_admin_stats() : null;
 
 /**
- * @param array{medicao_mes?:string,periodo_de?:string,periodo_ate?:string,periodo_limpar?:bool,cliente_id?:int,envolvido_user?:int} $periodoCtx
+ * @param array{medicao_mes?:string,periodo_de?:string,periodo_ate?:string,periodo_limpar?:bool,cliente_id?:int,envolvido_user?:int,tecnico_user_id?:int,local_q?:string} $periodoCtx
  */
 function adm_chamados_url(int $p, string $filtro, string $busca, array $periodoCtx): string
 {
@@ -239,6 +260,12 @@ function adm_chamados_url(int $p, string $filtro, string $busca, array $periodoC
     if (!empty($periodoCtx['envolvido_user'])) {
         $qs['envolvido_user'] = (int) $periodoCtx['envolvido_user'];
     }
+    if (!empty($periodoCtx['tecnico_user_id'])) {
+        $qs['tecnico_user_id'] = (int) $periodoCtx['tecnico_user_id'];
+    }
+    if (!empty($periodoCtx['local_q'])) {
+        $qs['local_q'] = (string) $periodoCtx['local_q'];
+    }
 
     return 'chamados.php' . ($qs ? '?' . http_build_query($qs) : '');
 }
@@ -267,7 +294,10 @@ function adm_chamados_collect_export_rows(
     ?string $periodoDe,
     ?string $periodoAte,
     int $maxRows,
-    ?int $envolvidoRepo = null
+    ?int $envolvidoRepo = null,
+    ?int $tecnicoUserId = null,
+    ?string $localQ = null,
+    bool $excluirCancelados = false
 ): array {
     $out = [];
     if ($mergeBm) {
@@ -278,7 +308,7 @@ function adm_chamados_collect_export_rows(
             $out[] = $r;
         }
     }
-    $tot = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo)['total'];
+    $tot = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoUserId, $localQ, $excluirCancelados)['total'];
     $off = 0;
     $batch = 2000;
     while ($off < $tot && count($out) < $maxRows) {
@@ -286,7 +316,7 @@ function adm_chamados_collect_export_rows(
         if ($take <= 0) {
             break;
         }
-        $chunk = repo_chamados_admin_list($f, $q, 1, $take, $escopoLista, $periodoDe, $periodoAte, $off, $envolvidoRepo)['rows'];
+        $chunk = repo_chamados_admin_list($f, $q, 1, $take, $escopoLista, $periodoDe, $periodoAte, $off, $envolvidoRepo, $tecnicoUserId, $localQ, $excluirCancelados)['rows'];
         foreach ($chunk as $r) {
             $out[] = $r;
         }
@@ -297,17 +327,342 @@ function adm_chamados_collect_export_rows(
 }
 
 $admChPeriodoCtx = [
-    'medicao_mes'     => $medicaoMes,
-    'periodo_de'      => ($medicaoMes === '' && !$periodoLimpar && $periodoDe !== null) ? $periodoDe : '',
-    'periodo_ate'     => ($medicaoMes === '' && !$periodoLimpar && $periodoAte !== null) ? $periodoAte : '',
-    'periodo_limpar'  => $periodoLimpar,
-    'cliente_id'      => $clienteIdListagem > 0 ? $clienteIdListagem : null,
-    'envolvido_user'  => $envolvidoUser > 0 ? $envolvidoUser : null,
+    'medicao_mes'       => $medicaoMes,
+    'periodo_de'        => ($medicaoMes === '' && !$periodoLimpar && $periodoDe !== null) ? $periodoDe : '',
+    'periodo_ate'       => ($medicaoMes === '' && !$periodoLimpar && $periodoAte !== null) ? $periodoAte : '',
+    'periodo_limpar'    => $periodoLimpar,
+    'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
+    'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
+    'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
+    'local_q'           => $localQ !== '' ? $localQ : null,
 ];
+$admChClearBuscaCtx = array_merge($admChPeriodoCtx, ['local_q' => null, 'tecnico_user_id' => null]);
 
 $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
 $mergeBmExport = $periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f === '' && $bmMergeActive;
 $maxExportRows = 20000;
+$maxPdfChamados = 120;
+
+if ($exportFmt === 'pdf_anexos') {
+    require_once __DIR__ . '/../includes/crm_export_pdf_debug.php';
+    crm_export_pdf_flush_output_buffers();
+    ob_start();
+
+    require_once __DIR__ . '/../includes/chamados_periodo_export_pdf.php';
+    require_once __DIR__ . '/../includes/chamados_periodo_pdf_dompdf.php';
+    if (!defined('APP_BRAND_NAME')) {
+        require_once __DIR__ . '/../includes/config.php';
+    }
+    $redirPosExport = adm_chamados_url(1, $f, $q, $admChPeriodoCtx);
+    if (!db_ok()) {
+        crm_export_pdf_flush_output_buffers();
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Exportação disponível com base de dados ativa.';
+        exit;
+    }
+    if ($periodoLimpar) {
+        crm_export_pdf_flush_output_buffers();
+        flash_set('err', 'Para exportar PDF com anexos, defina um intervalo de datas ou use «Mês atual». A vista «Todo o período» não é suportada.');
+        header('Location: ' . $redirPosExport);
+        exit;
+    }
+    $totalPeriodo = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
+    $rowsEx       = adm_chamados_collect_export_rows(
+        false,
+        [],
+        $f,
+        $q,
+        $escopoLista,
+        $periodoDe,
+        $periodoAte,
+        $maxPdfChamados + 1,
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        false
+    );
+    $listaTruncada = count($rowsEx) > $maxPdfChamados;
+    if ($listaTruncada) {
+        $rowsEx = array_slice($rowsEx, 0, $maxPdfChamados);
+    }
+    $crmRows = array_values(array_filter($rowsEx, static fn ($r) => empty($r['medicao_bm'])));
+    $items   = [];
+    foreach ($crmRows as $row) {
+        $cid = (int) ($row['id'] ?? 0);
+        if ($cid <= 0) {
+            continue;
+        }
+        $items[] = [
+            'chamado' => $row,
+            'anexos'  => repo_chamado_anexos($cid),
+        ];
+    }
+    if ($medicaoMes !== '') {
+        $periodoLabel = 'Mês ' . $medicaoMes;
+    } elseif ($periodoDe !== null && $periodoAte !== null) {
+        $d1 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoDe);
+        $d2 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoAte);
+        if ($d1 instanceof DateTimeImmutable && $d2 instanceof DateTimeImmutable) {
+            $periodoLabel = $d1->format('d/m/Y') . ' — ' . $d2->format('d/m/Y');
+        } else {
+            $periodoLabel = $periodoDe . ' — ' . $periodoAte;
+        }
+    } else {
+        $periodoLabel = '—';
+    }
+    $brandPdf = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'CRM';
+    $pdfDownloadName = 'Chamados e anexos — ' . $brandPdf . '.pdf';
+    if ($periodoDe !== null && $periodoAte !== null) {
+        $fd = DateTimeImmutable::createFromFormat('Y-m-d', $periodoDe);
+        $fa = DateTimeImmutable::createFromFormat('Y-m-d', $periodoAte);
+        if ($fd instanceof DateTimeImmutable && $fa instanceof DateTimeImmutable) {
+            $pdfDownloadName = 'Chamados e anexos — ' . $fd->format('d_m_Y') . ' — ' . $fa->format('d_m_Y') . ' — ' . $brandPdf . '.pdf';
+        }
+    }
+    $resumoPdf = repo_chamados_admin_relatorio_resumo(
+        $f,
+        $q,
+        $escopoLista,
+        $periodoDe,
+        $periodoAte,
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        false
+    );
+    $orgaoPdf = $medicaoMatrizNome !== '' ? $medicaoMatrizNome : (string) $brandPdf;
+    if ($clienteIdListagem > 0 && db_ok()) {
+        $rowCliPdf = repo_cliente($clienteIdListagem);
+        if ($rowCliPdf && trim((string) ($rowCliPdf['empresa'] ?? '')) !== '') {
+            $orgaoPdf = trim((string) $rowCliPdf['empresa']);
+        }
+    }
+    require_once __DIR__ . '/../includes/chamados_periodo_pdf_merge.php';
+    $pdfMergeInfo = chamados_periodo_pdf_anexos_para_merge($items);
+    $htmlPdfBin   = chamados_periodo_anexos_export_html(
+        $items,
+        $periodoLabel,
+        $totalPeriodo,
+        count($items),
+        $listaTruncada,
+        false,
+        true,
+        $resumoPdf,
+        $orgaoPdf,
+        $pdfMergeInfo['anexo_ids']
+    );
+    $autoloadComposer = dirname(__DIR__) . '/vendor/autoload.php';
+    if (!is_readable($autoloadComposer)) {
+        crm_export_pdf_flush_output_buffers();
+        flash_set(
+            'err',
+            'PDF indisponível: execute «composer install» na raiz do projeto (é necessário o pacote dompdf/dompdf). Sem isso não é possível gerar o ficheiro.'
+        );
+        header('Location: ' . $redirPosExport);
+        exit;
+    }
+    try {
+        crm_export_pdf_flush_output_buffers();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+        chamados_periodo_anexos_stream_pdf($htmlPdfBin, $pdfDownloadName, $pdfMergeInfo['paths']);
+    } catch (Throwable $e) {
+        crm_export_pdf_log_failure($e, [
+            'php'              => PHP_VERSION,
+            'chamados_no_pdf'  => count($items),
+            'periodo_de'       => $periodoDe,
+            'periodo_ate'      => $periodoAte,
+            'html_bytes'       => strlen($htmlPdfBin),
+            'pdf_download'     => $pdfDownloadName,
+        ]);
+
+        if (crm_export_pdf_wants_browser_debug()) {
+            crm_export_pdf_flush_output_buffers();
+            if (!headers_sent()) {
+                http_response_code(500);
+                header('Content-Type: text/html; charset=UTF-8');
+            }
+            $safeRedir = htmlspecialchars($redirPosExport, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $logPath   = htmlspecialchars(dirname(__DIR__) . '/writable/pdf_export_debug.log', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            echo '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Debug PDF</title></head>';
+            echo '<body style="font-family:system-ui,sans-serif;padding:20px;max-width:960px;margin:0 auto;line-height:1.45">';
+            echo '<h1 style="color:#b91c1c">Erro ao gerar PDF (modo debug)</h1>';
+            echo '<p>Stack abaixo. O mesmo detalhe foi acrescentado a <code>' . $logPath . '</code> e uma linha resumo foi enviada para o <strong>error_log</strong> do PHP (XAMPP: pasta <code>logs</code> do XAMPP).</p>';
+            echo '<h2>Mensagem</h2><pre style="background:#1e293b;color:#f1f5f9;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap">';
+            echo htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            echo '</pre><h2>Stack trace</h2><pre style="background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.45">';
+            echo htmlspecialchars($e->getTraceAsString(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            echo '</pre><p><a href="' . $safeRedir . '">← Voltar aos chamados</a></p></body></html>';
+            exit;
+        }
+
+        $det = trim($e->getMessage());
+        if (strlen($det) > 220) {
+            $det = substr($det, 0, 217) . '…';
+        }
+        $flashMsg = 'Não foi possível gerar o PDF.' . ($det !== '' ? ' ' . $det : '');
+        if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
+            $flashMsg .= ' [Dev: ver writable/pdf_export_debug.log ou clique de novo em «Exportar PDF (anexos)» com debug ativo para ver o stack no browser.]';
+        }
+        crm_export_pdf_flush_output_buffers();
+        flash_set('err', $flashMsg);
+        header('Location: ' . $redirPosExport);
+        exit;
+    }
+    exit;
+}
+
+if ($exportFmt === 'csv_itens') {
+    if (!db_ok()) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Exportação disponível com base de dados ativa.';
+        exit;
+    }
+    if ($periodoLimpar || $periodoDe === null || $periodoAte === null) {
+        header('Content-Type: text/html; charset=UTF-8');
+        echo '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Período</title></head><body><p>Defina um período (datas ou mês) para exportar itens.</p><p><a href="chamados.php">Voltar</a></p></body></html>';
+        exit;
+    }
+    $matrizItensId = ($escopoLista !== null && $escopoLista > 0)
+        ? $escopoLista
+        : (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+    if ($matrizItensId <= 0) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Matriz não definida.';
+        exit;
+    }
+    $linhasIt = repo_chamados_itens_utilizados_periodo_linhas($matrizItensId, $periodoDe, $periodoAte);
+    $stamp    = date('Y-m-d_His');
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="chamados_itens_' . $stamp . '.csv"');
+    $out = fopen('php://output', 'w');
+    if ($out !== false) {
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+        $sep = ';';
+        fputcsv($out, [
+            'Ref_mês',
+            'Chamado_ID',
+            'Unidade',
+            'Produto_serviço',
+            'Código',
+            'Tipo_catálogo',
+            'Unidade_medida',
+            'Quantidade',
+            'Valor_unitário',
+            'Subtotal',
+            'Observação',
+        ], $sep);
+        foreach ($linhasIt as $li) {
+            fputcsv($out, [
+                (string) ($li['ref_mes'] ?? ''),
+                (string) (int) ($li['chamado_id'] ?? 0),
+                (string) ($li['unidade_nome'] ?? ''),
+                (string) ($li['produto_nome'] ?? ''),
+                (string) ($li['produto_codigo'] ?? ''),
+                (string) ($li['produto_tipo'] ?? ''),
+                (string) ($li['catalogo_unidade'] ?? ''),
+                number_format((float) ($li['quantidade'] ?? 0), 4, ',', ''),
+                number_format((float) ($li['valor_unitario'] ?? 0), 4, ',', ''),
+                number_format((float) ($li['subtotal'] ?? 0), 2, ',', ''),
+                str_replace(["\r", "\n"], ' ', (string) ($li['observacao'] ?? '')),
+            ], $sep);
+        }
+        fclose($out);
+    }
+    exit;
+}
+
+if (in_array($exportFmt, ['csv_crm', 'json_crm'], true)) {
+    if (!db_ok()) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Exportação disponível com base de dados ativa.';
+        exit;
+    }
+    $rowsEx = adm_chamados_collect_export_rows(
+        false,
+        [],
+        $f,
+        $q,
+        $escopoLista,
+        $periodoDe,
+        $periodoAte,
+        $maxExportRows,
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        true
+    );
+    $stamp = date('Y-m-d_His');
+    if ($exportFmt === 'json_crm') {
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="chamados_crm_sem_cancelados_' . $stamp . '.json"');
+        echo json_encode(
+            [
+                'exportado_em' => date('c'),
+                'filtro'       => $f,
+                'busca'        => $q,
+                'periodo'      => $periodoLimpar ? null : (($periodoDe ?? '') !== '' ? ['de' => $periodoDe, 'ate' => $periodoAte] : null),
+                'medicao_mes'  => $medicaoMes !== '' ? $medicaoMes : null,
+                'sem_cancelados' => true,
+                'apenas_crm'     => true,
+                'limite'       => $maxExportRows,
+                'total'        => count($rowsEx),
+                'chamados'     => $rowsEx,
+            ],
+            JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
+        );
+        exit;
+    }
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="chamados_crm_sem_cancelados_' . $stamp . '.csv"');
+    $out = fopen('php://output', 'w');
+    if ($out === false) {
+        http_response_code(500);
+        exit;
+    }
+    fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+    $sep = ';';
+    fputcsv($out, [
+        'ID',
+        'Prefeitura',
+        'Título',
+        'Descrição',
+        'Prioridade',
+        'Status',
+        'Responsável',
+        'Técnicos',
+        'Data_abertura',
+        'Endereço',
+        'Latitude',
+        'Longitude',
+        'Aguardando_aprovação_gestor',
+    ], $sep);
+    foreach ($rowsEx as $c) {
+        $aguarda = (!empty($c['finalizado_operador_em']) && empty($c['aprovado_gestor_em'])) ? 'Sim' : 'Não';
+        fputcsv($out, [
+            (string) (int) ($c['id'] ?? 0),
+            (string) ($c['cliente'] ?? ''),
+            (string) ($c['titulo'] ?? ''),
+            str_replace(["\r", "\n"], ' ', (string) ($c['descricao'] ?? '')),
+            (string) ($c['prioridade'] ?? ''),
+            (string) ($c['status'] ?? ''),
+            (string) ($c['responsavel'] ?? ''),
+            (string) ($c['tecnico_nome'] ?? $c['responsavel'] ?? ''),
+            (string) ($c['data'] ?? ''),
+            (string) ($c['endereco_completo'] ?? ''),
+            isset($c['latitude']) ? (string) $c['latitude'] : '',
+            isset($c['longitude']) ? (string) $c['longitude'] : '',
+            $aguarda,
+        ], $sep);
+    }
+    fclose($out);
+    exit;
+}
 
 if (in_array($exportFmt, ['csv', 'json'], true)) {
     if (!db_ok()) {
@@ -325,7 +680,10 @@ if (in_array($exportFmt, ['csv', 'json'], true)) {
         $periodoDe,
         $periodoAte,
         $maxExportRows,
-        $envolvidoRepo
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        false
     );
     $stamp = date('Y-m-d_His');
     if ($exportFmt === 'json') {
@@ -365,7 +723,7 @@ if (in_array($exportFmt, ['csv', 'json'], true)) {
         'Prioridade',
         'Status',
         'Responsável',
-        'Técnico',
+        'Técnicos',
         'Data_abertura',
         'Endereço',
         'Latitude',
@@ -462,8 +820,16 @@ include __DIR__ . '/../includes/head.php';
       <?php if (db_ok()): ?>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <span class="muted" style="font-size:12px;">Exportar:</span>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('csv', $f, $q, $admChPeriodoCtx)) ?>">CSV (Excel)</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('json', $f, $q, $admChPeriodoCtx)) ?>">JSON</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars(adm_chamados_export_url('csv', $f, $q, $admChPeriodoCtx)) ?>">Exportar CSV</a>
+        <?php if (!$periodoLimpar): ?>
+        <?php
+          $hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', $f, $q, $admChPeriodoCtx);
+          if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
+              $hrefPdfAnexos .= '&pdf_debug=1';
+          }
+        ?>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefPdfAnexos) ?>" title="Gera PDF com lista de chamados e imagens anexadas (Dompdf)">Exportar PDF (anexos)</a>
+        <?php endif; ?>
       </div>
       <?php endif; ?>
     </div>
@@ -472,13 +838,21 @@ include __DIR__ . '/../includes/head.php';
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <?php
           $qsPeriodoLimpar = array_filter([
-              'periodo_limpar' => '1',
-              'cliente_id'     => $clienteIdListagem > 0 ? $clienteIdListagem : null,
-              'envolvido_user' => $envolvidoUser > 0 ? $envolvidoUser : null,
+              'periodo_limpar'    => '1',
+              'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
+              'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
+              'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
+              'local_q'           => $localQ !== '' ? $localQ : null,
+              'f'                 => $f !== '' ? $f : null,
+              'q'                 => $q !== '' ? $q : null,
           ], static fn ($v) => $v !== null && $v !== '');
           $qsMesAtual = array_filter([
-              'cliente_id'     => $clienteIdListagem > 0 ? $clienteIdListagem : null,
-              'envolvido_user' => $envolvidoUser > 0 ? $envolvidoUser : null,
+              'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
+              'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
+              'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
+              'local_q'           => $localQ !== '' ? $localQ : null,
+              'f'                 => $f !== '' ? $f : null,
+              'q'                 => $q !== '' ? $q : null,
           ], static fn ($v) => $v !== null && $v !== '');
           $urlPeriodoLimpar = 'chamados.php' . ($qsPeriodoLimpar !== [] ? '?' . http_build_query($qsPeriodoLimpar) : '');
           $urlMesAtual      = 'chamados.php' . ($qsMesAtual !== [] ? '?' . http_build_query($qsMesAtual) : '');
@@ -487,41 +861,55 @@ include __DIR__ . '/../includes/head.php';
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($urlMesAtual) ?>">Mês atual</a>
       </div>
 
-      <form method="get" action="chamados.php" style="display:grid;grid-template-columns:repeat(2,minmax(150px,180px)) minmax(220px,1fr) auto auto;gap:12px;align-items:end;">
-        <?php if ($f !== ''): ?><input type="hidden" name="f" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
+      <form method="get" action="chamados.php" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
         <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
         <?php if ($envolvidoUser > 0): ?><input type="hidden" name="envolvido_user" value="<?= (int) $envolvidoUser ?>"><?php endif; ?>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin:0;flex:1 1 200px;max-width:260px;">
+          <label for="filtro_status" style="font-size:12px;">Status</label>
+          <select id="filtro_status" name="f" class="select">
+            <option value=""<?= $f === '' ? ' selected' : '' ?>>Todos</option>
+            <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
+            <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
+            <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando</option>
+            <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
+            <option value="cancelados"<?= $f === 'cancelados' ? ' selected' : '' ?>>Cancelados</option>
+            <option value="urgentes"<?= $f === 'urgentes' ? ' selected' : '' ?>>Urgentes</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;flex:0 0 auto;width:min(100%,158px);">
           <label for="periodo_de" style="font-size:12px;">De</label>
           <input type="date" id="periodo_de" name="periodo_de" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoDe) ?>">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin:0;flex:0 0 auto;width:min(100%,158px);">
           <label for="periodo_ate" style="font-size:12px;">Até</label>
           <input type="date" id="periodo_ate" name="periodo_ate" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoAte) ?>">
         </div>
-        <div class="form-group" style="margin:0;min-width:0;">
+        <div class="form-group" style="margin:0;flex:2 1 340px;min-width:min(100%,280px);">
           <label for="q" style="font-size:12px;">Buscar</label>
-          <input type="search" id="q" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID, título ou órgão">
+          <input type="search" id="q" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID, título ou órgão" style="width:100%;min-height:40px;font-size:14px;">
         </div>
-        <button type="submit" class="btn btn-primary" style="justify-content:center;">Aplicar filtros</button>
-        <?php if ($q !== ''): ?>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, $f, '', $admChPeriodoCtx)) ?>" class="btn">Limpar</a>
+        <div class="form-group" style="margin:0;flex:2 1 340px;min-width:min(100%,280px);">
+          <label for="local_q" style="font-size:12px;">Local (endereço, bairro…)</label>
+          <input type="search" id="local_q" name="local_q" class="input" value="<?= htmlspecialchars($localQ) ?>" placeholder="Filtrar por texto no local" style="width:100%;min-height:40px;font-size:14px;">
+        </div>
+        <div class="form-group" style="margin:0;flex:1 1 200px;max-width:280px;">
+          <label for="tecnico_user_id" style="font-size:12px;">Técnico</label>
+          <select id="tecnico_user_id" name="tecnico_user_id" class="select">
+            <option value="0">Todos</option>
+            <?php foreach ($tecnicosLista as $tec): ?>
+            <option value="<?= (int) $tec['id'] ?>"<?= $tecnicoUserId === (int) $tec['id'] ? ' selected' : '' ?>><?= htmlspecialchars((string) ($tec['nome'] ?? '')) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" style="justify-content:center;flex:0 0 auto;">Aplicar filtros</button>
+        <?php if ($q !== '' || $localQ !== '' || $tecnicoUserId > 0): ?>
+        <a href="<?= htmlspecialchars(adm_chamados_url(1, $f, '', $admChClearBuscaCtx)) ?>" class="btn">Limpar busca</a>
         <?php endif; ?>
       </form>
-
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, '', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === '' ? 'active' : '' ?>">Todos</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'abertos', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'abertos' ? 'active' : '' ?>">Abertos</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'andamento', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'andamento' ? 'active' : '' ?>">Em andamento</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'aguardando', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'aguardando' ? 'active' : '' ?>">Aguardando</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'resolvidos', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'resolvidos' ? 'active' : '' ?>">Resolvidos</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'cancelados', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'cancelados' ? 'active' : '' ?>">Cancelados</a>
-        <a href="<?= htmlspecialchars(adm_chamados_url(1, 'urgentes', $q, $admChPeriodoCtx)) ?>" class="chip <?= $f === 'urgentes' ? 'active' : '' ?>">Urgentes</a>
-      </div>
     </div>
 
     <div class="table-wrap">
-      <table style="min-width:780px;">
+      <table class="chamados-admin-list" style="min-width:1040px;">
         <thead>
           <tr>
             <th>ID</th>
@@ -529,12 +917,15 @@ include __DIR__ . '/../includes/head.php';
             <th>Prioridade</th>
             <th>Status</th>
             <th>Data</th>
+            <th>Endereço</th>
+            <th>Latitude</th>
+            <th>Longitude</th>
             <th class="text-right">Ações</th>
           </tr>
         </thead>
         <tbody>
           <?php if (empty($lista)): ?>
-          <tr><td colspan="6" class="muted" style="padding:24px;text-align:center;">Nenhum chamado encontrado.</td></tr>
+          <tr><td colspan="9" class="muted" style="padding:24px;text-align:center;">Nenhum chamado encontrado.</td></tr>
           <?php else: ?>
           <?php foreach ($lista as $c): ?>
           <?php $isBm = !empty($c['medicao_bm']); ?>
@@ -545,7 +936,7 @@ include __DIR__ . '/../includes/head.php';
               <?php if ($isBm && !empty($c['medicao_bm_resumo'])): ?>
               <small class="muted"><?= htmlspecialchars((string) $c['medicao_bm_resumo']) ?></small>
               <?php else: ?>
-              <small class="muted">Técnico: <?= htmlspecialchars((string) ($c['tecnico_nome'] ?? $c['responsavel'] ?? '—')) ?></small>
+              <small class="muted">Técnicos: <?= htmlspecialchars((string) ($c['tecnico_nome'] ?? $c['responsavel'] ?? '—')) ?></small>
               <?php endif; ?>
             </td>
             <td><span class="badge <?= status_class((string) ($c['prioridade'] ?? '')) ?>"><?= htmlspecialchars((string) ($c['prioridade'] ?? '')) ?></span></td>
@@ -556,17 +947,43 @@ include __DIR__ . '/../includes/head.php';
               <?php endif; ?>
             </td>
             <td class="td-mute"><?= date('d/m/Y H:i', strtotime((string) ($c['data'] ?? 'now'))) ?></td>
+            <?php
+            $enderecoLista = $isBm ? '' : trim((string) ($c['endereco_completo'] ?? ''));
+            $latLista = $isBm ? null : ($c['latitude'] ?? null);
+            $lngLista = $isBm ? null : ($c['longitude'] ?? null);
+            ?>
+            <td class="td-ch-endereco td-mute">
+              <?php if ($isBm || $enderecoLista === ''): ?>
+                —
+              <?php else: ?>
+                <?php
+                $endMax = 56;
+                $endTrunc = mb_strlen($enderecoLista) > $endMax;
+                $endShort = $endTrunc ? mb_substr($enderecoLista, 0, $endMax) . '…' : $enderecoLista;
+                ?>
+                <span class="td-ch-endereco-text"<?= $endTrunc ? ' title="' . htmlspecialchars($enderecoLista, ENT_QUOTES, 'UTF-8') . '"' : '' ?>><?= htmlspecialchars($endShort) ?></span>
+              <?php endif; ?>
+            </td>
+            <td class="td-ch-geo td-mute"><?= $isBm || $latLista === null ? '—' : htmlspecialchars(number_format((float) $latLista, 6, '.', '')) ?></td>
+            <td class="td-ch-geo td-mute"><?= $isBm || $lngLista === null ? '—' : htmlspecialchars(number_format((float) $lngLista, 6, '.', '')) ?></td>
             <td class="td-actions">
               <?php if ($isBm): ?>
               <a class="action primary" href="<?= htmlspecialchars('medicao_ver.php?' . http_build_query(['mes' => (string) ($c['medicao_bm_ref_ym'] ?? $refYmBm)])) ?>">Ver chamado</a>
               <?php else: ?>
               <a class="action primary" href="chamado_detalhe.php?id=<?= (int) $c['id'] ?>">Ver</a>
               <?php if (db_ok()): ?>
+              <a class="action chamados-row-pdf" href="chamado_detalhe.php?id=<?= (int) $c['id'] ?>&amp;export=pdf" target="_blank" rel="noopener" title="PDF do chamado e anexos">
+                <span class="sr-only">PDF do chamado e anexos</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              </a>
               <form method="post" action="chamados.php" style="display:inline;" data-confirm="Excluir chamado #<?= (int) $c['id'] ?> e todo o histórico?" data-confirm-danger>
                 <input type="hidden" name="acao" value="excluir">
                 <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
                 <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id_ctx" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
                 <?php if ($envolvidoUser > 0): ?><input type="hidden" name="envolvido_user_ctx" value="<?= (int) $envolvidoUser ?>"><?php endif; ?>
+                <?php if ($tecnicoUserId > 0): ?><input type="hidden" name="tecnico_user_id_ctx" value="<?= (int) $tecnicoUserId ?>"><?php endif; ?>
+                <?php if ($localQ !== ''): ?><input type="hidden" name="local_q_ctx" value="<?= htmlspecialchars($localQ) ?>"><?php endif; ?>
+                <?php if ($f !== ''): ?><input type="hidden" name="f_ctx" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
                 <?php if ($periodoLimpar): ?><input type="hidden" name="periodo_limpar" value="1"><?php elseif ($medicaoMes !== ''): ?><input type="hidden" name="medicao_mes" value="<?= htmlspecialchars($medicaoMes) ?>"><?php else: ?><input type="hidden" name="periodo_de" value="<?= htmlspecialchars((string) $periodoDe) ?>"><input type="hidden" name="periodo_ate" value="<?= htmlspecialchars((string) $periodoAte) ?>"><?php endif; ?>
                 <button type="submit" class="action danger" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;">Excluir</button>
               </form>

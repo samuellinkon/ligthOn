@@ -2,6 +2,11 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 $me = require_auth_gestao();
+if (($me['perfil'] ?? '') !== 'admin') {
+    flash_set('err', 'A lista global de utilizadores é apenas para administradores da plataforma.');
+    header('Location: index.php');
+    exit;
+}
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('usuarios');
 

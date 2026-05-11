@@ -253,15 +253,18 @@ include __DIR__ . '/../includes/head.php';
 
       <div class="form-group">
         <label for="codigo_poste">ID / código do poste</label>
-        <input type="text" id="codigo_poste" name="codigo_poste" class="input" required maxlength="80" value="<?= htmlspecialchars((string) ($ponto['codigo_poste'] ?? '')) ?>">
+        <input type="text" id="codigo_poste" name="codigo_poste" class="input" required maxlength="80" placeholder="ID ou código no cadastro"
+               value="<?= htmlspecialchars((string) ($ponto['codigo_poste'] ?? '')) ?>">
       </div>
       <div class="form-group">
         <label for="identificador_externo">Identificador externo</label>
-        <input type="text" id="identificador_externo" name="identificador_externo" class="input" maxlength="120" value="<?= htmlspecialchars((string) ($ponto['identificador_externo'] ?? '')) ?>">
+        <input type="text" id="identificador_externo" name="identificador_externo" class="input" maxlength="120" placeholder="Barramento, luminaire…"
+               value="<?= htmlspecialchars((string) ($ponto['identificador_externo'] ?? '')) ?>">
       </div>
       <div class="form-group">
         <label for="bairro">Bairro</label>
-        <input type="text" id="bairro" name="bairro" class="input" maxlength="120" value="<?= htmlspecialchars((string) ($ponto['bairro'] ?? '')) ?>">
+        <input type="text" id="bairro" name="bairro" class="input" maxlength="120" placeholder="Bairro"
+               value="<?= htmlspecialchars((string) ($ponto['bairro'] ?? '')) ?>">
       </div>
       <div class="form-group">
         <label for="status">Status</label>
@@ -272,19 +275,22 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="endereco_completo">Endereço completo</label>
-        <textarea id="endereco_completo" name="endereco_completo" class="textarea" rows="3"><?= htmlspecialchars((string) ($ponto['endereco_completo'] ?? '')) ?></textarea>
+        <textarea id="endereco_completo" name="endereco_completo" class="textarea" rows="3" placeholder="Logradouro, número, complemento, CEP"><?= htmlspecialchars((string) ($ponto['endereco_completo'] ?? '')) ?></textarea>
       </div>
       <div class="form-group full">
         <label for="referencia">Referência</label>
-        <input type="text" id="referencia" name="referencia" class="input" maxlength="255" value="<?= htmlspecialchars((string) ($ponto['referencia'] ?? '')) ?>">
+        <input type="text" id="referencia" name="referencia" class="input" maxlength="255" placeholder="Ponto de referência no local"
+               value="<?= htmlspecialchars((string) ($ponto['referencia'] ?? '')) ?>">
       </div>
       <div class="form-group">
         <label for="latitude">Latitude</label>
-        <input type="text" id="latitude" name="latitude" class="input" inputmode="decimal" value="<?= htmlspecialchars((string) ($ponto['latitude'] ?? '')) ?>">
+        <input type="text" id="latitude" name="latitude" class="input" inputmode="decimal" placeholder="-8.123456"
+               value="<?= htmlspecialchars((string) ($ponto['latitude'] ?? '')) ?>">
       </div>
       <div class="form-group">
         <label for="longitude">Longitude</label>
-        <input type="text" id="longitude" name="longitude" class="input" inputmode="decimal" value="<?= htmlspecialchars((string) ($ponto['longitude'] ?? '')) ?>">
+        <input type="text" id="longitude" name="longitude" class="input" inputmode="decimal" placeholder="-35.123456"
+               value="<?= htmlspecialchars((string) ($ponto['longitude'] ?? '')) ?>">
       </div>
       <div class="form-group full" style="margin-top:-8px;">
         <button type="button" class="btn btn-secondary" id="btn-ponto-geo">Usar minha localização</button>
@@ -292,7 +298,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="observacoes">Observações</label>
-        <textarea id="observacoes" name="observacoes" class="textarea" rows="3"><?= htmlspecialchars((string) ($ponto['observacoes'] ?? '')) ?></textarea>
+        <textarea id="observacoes" name="observacoes" class="textarea" rows="3" placeholder="Observações do ponto (opcional)"><?= htmlspecialchars((string) ($ponto['observacoes'] ?? '')) ?></textarea>
       </div>
 
       <?php if ($id > 0): ?>

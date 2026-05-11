@@ -266,7 +266,7 @@ include __DIR__ . '/../includes/head.php';
               <div class="hint">Digite parte do nome e selecione uma opção.</div>
             </div>
             <div>
-              <input type="text" name="quantidade[]" class="input text-right" value="1" inputmode="decimal">
+              <input type="text" name="quantidade[]" class="input text-right" value="1" inputmode="decimal" placeholder="Ex.: 1">
             </div>
             <div>
               <input type="text" name="observacao[]" class="input" placeholder="Opcional">

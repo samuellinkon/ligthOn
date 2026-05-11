@@ -51,6 +51,10 @@ function chamado_export_document_html(
         return htmlspecialchars((string) ($s ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     };
 
+    $mimeIsImage = static function (?string $mime): bool {
+        return strncmp(strtolower(trim((string) $mime)), 'image/', 6) === 0;
+    };
+
     $cid = (int) ($chamado['id'] ?? 0);
     $fmtMoney = static function (float $v): string {
         return 'R$ ' . number_format($v, 2, ',', '.');
@@ -244,6 +248,21 @@ function chamado_export_document_html(
       color: var(--ink);
     }
     .section-b { padding: 16px; }
+    .export-anexo-img-wrap {
+      margin: 12px 0;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+      background: #fafafa;
+    }
+    .export-anexo-img-wrap img {
+      max-width: 100%;
+      max-height: 480px;
+      height: auto;
+      border-radius: 6px;
+    }
+    .export-anexo-img-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
     .prose {
       white-space: pre-wrap;
       word-break: break-word;
@@ -379,7 +398,7 @@ function chamado_export_document_html(
     <div class="grid">
       <div class="field"><div class="k">Prefeitura / órgão</div><div class="v"><?= $h((string) ($chamado['cliente'] ?? '')) ?></div></div>
       <div class="field"><div class="k">Responsável</div><div class="v"><?= $h((string) ($chamado['responsavel'] ?? '—')) ?></div></div>
-      <div class="field"><div class="k">Técnico</div><div class="v"><?= $h((string) ($chamado['tecnico_nome'] ?? '—')) ?></div></div>
+      <div class="field"><div class="k">Técnicos</div><div class="v"><?= $h((string) ($chamado['tecnico_nome'] ?? '—')) ?></div></div>
       <div class="field"><div class="k">Serviço (catálogo)</div><div class="v"><?= $h(trim((string) ($chamado['servico_nome'] ?? '')) ?: '—') ?></div></div>
       <?php if (!empty($chamado['finalizado_operador_em'])): ?>
       <div class="field"><div class="k">Finalizado pelo operador</div><div class="v"><?= $h((string) $chamado['finalizado_operador_em']) ?></div></div>
@@ -501,6 +520,31 @@ function chamado_export_document_html(
               <?php endforeach; ?>
             </tbody>
           </table>
+          <?php
+          $anexosImg = [];
+            foreach ($anexos as $ax) {
+                if ($mimeIsImage($ax['mime'] ?? null)) {
+                    $anexosImg[] = $ax;
+                }
+            }
+          ?>
+          <?php if ($anexosImg !== []): ?>
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;color:var(--ink);">Pré-visualização (imagens)</div>
+            <?php foreach ($anexosImg as $a):
+                $aidImg = (int) ($a['id'] ?? 0);
+                $nomeImg = (string) ($a['nome_original'] ?? '');
+                $mimeImg = (string) ($a['mime'] ?? '');
+                $tamImg = (int) ($a['tamanho'] ?? 0);
+                $srcImg = 'chamado_download.php?id=' . $aidImg;
+                ?>
+            <div class="export-anexo-img-wrap">
+              <img src="<?= $h($srcImg) ?>" alt="<?= $h($nomeImg !== '' ? $nomeImg : 'Anexo') ?>" />
+              <div class="export-anexo-img-meta"><?= $h($nomeImg) ?> · <?= $h((string) $tamImg) ?> bytes<?= $mimeImg !== '' ? ' · ' . $h($mimeImg) : '' ?></div>
+            </div>
+            <?php endforeach; ?>
+          </div>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
     </section>

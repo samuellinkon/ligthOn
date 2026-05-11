@@ -31,7 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: chamado_detalhe.php?id=' . $id); exit;
     }
     try {
-        $acao = $_POST['acao'] ?? '';
+        $acao             = $_POST['acao'] ?? '';
+        $silentAutosave   = isset($_POST['silent_autosave']) && (string) $_POST['silent_autosave'] === '1';
 
         if ($acao === 'responder') {
             $texto    = trim($_POST['resposta'] ?? '');
@@ -103,9 +104,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($acao === 'tecnico') {
             $chAtual = repo_chamado($id);
             $empresaChamado = $chAtual ? repo_cliente_catalogo_dono_id((int) ($chAtual['cliente_id'] ?? 0)) : 0;
-            $tecnicoId = (int) ($_POST['tecnico_user_id'] ?? 0);
-            $r = repo_chamado_atribuir_tecnico($id, $tecnicoId > 0 ? $tecnicoId : null, $empresaChamado);
-            flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Técnico vinculado ao chamado.' : $r['err']);
+            $tecnicoIdsPost = $_POST['tecnico_user_ids'] ?? [];
+            if (!is_array($tecnicoIdsPost)) {
+                $tecnicoIdsPost = [];
+            }
+            if (empty($tecnicoIdsPost) && isset($_POST['tecnico_user_id'])) {
+                $tecnicoIdsPost = [(int) ($_POST['tecnico_user_id'] ?? 0)];
+            }
+            $tecnicoIds = [];
+            foreach ($tecnicoIdsPost as $tid) {
+                $tid = (int) $tid;
+                if ($tid > 0 && !in_array($tid, $tecnicoIds, true)) {
+                    $tecnicoIds[] = $tid;
+                }
+            }
+            $r = repo_chamado_atribuir_tecnicos($id, $tecnicoIds, $empresaChamado);
+            if ($r['ok']) {
+                if (!$silentAutosave) {
+                    flash_set('ok', 'Técnicos vinculados ao chamado.');
+                }
+            } else {
+                flash_set('err', $r['err']);
+            }
 
         } elseif ($acao === 'aprovar_execucao') {
             $checklist = trim((string) ($_POST['checklist_realizado'] ?? ''));
@@ -133,7 +153,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $os['longitude'] = $_POST['longitude'] ?? '';
             $os['ponto_iluminacao_id'] = (int) ($_POST['ponto_iluminacao_id'] ?? 0);
             if (repo_update_chamado_os_dados($id, $os)) {
-                flash_set('ok', 'Ficha da ordem de serviço atualizada.');
+                if (!$silentAutosave) {
+                    flash_set('ok', 'Ficha da ordem de serviço atualizada.');
+                }
             } else {
                 flash_set('err', 'Não foi possível salvar a ficha.');
             }
@@ -369,6 +391,20 @@ if (db_ok()) {
 
 $cliente   = find_by_id($MOCK_CLIENTES, $chamado['cliente_id']);
 $anexos    = db_ok() ? repo_chamado_anexos($chamado['id']) : [];
+$tecnicoIdsSelecionados = [];
+foreach (($chamado['tecnico_ids'] ?? []) as $tid) {
+    $tid = (int) $tid;
+    if ($tid > 0) {
+        $tecnicoIdsSelecionados[$tid] = true;
+    }
+}
+if (empty($tecnicoIdsSelecionados) && !empty($chamado['tecnico_user_id'])) {
+    $tecnicoIdsSelecionados[(int) $chamado['tecnico_user_id']] = true;
+}
+$tecnicoNomesSelecionados = $chamado['tecnico_nomes'] ?? [];
+if (empty($tecnicoNomesSelecionados) && !empty($chamado['tecnico_nome'])) {
+    $tecnicoNomesSelecionados = [(string) $chamado['tecnico_nome']];
+}
 
 /* agrupa anexos por resposta para exibir junto da mensagem (e os "soltos" no painel) */
 $anexosPorResposta = [];
@@ -509,6 +545,39 @@ include __DIR__ . '/../includes/head.php';
       position: relative;
       border-radius: 8px;
     }
+
+    .chamado-tecnicos-selected {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .chamado-ponto-panel .chamado-ponto-endereco {
+      margin-top: 2px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(83, 74, 183, 0.14);
+      background: var(--surface-raised, #fafafa);
+    }
+
+    .chamado-ponto-endereco__label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .chamado-ponto-endereco__text {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
   </style>
 
   <div class="ticket-header">
@@ -521,12 +590,12 @@ include __DIR__ . '/../includes/head.php';
         <span class="badge badge-plain">Aberto em <?= date('d/m/Y H:i', strtotime($chamado['data'])) ?></span>
         <?php if (db_ok() && (int) ($chamado['ponto_iluminacao_id'] ?? 0) > 0): ?>
           <?php
-            $lblPoste = $pontoChamado
+            $lblPontoPi = $pontoChamado
                 ? (string) ($pontoChamado['codigo_poste'] ?? '')
                 : (string) ($chamado['ponto_codigo_poste'] ?? '');
-            $lblPoste = $lblPoste !== '' ? $lblPoste : 'Poste #' . (int) $chamado['ponto_iluminacao_id'];
+            $lblPontoPi = $lblPontoPi !== '' ? $lblPontoPi : '#' . (int) $chamado['ponto_iluminacao_id'];
           ?>
-          <span class="badge badge-plain" title="Ponto de iluminação vinculado">Poste: <?= htmlspecialchars($lblPoste) ?></span>
+          <span class="badge badge-plain" title="Ponto de iluminação vinculado"><?= htmlspecialchars($lblPontoPi) ?></span>
         <?php endif; ?>
       </div>
     </div>
@@ -551,8 +620,9 @@ include __DIR__ . '/../includes/head.php';
     <div class="flex-col" style="gap:18px;">
 
       <?php if (db_ok()): ?>
-      <form method="post" class="card" style="overflow:hidden;">
+      <form method="post" id="chamado-form-os-dados" class="card" style="overflow:hidden;">
         <input type="hidden" name="acao" value="os_dados">
+        <input type="hidden" name="silent_autosave" id="chamado_os_silent_autosave" value="">
         <div class="panel-head">
           <h4>Ordem de serviço</h4>
           <span class="panel-sub">Contribuinte, endereço e classificação no mesmo bloco; descrição abaixo — igual ao formulário de abertura</span>
@@ -567,7 +637,7 @@ include __DIR__ . '/../includes/head.php';
           ?>
         </div>
         <div class="form-actions" style="margin:0;border-top:1px solid var(--border-soft);">
-          <button type="submit" class="btn btn-primary">Salvar ficha</button>
+          <button type="submit" class="btn btn-primary" id="chamado_os_salvar_manual">Salvar ficha</button>
         </div>
       </form>
       <?php else: ?>
@@ -616,7 +686,8 @@ include __DIR__ . '/../includes/head.php';
                       <form method="post" style="display:inline-flex;gap:6px;align-items:center;justify-content:flex-end;">
                         <input type="hidden" name="acao" value="chamado_item_qtd">
                         <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                        <input type="text" name="quantidade" class="input" style="width:88px;text-align:right;" value="<?= htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.')) ?>">
+                        <input type="text" name="quantidade" class="input" style="width:88px;text-align:right;" placeholder="Qtd."
+                               value="<?= htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.')) ?>">
                         <button type="submit" class="btn btn-secondary btn-sm">OK</button>
                       </form>
                     </td>
@@ -649,7 +720,7 @@ include __DIR__ . '/../includes/head.php';
               </div>
               <div class="form-group chamado-item-add-field--qtd">
                 <label for="qtd_mat">Quantidade</label>
-                <input type="text" id="qtd_mat" name="quantidade" class="input" value="1" inputmode="decimal" required>
+                <input type="text" id="qtd_mat" name="quantidade" class="input" value="1" inputmode="decimal" required placeholder="Ex.: 1 ou 1,5">
               </div>
               <div class="chamado-item-add-submit">
                 <button type="submit" class="btn btn-primary">Lançar</button>
@@ -682,9 +753,6 @@ include __DIR__ . '/../includes/head.php';
           <?php if (empty($catalogoItensChamado)): ?>
             <p class="muted" style="margin-top:12px;margin-bottom:0;font-size:13px;">
               Sem itens ativos no catálogo desta empresa.
-              <?php if ($empresaChamadoId > 0): ?>
-                <a href="catalogo.php?cliente_id=<?= (int) $empresaChamadoId ?>">Abrir catálogo</a>
-              <?php endif; ?>
             </p>
           <?php endif; ?>
         </div>
@@ -827,31 +895,23 @@ include __DIR__ . '/../includes/head.php';
             <div class="info-row"><span>Contato</span><strong><?= htmlspecialchars($cliente['nome']) ?></strong></div>
             <div class="info-row"><span>E-mail</span><strong><?= htmlspecialchars($cliente['email']) ?></strong></div>
             <div class="info-row"><span>Telefone</span><strong><?= htmlspecialchars($cliente['telefone']) ?></strong></div>
-            <?php if ($empresaChamadoId > 0): ?>
-            <div class="info-row"><span>Catálogo</span>
-              <strong><a href="catalogo.php?cliente_id=<?= (int) $empresaChamadoId ?>">Abrir</a></strong>
-            </div>
-            <?php endif; ?>
           <?php endif; ?>
 
-          <form method="post" class="info-row">
-            <input type="hidden" name="acao" value="tecnico">
-            <span>Técnico</span>
-            <span class="info-edit-value">
-              <select name="tecnico_user_id" class="select">
-                <option value="0">— Sem técnico —</option>
-                <?php foreach ($tecnicosChamado as $tec): ?>
-                  <option value="<?= (int) $tec['id'] ?>" <?= (int) ($chamado['tecnico_user_id'] ?? 0) === (int) $tec['id'] ? 'selected' : '' ?>>
-                    <?= htmlspecialchars((string) ($tec['nome'] ?? '')) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-              <button type="submit" class="action primary">OK</button>
+          <div class="info-row" style="align-items:flex-start;">
+            <span>Equipe</span>
+            <span class="info-edit-value" style="text-align:right;">
+              <?php if (!empty($tecnicoNomesSelecionados)): ?>
+                <span class="chamado-tecnicos-selected" aria-label="Equipe vinculada ao chamado">
+                  <?php foreach ($tecnicoNomesSelecionados as $tecNome): ?>
+                    <span class="badge badge-plain"><?= htmlspecialchars((string) $tecNome) ?></span>
+                  <?php endforeach; ?>
+                </span>
+              <?php else: ?>
+                <strong class="muted" style="font-size:13px;">Ninguém na equipe ainda</strong>
+              <?php endif; ?>
+              <span class="muted" style="font-size:11px;display:block;margin-top:6px;">Monte a dupla ou trio em «Equipe no chamado», acima do mapa.</span>
             </span>
-          </form>
-          <?php if (empty($tecnicosChamado)): ?>
-            <p class="muted" style="font-size:12px;margin:0;">Nenhum técnico vinculado a esta empresa.</p>
-          <?php endif; ?>
+          </div>
 
           <div class="info-row"><span>Prioridade</span><strong><?= htmlspecialchars($chamado['prioridade']) ?></strong></div>
           <div class="info-row"><span>Valor do chamado</span><strong>R$ <?= number_format($totalMateriaisChamado, 2, ',', '.') ?></strong></div>
@@ -867,26 +927,59 @@ include __DIR__ . '/../includes/head.php';
             <input type="hidden" name="acao" value="status">
             <span>Status</span>
             <span class="info-edit-value">
-              <select name="status" class="select">
+              <select name="status" class="select" onchange="this.form.submit()">
                 <?php foreach (['Aberto','Em andamento','Aguardando','Resolvido','Fechado','Cancelado'] as $s): ?>
                   <option <?= $chamado['status'] === $s ? 'selected' : '' ?>><?= $s ?></option>
                 <?php endforeach; ?>
               </select>
-              <button type="submit" class="action primary">OK</button>
             </span>
           </form>
         </div>
       </div>
 
       <?php if (db_ok() && ((int) ($chamado['ponto_iluminacao_id'] ?? 0) > 0)): ?>
+      <?php
+        $pontoEnderecoBloco = '';
+        $pontoSvLat = null;
+        $pontoSvLng = null;
+        if ($pontoChamado) {
+            $pontoEnderecoBloco = trim((string) ($pontoChamado['endereco_completo'] ?? ''));
+            if ($pontoEnderecoBloco === '') {
+                $pontoEnderecoBloco = trim((string) ($chamado['endereco_completo'] ?? ''));
+            }
+            $pla = $pontoChamado['latitude'] ?? null;
+            $plo = $pontoChamado['longitude'] ?? null;
+            if ($pla !== null && $plo !== null && $pla !== '' && $plo !== '' && is_numeric($pla) && is_numeric($plo)) {
+                $pontoSvLat = (float) $pla;
+                $pontoSvLng = (float) $plo;
+            }
+        }
+        if ($pontoEnderecoBloco === '') {
+            $pontoEnderecoBloco = trim((string) ($chamado['endereco_completo'] ?? ''));
+        }
+        if ($pontoSvLat === null || $pontoSvLng === null) {
+            $cla = $chamado['latitude'] ?? null;
+            $clo = $chamado['longitude'] ?? null;
+            if ($cla !== null && $clo !== null && $cla !== '' && $clo !== '' && is_numeric($cla) && is_numeric($clo)) {
+                $pontoSvLat = (float) $cla;
+                $pontoSvLng = (float) $clo;
+            }
+        }
+      ?>
       <div class="card">
         <div class="panel-head">
-          <h4>Poste / ponto de iluminação</h4>
-          <span class="panel-sub">Dados do cadastro vinculado a este chamado</span>
+          <h4>Ponto de iluminação</h4>
+          <span class="panel-sub">Cadastro vinculado a este chamado</span>
         </div>
-        <div class="panel-body flex-col" style="gap:10px;">
+        <div class="panel-body flex-col chamado-ponto-panel" style="gap:10px;">
           <?php if ($pontoChamado): ?>
             <div class="info-row"><span>Código</span><strong><?= htmlspecialchars((string) ($pontoChamado['codigo_poste'] ?? '')) ?></strong></div>
+            <?php if ($pontoEnderecoBloco !== ''): ?>
+            <div class="chamado-ponto-endereco">
+              <span class="chamado-ponto-endereco__label">Endereço</span>
+              <div class="chamado-ponto-endereco__text"><?= nl2br(htmlspecialchars($pontoEnderecoBloco)) ?></div>
+            </div>
+            <?php endif; ?>
             <?php if (!empty($pontoChamado['identificador_externo'])): ?>
             <div class="info-row"><span>Barramento / ID externo</span><strong><?= htmlspecialchars((string) $pontoChamado['identificador_externo']) ?></strong></div>
             <?php endif; ?>
@@ -899,14 +992,13 @@ include __DIR__ . '/../includes/head.php';
             <div class="info-row"><span>Status no cadastro</span>
               <strong><span class="badge <?= (($pontoChamado['status'] ?? '') === 'Ativo') ? 'success' : 'plain' ?>"><?= htmlspecialchars((string) ($pontoChamado['status'] ?? '—')) ?></span></strong>
             </div>
-            <?php if (!empty($pontoChamado['endereco_completo'])): ?>
-            <div class="info-row" style="align-items:flex-start;"><span>Endereço (cadastro)</span>
-              <strong style="text-align:right;font-weight:500;line-height:1.45;"><?= nl2br(htmlspecialchars((string) $pontoChamado['endereco_completo'])) ?></strong>
-            </div>
-            <?php endif; ?>
             <?php if (!empty($pontoChamado['latitude']) && !empty($pontoChamado['longitude'])): ?>
             <div class="info-row"><span>Coordenadas (cadastro)</span>
               <strong class="td-mute"><?= htmlspecialchars((string) $pontoChamado['latitude']) ?>, <?= htmlspecialchars((string) $pontoChamado['longitude']) ?></strong>
+            </div>
+            <?php elseif ($pontoSvLat !== null && $pontoSvLng !== null): ?>
+            <div class="info-row"><span>Coordenadas (chamado)</span>
+              <strong class="td-mute"><?= htmlspecialchars((string) $pontoSvLat) ?>, <?= htmlspecialchars((string) $pontoSvLng) ?></strong>
             </div>
             <?php endif; ?>
             <?php if (!empty($pontoChamado['observacoes'])): ?>
@@ -918,7 +1010,7 @@ include __DIR__ . '/../includes/head.php';
 
             <?php if (!empty($pontoChamadoImagens)): ?>
             <details class="chamado-ponto-fotos">
-              <summary>Fotos do poste (<?= count($pontoChamadoImagens) ?>) — clique para mostrar ou ocultar</summary>
+              <summary>Fotos do ponto (<?= count($pontoChamadoImagens) ?>) — clique para mostrar ou ocultar</summary>
               <div class="chamado-ponto-fotos-grid">
                 <?php foreach ($pontoChamadoImagens as $pimg): ?>
                 <div class="chamado-ponto-fotos-cell">
@@ -933,16 +1025,87 @@ include __DIR__ . '/../includes/head.php';
               </div>
             </details>
             <?php else: ?>
-            <p class="muted" style="margin:12px 0 0;font-size:12px;">Sem imagens cadastradas para este poste.</p>
+            <p class="muted" style="margin:12px 0 0;font-size:12px;">Sem imagens cadastradas para este ponto.</p>
             <?php endif; ?>
           <?php else: ?>
             <p class="muted" style="margin:0;font-size:13px;line-height:1.5;">
-              O chamado referencia o poste #<?= (int) ($chamado['ponto_iluminacao_id'] ?? 0) ?>,
+              O chamado referencia o ponto #<?= (int) ($chamado['ponto_iluminacao_id'] ?? 0) ?>,
               mas o cadastro não foi encontrado ou não pertence a este cliente.
               <?php if (!empty($chamado['ponto_codigo_poste'])): ?>
                 <br><strong>Código gravado no chamado:</strong> <?= htmlspecialchars((string) $chamado['ponto_codigo_poste']) ?>
               <?php endif; ?>
             </p>
+            <?php if ($pontoEnderecoBloco !== ''): ?>
+            <div class="chamado-ponto-endereco">
+              <span class="chamado-ponto-endereco__label">Endereço (chamado)</span>
+              <div class="chamado-ponto-endereco__text"><?= nl2br(htmlspecialchars($pontoEnderecoBloco)) ?></div>
+            </div>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if (db_ok()): ?>
+      <?php
+        $equipeN = count($tecnicoIdsSelecionados);
+        $equipeCountLabel = $equipeN === 0
+            ? 'Ninguém selecionado'
+            : ($equipeN === 1 ? '1 na equipe' : $equipeN . ' na equipe');
+        $equipeCountClass = $equipeN === 0 ? 'equipe-picker-count equipe-picker-count--muted' : 'equipe-picker-count equipe-picker-count--ok';
+      ?>
+      <div class="card equipe-picker-card">
+        <div class="panel-head">
+          <h4>Equipe no chamado</h4>
+          <span class="panel-sub">Quem vai ao campo neste atendimento — em geral dupla ou trio. Toque no nome para incluir ou tirar.</span>
+        </div>
+        <div class="panel-body">
+          <?php if (empty($tecnicosChamado)): ?>
+            <p class="muted" style="margin:0;font-size:13px;line-height:1.5;">Nenhum operador cadastrado para a empresa deste catálogo. Cadastre operadores na empresa antes de montar a equipe.</p>
+          <?php else: ?>
+            <form method="post" class="equipe-picker-form" id="equipe_picker_form" autocomplete="off">
+              <input type="hidden" name="acao" value="tecnico">
+              <input type="hidden" name="silent_autosave" id="chamado_equipe_silent_autosave" value="">
+              <div class="equipe-picker-top">
+                <span id="equipe_picker_count" class="<?= htmlspecialchars($equipeCountClass) ?>" aria-live="polite"><?= htmlspecialchars($equipeCountLabel) ?></span>
+                <label class="sr-only" for="filtro_equipe_chamado">Buscar operador</label>
+                <input type="search" class="input equipe-picker-search" id="filtro_equipe_chamado" name="q_equipe_dummy" autocomplete="off"
+                       placeholder="Buscar operador…" inputmode="search">
+              </div>
+              <div class="equipe-picker" id="equipe_picker_grid" role="group" aria-label="Operadores da empresa">
+                <?php foreach ($tecnicosChamado as $tec): ?>
+                  <?php
+                    $tecId = (int) $tec['id'];
+                    $tecNome = trim((string) ($tec['nome'] ?? ''));
+                    $tecPartes = $tecNome !== '' ? preg_split('/\s+/u', $tecNome, 2) : [];
+                    $tecPrenome = (string) ($tecPartes[0] ?? '');
+                    $tecSobrenome = (string) ($tecPartes[1] ?? '');
+                  ?>
+                  <label class="equipe-picker__opt" data-equipe-pick
+                         data-equipe-nome="<?= htmlspecialchars(mb_strtolower($tecNome, 'UTF-8'), ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="checkbox" name="tecnico_user_ids[]" value="<?= $tecId ?>"
+                           <?= isset($tecnicoIdsSelecionados[$tecId]) ? 'checked' : '' ?>>
+                    <span class="equipe-picker__face">
+                      <span class="equipe-picker__line">
+                        <?php if ($tecPrenome !== ''): ?>
+                          <span class="equipe-picker__gn"><?= htmlspecialchars($tecPrenome) ?></span>
+                          <?php if ($tecSobrenome !== ''): ?>
+                            <span class="equipe-picker__sn"><?= htmlspecialchars($tecSobrenome) ?></span>
+                          <?php endif; ?>
+                        <?php else: ?>
+                          <span class="equipe-picker__gn">—</span>
+                        <?php endif; ?>
+                      </span>
+                    </span>
+                  </label>
+                <?php endforeach; ?>
+              </div>
+              <p class="equipe-picker-many" id="equipe_picker_many" <?= $equipeN > 3 ? '' : 'hidden' ?>>Mais de três pessoas é incomum — confira se todos entram neste chamado.</p>
+              <div class="equipe-picker-foot">
+                <p class="equipe-picker-hint">Selecionados continuam visíveis na busca. Limpe o campo para ver a lista inteira.</p>
+                <button type="submit" class="btn btn-primary btn-sm">Salvar equipe</button>
+              </div>
+            </form>
           <?php endif; ?>
         </div>
       </div>
@@ -975,7 +1138,7 @@ include __DIR__ . '/../includes/head.php';
             <div class="chamado-location-actions">
               <?php if (!empty($loadLeaflet)): ?>
                 <a class="btn btn-ghost" target="_blank" rel="noopener"
-                   href="https://www.openstreetmap.org/?mlat=<?= urlencode((string) $chamado['latitude']) ?>&amp;mlon=<?= urlencode((string) $chamado['longitude']) ?>&amp;zoom=16">Abrir no OSM</a>
+                   href="https://www.google.com/maps?q=<?= urlencode((string) $chamado['latitude'] . ',' . (string) $chamado['longitude']) ?>">Abrir no Google Maps</a>
               <?php endif; ?>
             </div>
           </div>
@@ -1031,33 +1194,6 @@ include __DIR__ . '/../includes/head.php';
     </aside>
   </div>
 </section>
-
-<?php if (db_ok()): ?>
-<script>
-(function () {
-  var ponto = document.getElementById('ponto_iluminacao_id');
-  if (!ponto) return;
-  function fillFromPonto() {
-    var opt = ponto.options[ponto.selectedIndex];
-    if (!opt || !opt.value || opt.value === '0') return;
-    var end = opt.getAttribute('data-endereco') || '';
-    var lat = opt.getAttribute('data-lat') || '';
-    var lng = opt.getAttribute('data-lng') || '';
-    var log = document.getElementById('os_logradouro');
-    if (end && log) log.value = end;
-    if (lat) {
-      var la = document.getElementById('chamado_latitude');
-      if (la) la.value = lat;
-    }
-    if (lng) {
-      var lo = document.getElementById('chamado_longitude');
-      if (lo) lo.value = lng;
-    }
-  }
-  ponto.addEventListener('change', fillFromPonto);
-})();
-</script>
-<?php endif; ?>
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -1123,6 +1259,131 @@ include __DIR__ . '/../includes/head.php';
       }
     }
   });
+})();
+
+(function () {
+  var root = document.getElementById('equipe_picker_grid');
+  var filtro = document.getElementById('filtro_equipe_chamado');
+  var countEl = document.getElementById('equipe_picker_count');
+  var manyEl = document.getElementById('equipe_picker_many');
+  if (!root || !filtro) return;
+  var labels = root.querySelectorAll('[data-equipe-pick]');
+
+  function updateCount() {
+    var n = root.querySelectorAll('input[type="checkbox"]:checked').length;
+    if (!countEl) return;
+    if (n === 0) {
+      countEl.textContent = 'Ninguém selecionado';
+      countEl.className = 'equipe-picker-count equipe-picker-count--muted';
+    } else if (n === 1) {
+      countEl.textContent = '1 na equipe';
+      countEl.className = 'equipe-picker-count equipe-picker-count--ok';
+    } else {
+      countEl.textContent = n + ' na equipe';
+      countEl.className = 'equipe-picker-count equipe-picker-count--ok';
+    }
+    if (manyEl) {
+      if (n > 3) manyEl.removeAttribute('hidden');
+      else manyEl.setAttribute('hidden', '');
+    }
+  }
+
+  function applyFilter() {
+    var q = filtro.value.trim().toLowerCase();
+    labels.forEach(function (lab) {
+      var cb = lab.querySelector('input[type="checkbox"]');
+      var raw = lab.getAttribute('data-equipe-nome') || '';
+      var match = !q || raw.indexOf(q) !== -1;
+      var show = match || (cb && cb.checked);
+      lab.classList.toggle('equipe-picker__opt--hidden', !show);
+    });
+  }
+
+  filtro.addEventListener('input', applyFilter);
+  root.addEventListener('change', function () {
+    applyFilter();
+    updateCount();
+  });
+  applyFilter();
+  updateCount();
+})();
+
+/** Recarrega chamado_detalhe após edição: salva ficha OS e equipe automaticamente. */
+(function () {
+  var DEBOUNCE_TEXT_MS = 1100;
+
+  function immediateTarget(t) {
+    if (!t || !t.tagName) return false;
+    if (t.tagName === 'SELECT') return true;
+    if (t.tagName === 'INPUT') {
+      var ty = (t.type || '').toLowerCase();
+      return ty === 'date' || ty === 'checkbox' || ty === 'radio';
+    }
+    return false;
+  }
+
+  var osForm = document.getElementById('chamado-form-os-dados');
+  var osSilent = document.getElementById('chamado_os_silent_autosave');
+  var osBtnManual = document.getElementById('chamado_os_salvar_manual');
+  if (osForm && osSilent) {
+    var osTimer = null;
+    function scheduleOsSave(e) {
+      var delay = e && immediateTarget(e.target) ? 60 : DEBOUNCE_TEXT_MS;
+      if (osTimer) clearTimeout(osTimer);
+      osTimer = window.setTimeout(function () {
+        osTimer = null;
+        osSilent.value = '1';
+        osForm.submit();
+      }, delay);
+    }
+    osForm.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || !t.name || t.name === 'acao' || t.name === 'silent_autosave') return;
+      scheduleOsSave(e);
+    });
+    osForm.addEventListener('input', function (e) {
+      var t = e.target;
+      if (!t || !t.name || t.name === 'acao' || t.name === 'silent_autosave') return;
+      if (immediateTarget(t)) return;
+      scheduleOsSave(e);
+    });
+    osForm.addEventListener('submit', function () {
+      if (osTimer) {
+        clearTimeout(osTimer);
+        osTimer = null;
+      }
+    });
+    if (osBtnManual) {
+      osBtnManual.addEventListener('click', function () {
+        osSilent.value = '';
+      });
+    }
+  }
+
+  var equipeForm = document.getElementById('equipe_picker_form');
+  var equipeSilent = document.getElementById('chamado_equipe_silent_autosave');
+  if (equipeForm && equipeSilent) {
+    var eqTimer = null;
+    equipeForm.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || t.name !== 'tecnico_user_ids[]') return;
+      if (eqTimer) clearTimeout(eqTimer);
+      eqTimer = window.setTimeout(function () {
+        eqTimer = null;
+        equipeSilent.value = '1';
+        equipeForm.submit();
+      }, 400);
+    });
+    equipeForm.addEventListener('submit', function (e) {
+      if (eqTimer) {
+        clearTimeout(eqTimer);
+        eqTimer = null;
+      }
+      if (e.submitter && e.submitter.type === 'submit') {
+        equipeSilent.value = '';
+      }
+    });
+  }
 })();
 </script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

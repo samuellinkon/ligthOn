@@ -82,26 +82,31 @@ include __DIR__ . '/../includes/head.php';
       <div class="form-group">
         <label for="nome">Nome do contato</label>
         <input type="text" id="nome" name="nome" class="input" required
+               placeholder="Nome do contato"
                value="<?= htmlspecialchars($cliente['nome']) ?>">
       </div>
       <div class="form-group">
         <label for="empresa">Empresa</label>
         <input type="text" id="empresa" name="empresa" class="input" required
+               placeholder="Razão social ou nome fantasia"
                value="<?= htmlspecialchars($cliente['empresa']) ?>">
       </div>
       <div class="form-group">
         <label for="email">E-mail</label>
         <input type="email" id="email" name="email" class="input"
+               placeholder="contato@empresa.gov.br"
                value="<?= htmlspecialchars($cliente['email'] ?? '') ?>">
       </div>
       <div class="form-group">
         <label for="telefone">Telefone</label>
         <input type="tel" id="telefone" name="telefone" class="input"
+               placeholder="(00) 00000-0000"
                value="<?= htmlspecialchars($cliente['telefone'] ?? '') ?>">
       </div>
       <div class="form-group">
         <label for="doc">CPF / CNPJ</label>
         <input type="text" id="doc" name="doc" class="input"
+               placeholder="CPF ou CNPJ"
                value="<?= htmlspecialchars($cliente['doc'] ?? '') ?>">
       </div>
       <div class="form-group">
@@ -114,7 +119,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="obs">Observações</label>
-        <textarea id="obs" name="obs" class="textarea"><?= htmlspecialchars($cliente['obs'] ?? '') ?></textarea>
+        <textarea id="obs" name="obs" class="textarea" placeholder="Notas internas sobre o cadastro"><?= htmlspecialchars($cliente['obs'] ?? '') ?></textarea>
       </div>
     </div>
 

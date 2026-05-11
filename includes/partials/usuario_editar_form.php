@@ -6,7 +6,7 @@
  */
 $embedForm = !empty($embedForm ?? false);
 $returnUrlHidden = isset($returnUrlHidden) ? (string) $returnUrlHidden : '';
-$cancelHref = isset($cancelHref) && $cancelHref !== '' ? (string) $cancelHref : 'usuarios.php';
+$cancelHref = isset($cancelHref) && $cancelHref !== '' ? (string) $cancelHref : 'index.php';
 $formTarget = $embedForm ? ' target="_top"' : '';
 $perfilAtual = strtolower(trim((string) ($usuario['perfil'] ?? '')));
 $perfilLabels = [
@@ -34,11 +34,13 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
     <div class="form-group full">
       <label for="nome">Nome completo</label>
       <input type="text" id="nome" name="nome" class="input" required maxlength="120"
+             placeholder="Nome e sobrenome"
              value="<?= htmlspecialchars((string) ($usuario['nome'] ?? '')) ?>">
     </div>
     <div class="form-group full">
       <label for="email">E-mail (login)</label>
       <input type="email" id="email" name="email" class="input" required maxlength="150"
+             placeholder="nome@organização.gov.br"
              value="<?= htmlspecialchars((string) ($usuario['email'] ?? '')) ?>">
     </div>
     <div class="form-group">
@@ -106,11 +108,13 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
   <div class="panel-body form form-grid">
     <div class="form-group">
       <label for="senha_nova">Nova senha</label>
-      <input type="password" id="senha_nova" name="senha_nova" class="input" autocomplete="new-password" minlength="6">
+      <input type="password" id="senha_nova" name="senha_nova" class="input" autocomplete="new-password" minlength="6"
+             placeholder="Mínimo 6 caracteres">
     </div>
     <div class="form-group">
       <label for="senha_nova2">Confirmar nova senha</label>
-      <input type="password" id="senha_nova2" name="senha_nova2" class="input" autocomplete="new-password" minlength="6">
+      <input type="password" id="senha_nova2" name="senha_nova2" class="input" autocomplete="new-password" minlength="6"
+             placeholder="Repita a nova senha">
     </div>
   </div>
 

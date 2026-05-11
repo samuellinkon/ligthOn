@@ -131,28 +131,6 @@ include __DIR__ . '/../includes/head.php';
 
 <script>
 (function () {
-  var sel = document.getElementById('ponto_iluminacao_id');
-  if (!sel) return;
-  sel.addEventListener('change', function () {
-    var opt = sel.options[sel.selectedIndex];
-    if (!opt || !opt.value || opt.value === '0') return;
-    var end = opt.getAttribute('data-endereco') || '';
-    var lat = opt.getAttribute('data-lat') || '';
-    var lng = opt.getAttribute('data-lng') || '';
-    var log = document.getElementById('os_logradouro');
-    if (end && log) log.value = end;
-    if (lat) {
-      var la = document.getElementById('chamado_latitude');
-      if (la) la.value = lat;
-    }
-    if (lng) {
-      var lo = document.getElementById('chamado_longitude');
-      if (lo) lo.value = lng;
-    }
-  });
-})();
-
-(function () {
   var group = document.querySelector('[data-prio-radio-group]');
   if (!group) return;
   var cards = group.querySelectorAll('.radio-card');

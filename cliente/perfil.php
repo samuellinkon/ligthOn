@@ -92,11 +92,13 @@ include __DIR__ . '/../includes/head.php';
           <div class="form-group full">
             <label for="nome">Nome completo</label>
             <input type="text" id="nome" name="nome" class="input" required maxlength="120"
+                   placeholder="Nome e sobrenome"
                    value="<?= htmlspecialchars((string) ($user['nome'] ?? '')) ?>">
           </div>
           <div class="form-group full">
             <label for="email">E-mail</label>
             <input type="email" id="email" name="email" class="input" required maxlength="150"
+                   placeholder="nome@prefeitura.gov.br"
                    value="<?= htmlspecialchars((string) ($user['email'] ?? '')) ?>">
           </div>
           <div class="form-actions full">
@@ -117,16 +119,19 @@ include __DIR__ . '/../includes/head.php';
           <div class="form-group full">
             <label for="senha_atual">Senha atual</label>
             <input type="password" id="senha_atual" name="senha_atual" class="input" autocomplete="current-password"
+                   placeholder="Senha em uso"
                    <?= db_ok() ? '' : 'disabled' ?>>
           </div>
           <div class="form-group full">
             <label for="senha_nova">Nova senha</label>
             <input type="password" id="senha_nova" name="senha_nova" class="input" autocomplete="new-password" minlength="6"
+                   placeholder="Mínimo 6 caracteres"
                    <?= db_ok() ? '' : 'disabled' ?>>
           </div>
           <div class="form-group full">
             <label for="senha_nova2">Confirmar nova senha</label>
             <input type="password" id="senha_nova2" name="senha_nova2" class="input" autocomplete="new-password" minlength="6"
+                   placeholder="Repita a nova senha"
                    <?= db_ok() ? '' : 'disabled' ?>>
           </div>
           <?php if (!db_ok()): ?>

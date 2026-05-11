@@ -354,7 +354,7 @@ include __DIR__ . '/../includes/head.php';
     <form class="panel-body form form-grid medicao-import-form" method="post" action="medicao_importar.php" enctype="multipart/form-data">
       <div class="form-group">
         <label for="ref_ano">Ano</label>
-        <input type="number" id="ref_ano" name="ref_ano" class="input" min="2000" max="2100" step="1" value="<?= (int) $anoForm ?>" required>
+        <input type="number" id="ref_ano" name="ref_ano" class="input" min="2000" max="2100" step="1" value="<?= (int) $anoForm ?>" required placeholder="Ex.: 2026">
       </div>
       <div class="form-group">
         <label for="ref_mes">Mês</label>

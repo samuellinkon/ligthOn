@@ -6,6 +6,8 @@ $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('usuarios');
 
+$usuariosListaHref = (($me['perfil'] ?? '') === 'admin') ? 'usuarios.php' : 'index.php';
+
 $escopoNu = gestao_scope_cliente_id($me);
 $pageTitle   = 'Novo usuário';
 $basePath    = '../';
@@ -13,7 +15,7 @@ $activePage  = 'usuarios';
 
 if (!db_ok()) {
     flash_set('err', 'Banco indisponível.');
-    header('Location: usuarios.php');
+    header('Location: ' . $usuariosListaHref);
     exit;
 }
 
@@ -161,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $topTitle    = 'Novo usuário';
 $topSubtitle = 'Administrador, gestão, operador ou acesso ao portal da prefeitura';
 $topSearch   = 'Buscar...';
-$topAction   = ['label' => 'Voltar', 'href' => 'usuarios.php', 'icon' => '←'];
+$topAction   = ['label' => 'Voltar', 'href' => $usuariosListaHref, 'icon' => '←'];
 
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -180,11 +182,11 @@ include __DIR__ . '/../includes/head.php';
     <div class="panel-body form form-grid form-grid--usuario">
       <div class="form-group full">
         <label for="nome">Nome completo</label>
-        <input type="text" id="nome" name="nome" class="input" required maxlength="120">
+        <input type="text" id="nome" name="nome" class="input" required maxlength="120" placeholder="Nome e sobrenome">
       </div>
       <div class="form-group full">
         <label for="email">E-mail</label>
-        <input type="email" id="email" name="email" class="input" required maxlength="150">
+        <input type="email" id="email" name="email" class="input" required maxlength="150" placeholder="nome@organização.gov.br">
       </div>
       <div class="form-group">
         <label for="perfil">Perfil</label>
@@ -253,17 +255,17 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group">
         <label for="senha">Senha</label>
-        <input type="password" id="senha" name="senha" class="input" required minlength="6" autocomplete="new-password">
+        <input type="password" id="senha" name="senha" class="input" required minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
       </div>
       <div class="form-group">
         <label for="senha2">Confirmar senha</label>
-        <input type="password" id="senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password">
+        <input type="password" id="senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password" placeholder="Repita a senha">
       </div>
     </div>
 
     <div class="panel-body">
       <div class="form-actions" style="padding:0;border:0;background:transparent;">
-        <a href="usuarios.php" class="btn btn-secondary">Cancelar</a>
+        <a href="<?= htmlspecialchars($usuariosListaHref) ?>" class="btn btn-secondary">Cancelar</a>
         <button type="submit" class="btn btn-primary">Criar usuário</button>
       </div>
     </div>

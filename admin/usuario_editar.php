@@ -6,6 +6,8 @@ $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('usuarios');
 
+$usuariosListaHref = (($me['perfil'] ?? '') === 'admin') ? 'usuarios.php' : 'index.php';
+
 $escopoUe = gestao_scope_cliente_id($me);
 $pageTitle   = 'Editar usuário';
 $basePath    = '../';
@@ -14,20 +16,20 @@ $activePage  = 'usuarios';
 $userId = (int) ($_GET['id'] ?? 0);
 if ($userId <= 0) {
     flash_set('err', 'Usuário não informado.');
-    header('Location: usuarios.php');
+    header('Location: ' . $usuariosListaHref);
     exit;
 }
 
 if (!db_ok()) {
     flash_set('err', 'Banco indisponível.');
-    header('Location: usuarios.php');
+    header('Location: ' . $usuariosListaHref);
     exit;
 }
 
 $usuario = repo_user_by_id($userId);
 if (!$usuario) {
     flash_set('err', 'Usuário #' . $userId . ' não encontrado.');
-    header('Location: usuarios.php');
+    header('Location: ' . $usuariosListaHref);
     exit;
 }
 
@@ -42,7 +44,7 @@ if ($escopoUe !== null) {
         || ($uPer === 'cliente' && repo_cliente_pertence_empresa($uCid, $escopoUe));
     if (!$podeUe) {
         flash_set('err', 'Sem permissão para editar este usuário.');
-        header('Location: usuarios.php');
+        header('Location: ' . $usuariosListaHref);
         exit;
     }
 }
@@ -134,7 +136,7 @@ if ($embed) {
 <?php
     $embedForm = true;
     $returnUrlHidden = $returnClient;
-    $cancelHref = $returnClient !== '' ? $returnClient : 'usuarios.php';
+    $cancelHref = $returnClient !== '' ? $returnClient : $usuariosListaHref;
     include __DIR__ . '/../includes/partials/usuario_editar_form.php';
 ?>
 <script>
@@ -176,7 +178,7 @@ if ($embed) {
 $topTitle    = 'Editar usuário';
 $topSubtitle = htmlspecialchars((string) ($usuario['nome'] ?? '')) . ' · #' . $userId;
 $topSearch   = 'Buscar...';
-$topAction   = ['label' => 'Lista de usuários', 'href' => 'usuarios.php', 'icon' => '←'];
+$topAction   = ['label' => 'Lista de usuários', 'href' => $usuariosListaHref, 'icon' => '←'];
 
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -189,7 +191,7 @@ include __DIR__ . '/../includes/head.php';
 <?php
 $embedForm = false;
 $returnUrlHidden = '';
-$cancelHref = 'usuarios.php';
+$cancelHref = $usuariosListaHref;
 include __DIR__ . '/../includes/partials/usuario_editar_form.php';
 ?>
 </section>

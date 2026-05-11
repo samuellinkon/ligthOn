@@ -40,7 +40,7 @@ if (function_exists('db_ok') && db_ok() && function_exists('repo_clientes_empres
 $items = [
     ['key' => 'dashboard', 'label' => 'Dashboard', 'href' => 'admin/index.php'],
     ['key' => 'clientes',  'label' => 'Cliente',  'href' => 'admin/clientes.php'],
-    ['key' => 'usuarios',  'label' => 'Usuários',  'href' => 'admin/usuarios.php'],
+    ['key' => 'usuarios',  'label' => 'Usuários',  'href' => 'admin/usuarios.php', 'admin_only' => true],
     ['key' => 'chamados',  'label' => 'Chamados',  'href' => 'admin/chamados.php'],
     ['key' => 'medicao',   'label' => 'Medição',   'href' => 'admin/medicao.php'],
     ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'admin/pontos_iluminacao.php'],

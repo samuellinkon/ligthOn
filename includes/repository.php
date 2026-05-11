@@ -1939,8 +1939,122 @@ function repo_chamado(int $id): ?array
     $r['aprovado_gestor_user_id'] = isset($r['aprovado_gestor_user_id']) && $r['aprovado_gestor_user_id'] !== null
         ? (int) $r['aprovado_gestor_user_id'] : null;
     _repo_chamado_row_normalizar_geo($r);
+    _repo_chamado_anexar_tecnicos($r);
 
     return $r;
+}
+
+function repo_chamado_tecnicos_table_exists(): bool
+{
+    static $exists = null;
+    if ($exists !== null) {
+        return $exists;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $exists = false;
+
+        return $exists;
+    }
+    try {
+        $st = $pdo->query("SHOW TABLES LIKE 'chamado_tecnicos'");
+        $exists = (bool) $st->fetchColumn();
+    } catch (Throwable $e) {
+        $exists = false;
+    }
+
+    return $exists;
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function repo_chamado_tecnicos_list(int $chamadoId): array
+{
+    $pdo = db();
+    if (!$pdo || $chamadoId <= 0) {
+        return [];
+    }
+    $rows = [];
+    if (repo_chamado_tecnicos_table_exists()) {
+        $st = $pdo->prepare('
+            SELECT u.id, u.nome, u.email, u.iniciais, ct.created_at
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            JOIN chamados ch ON ch.id = ct.chamado_id
+            WHERE ct.chamado_id = ?
+            ORDER BY CASE WHEN u.id = ch.tecnico_user_id THEN 0 ELSE 1 END,
+                     ct.created_at ASC, u.nome ASC, u.id ASC
+        ');
+        $st->execute([$chamadoId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+    if (empty($rows)) {
+        $st = $pdo->prepare('
+            SELECT u.id, u.nome, u.email, u.iniciais, NULL AS created_at
+            FROM chamados ch
+            JOIN usuarios u ON u.id = ch.tecnico_user_id
+            WHERE ch.id = ? AND ch.tecnico_user_id IS NOT NULL
+            LIMIT 1
+        ');
+        $st->execute([$chamadoId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+    foreach ($rows as &$r) {
+        $r['id'] = (int) $r['id'];
+    }
+    unset($r);
+
+    return $rows;
+}
+
+/**
+ * @param array<string,mixed> $row
+ */
+function _repo_chamado_anexar_tecnicos(array &$row): void
+{
+    $tecnicos = repo_chamado_tecnicos_list((int) ($row['id'] ?? 0));
+    $ids = [];
+    $nomes = [];
+    foreach ($tecnicos as $tec) {
+        $tid = (int) ($tec['id'] ?? 0);
+        if ($tid <= 0) {
+            continue;
+        }
+        $ids[] = $tid;
+        $nome = trim((string) ($tec['nome'] ?? ''));
+        if ($nome !== '') {
+            $nomes[] = $nome;
+        }
+    }
+    $row['tecnicos'] = $tecnicos;
+    $row['tecnico_ids'] = $ids;
+    $row['tecnico_nomes'] = $nomes;
+    if (!empty($ids) && empty($row['tecnico_user_id'])) {
+        $row['tecnico_user_id'] = $ids[0];
+    }
+    if (!empty($nomes)) {
+        $row['tecnico_nome'] = implode(', ', $nomes);
+    }
+}
+
+/**
+ * @param array<string,mixed> $row
+ */
+function _repo_chamado_normalizar_tecnico_ids(array &$row): void
+{
+    $raw = (string) ($row['tecnico_ids'] ?? '');
+    $ids = [];
+    foreach (explode(',', $raw) as $part) {
+        $tid = (int) trim($part);
+        if ($tid > 0 && !in_array($tid, $ids, true)) {
+            $ids[] = $tid;
+        }
+    }
+    if (empty($ids) && !empty($row['tecnico_user_id'])) {
+        $ids[] = (int) $row['tecnico_user_id'];
+    }
+    $row['tecnico_ids'] = $ids;
 }
 
 /**
@@ -1989,12 +2103,22 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
     }
     $filtro = strtolower(trim($filtro));
     $q      = trim($q);
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
 
     $where = ['ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)'];
     $params = [$empresaRaizId, $empresaRaizId];
     if ($operadorUserId !== null && $operadorUserId > 0) {
-        $where[] = 'ch.tecnico_user_id = ?';
-        $params[] = $operadorUserId;
+        if ($temTecnicosTabela) {
+            $where[] = '(ch.tecnico_user_id = ? OR EXISTS (
+                SELECT 1 FROM chamado_tecnicos ctf
+                WHERE ctf.chamado_id = ch.id AND ctf.usuario_id = ?
+            ))';
+            $params[] = $operadorUserId;
+            $params[] = $operadorUserId;
+        } else {
+            $where[] = 'ch.tecnico_user_id = ?';
+            $params[] = $operadorUserId;
+        }
     }
 
     if ($filtro === 'andamento') {
@@ -2028,6 +2152,22 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
     $page          = min($page, $totalPages);
     $offset        = ($page - 1) * $perPage;
 
+    $tecnicoSelect = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome) AS tecnico_nome,
+            tecs.tecnico_ids AS tecnico_ids,'
+        : 'ut.nome AS tecnico_nome,
+            NULL AS tecnico_ids,';
+    $tecnicoJoin = $temTecnicosTabela
+        ? "
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR ', ') AS tecnico_nomes,
+                   GROUP_CONCAT(u.id ORDER BY u.nome SEPARATOR ',') AS tecnico_ids
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id"
+        : '';
     $sql = "
         SELECT
             ch.id, ch.cliente_id, ch.titulo, ch.descricao,
@@ -2036,13 +2176,14 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
             ch.prioridade, ch.status, ch.responsavel,
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
-            ut.nome AS tecnico_nome,
+            $tecnicoSelect
             s.nome AS servico_nome,
             s.tipo AS servico_tipo,
             s.valor_unitario AS servico_valor_unitario
         FROM chamados ch
         JOIN clientes c ON c.id = ch.cliente_id
         LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        $tecnicoJoin
         LEFT JOIN cliente_itens s ON s.id = ch.servico_id
         WHERE $sqlWhere
         ORDER BY ch.aberto_em DESC, ch.id DESC
@@ -2055,6 +2196,7 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
         $r['cliente_id'] = (int) $r['cliente_id'];
         $r['servico_id'] = isset($r['servico_id']) && $r['servico_id'] !== null ? (int) $r['servico_id'] : null;
         $r['tecnico_user_id'] = isset($r['tecnico_user_id']) && $r['tecnico_user_id'] !== null ? (int) $r['tecnico_user_id'] : null;
+        _repo_chamado_normalizar_tecnico_ids($r);
         _repo_chamado_row_normalizar_geo($r);
     }
     unset($r);
@@ -2088,7 +2230,26 @@ function repo_chamado_acessivel_operador_atribuido(int $chamadoId, int $empresaR
         return false;
     }
 
-    return (int) ($ch['tecnico_user_id'] ?? 0) === $operadorUserId;
+    return repo_chamado_tecnico_vinculado($chamadoId, $operadorUserId);
+}
+
+function repo_chamado_tecnico_vinculado(int $chamadoId, int $operadorUserId): bool
+{
+    $pdo = db();
+    if (!$pdo || $chamadoId <= 0 || $operadorUserId <= 0) {
+        return false;
+    }
+    if (repo_chamado_tecnicos_table_exists()) {
+        $st = $pdo->prepare('SELECT 1 FROM chamado_tecnicos WHERE chamado_id = ? AND usuario_id = ? LIMIT 1');
+        $st->execute([$chamadoId, $operadorUserId]);
+        if ($st->fetchColumn()) {
+            return true;
+        }
+    }
+    $st = $pdo->prepare('SELECT 1 FROM chamados WHERE id = ? AND tecnico_user_id = ? LIMIT 1');
+    $st->execute([$chamadoId, $operadorUserId]);
+
+    return (bool) $st->fetchColumn();
 }
 
 /**
@@ -2147,6 +2308,7 @@ function repo_chamados_portal_list(
     $filtro = strtolower(trim($filtro));
     $q      = trim($q);
     $ordem  = strtolower(trim($ordem));
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
 
     $where = ['ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)'];
     $params = [$raizId, $raizId];
@@ -2209,6 +2371,22 @@ function repo_chamados_portal_list(
         $offset     = ($page - 1) * $perPage;
     }
 
+    $tecnicoSelect = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome) AS tecnico_nome,
+            tecs.tecnico_ids AS tecnico_ids,'
+        : 'ut.nome AS tecnico_nome,
+            NULL AS tecnico_ids,';
+    $tecnicoJoin = $temTecnicosTabela
+        ? "
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR ', ') AS tecnico_nomes,
+                   GROUP_CONCAT(u.id ORDER BY u.nome SEPARATOR ',') AS tecnico_ids
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id"
+        : '';
     $sql = "
         SELECT
             ch.id, ch.cliente_id, ch.titulo, ch.descricao,
@@ -2217,13 +2395,14 @@ function repo_chamados_portal_list(
             ch.prioridade, ch.status, ch.responsavel,
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
-            ut.nome AS tecnico_nome,
+            $tecnicoSelect
             s.nome AS servico_nome,
             s.tipo AS servico_tipo,
             s.valor_unitario AS servico_valor_unitario
         FROM chamados ch
         JOIN clientes c ON c.id = ch.cliente_id
         LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        $tecnicoJoin
         LEFT JOIN cliente_itens s ON s.id = ch.servico_id
         WHERE $sqlWhere
         ORDER BY $orderBy
@@ -2236,6 +2415,7 @@ function repo_chamados_portal_list(
         $r['cliente_id'] = (int) $r['cliente_id'];
         $r['servico_id'] = isset($r['servico_id']) && $r['servico_id'] !== null ? (int) $r['servico_id'] : null;
         $r['tecnico_user_id'] = isset($r['tecnico_user_id']) && $r['tecnico_user_id'] !== null ? (int) $r['tecnico_user_id'] : null;
+        _repo_chamado_normalizar_tecnico_ids($r);
         _repo_chamado_row_normalizar_geo($r);
     }
     unset($r);
@@ -2244,9 +2424,130 @@ function repo_chamados_portal_list(
 }
 
 /**
+ * WHERE + parâmetros reutilizados em listagens admin, PDF e resumos.
+ *
+ * @return array{0: string, 1: array<int, mixed>}
+ */
+function _repo_chamados_admin_sql_where(
+    string $filtro,
+    string $q,
+    ?int $clienteIdEscopo,
+    ?string $dataAbertaDe,
+    ?string $dataAbertaAte,
+    ?int $envolvidoUserId,
+    ?int $tecnicoUserId,
+    ?string $localQ,
+    bool $excluirCancelados
+): array {
+    $filtro = strtolower(trim($filtro));
+    $q      = trim($q);
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
+
+    $where  = ['1=1'];
+    $params = [];
+
+    if ($clienteIdEscopo !== null && $clienteIdEscopo > 0) {
+        $where[]  = 'ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteIdEscopo;
+        $params[] = $clienteIdEscopo;
+    }
+
+    if ($filtro === 'abertos') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Aberto';
+    } elseif ($filtro === 'andamento') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Em andamento';
+    } elseif ($filtro === 'aguardando') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Aguardando';
+    } elseif ($filtro === 'resolvidos') {
+        $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\')';
+    } elseif ($filtro === 'cancelados') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Cancelado';
+    } elseif ($filtro === 'urgentes') {
+        $where[] = 'ch.prioridade IN (\'Alta\',\'Urgente\')';
+        $where[] = 'ch.status NOT IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
+    }
+
+    if ($envolvidoUserId !== null && $envolvidoUserId > 0) {
+        $where[] = 'EXISTS (
+            SELECT 1 FROM usuarios uenv
+            WHERE uenv.id = ?
+              AND (
+                (uenv.perfil = \'cliente\' AND uenv.cliente_id IS NOT NULL AND ch.cliente_id = uenv.cliente_id)
+                OR (uenv.perfil IN (\'gestor\',\'operador\') AND (
+                    ch.tecnico_user_id = uenv.id
+                    OR ' . ($temTecnicosTabela ? 'EXISTS (
+                        SELECT 1 FROM chamado_tecnicos cte
+                        WHERE cte.chamado_id = ch.id AND cte.usuario_id = uenv.id
+                    )
+                    OR ' : '') . 'ch.finalizado_operador_user_id = uenv.id
+                    OR ch.aprovado_gestor_user_id = uenv.id
+                ))
+              )
+        )';
+        $params[] = $envolvidoUserId;
+    }
+
+    if ($q !== '') {
+        if (ctype_digit($q)) {
+            $where[]  = 'ch.id = ?';
+            $params[] = (int) $q;
+        } else {
+            $where[] = '(ch.titulo LIKE ? OR c.empresa LIKE ? OR CAST(ch.id AS CHAR) LIKE ?)';
+            $term    = '%' . $q . '%';
+            $params[] = $term;
+            $params[] = $term;
+            $params[] = '%' . $q . '%';
+        }
+    }
+
+    if ($tecnicoUserId !== null && $tecnicoUserId > 0) {
+        if ($temTecnicosTabela) {
+            $where[] = '(ch.tecnico_user_id = ? OR EXISTS (
+                SELECT 1 FROM chamado_tecnicos ctf
+                WHERE ctf.chamado_id = ch.id AND ctf.usuario_id = ?
+            ))';
+            $params[] = $tecnicoUserId;
+            $params[] = $tecnicoUserId;
+        } else {
+            $where[]  = 'ch.tecnico_user_id = ?';
+            $params[] = $tecnicoUserId;
+        }
+    }
+
+    $localTrim = $localQ !== null ? trim((string) $localQ) : '';
+    if ($localTrim !== '') {
+        $term = '%' . $localTrim . '%';
+        $where[] = '(ch.endereco_completo LIKE ? OR ch.os_bairro LIKE ? OR ch.os_logradouro LIKE ? OR ch.os_numero LIKE ? OR ch.os_complemento LIKE ? OR ch.os_cidade LIKE ? OR ch.os_cep LIKE ?)';
+        for ($i = 0; $i < 7; $i++) {
+            $params[] = $term;
+        }
+    }
+
+    if ($excluirCancelados && $filtro !== 'cancelados') {
+        $where[]  = 'ch.status <> ?';
+        $params[] = 'Cancelado';
+    }
+
+    if ($dataAbertaDe !== null && $dataAbertaAte !== null
+        && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAbertaDe) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAbertaAte)
+        && $dataAbertaDe <= $dataAbertaAte) {
+        $where[]  = 'DATE(ch.aberto_em) BETWEEN ? AND ?';
+        $params[] = $dataAbertaDe;
+        $params[] = $dataAbertaAte;
+    }
+
+    return [implode(' AND ', $where), $params];
+}
+
+/**
  * Lista chamados no admin com filtro, busca e paginação.
  * Opcional: intervalo de datas de abertura (YYYY-MM-DD), ex. filtro por medição mensal.
  * Opcional: $envolvidoUserId restringe a chamados em que o utilizador intervém (portal por unidade; equipe por colunas técnicas).
+ * Opcional: $tecnicoUserId, $localQ (endereço), $excluirCancelados.
  *
  * @return array{rows: list<array<string,mixed>>, total: int}
  */
@@ -2259,7 +2560,10 @@ function repo_chamados_admin_list(
     ?string $dataAbertaDe = null,
     ?string $dataAbertaAte = null,
     ?int $sqlOffsetOverride = null,
-    ?int $envolvidoUserId = null
+    ?int $envolvidoUserId = null,
+    ?int $tecnicoUserId = null,
+    ?string $localQ = null,
+    bool $excluirCancelados = false
 ): array
 {
     $pdo = db();
@@ -2268,77 +2572,19 @@ function repo_chamados_admin_list(
     }
     $filtro = strtolower(trim($filtro));
     $q      = trim($q);
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
 
-    $where = ['1=1'];
-    $params = [];
-
-    if ($clienteIdEscopo !== null && $clienteIdEscopo > 0) {
-        $where[] = 'ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
-        $params[] = $clienteIdEscopo;
-        $params[] = $clienteIdEscopo;
-    }
-
-    if ($filtro === 'abertos') {
-        $where[] = 'ch.status = ?';
-        $params[] = 'Aberto';
-    } elseif ($filtro === 'andamento') {
-        $where[] = 'ch.status = ?';
-        $params[] = 'Em andamento';
-    } elseif ($filtro === 'aguardando') {
-        $where[] = 'ch.status = ?';
-        $params[] = 'Aguardando';
-    } elseif ($filtro === 'resolvidos') {
-        $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\')';
-    } elseif ($filtro === 'cancelados') {
-        $where[] = 'ch.status = ?';
-        $params[] = 'Cancelado';
-    } elseif ($filtro === 'urgentes') {
-        $where[] = 'ch.prioridade IN (\'Alta\',\'Urgente\')';
-        $where[] = 'ch.status NOT IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
-    }
-
-    /*
-     * envolvido_user (ficha do cliente): cliente do portal → chamados da unidade (usuarios.cliente_id);
-     * gestor/técnico → papéis técnicos nas colunas do chamado.
-     */
-    if ($envolvidoUserId !== null && $envolvidoUserId > 0) {
-        $where[] = 'EXISTS (
-            SELECT 1 FROM usuarios uenv
-            WHERE uenv.id = ?
-              AND (
-                (uenv.perfil = \'cliente\' AND uenv.cliente_id IS NOT NULL AND ch.cliente_id = uenv.cliente_id)
-                OR (uenv.perfil IN (\'gestor\',\'operador\') AND (
-                    ch.tecnico_user_id = uenv.id
-                    OR ch.finalizado_operador_user_id = uenv.id
-                    OR ch.aprovado_gestor_user_id = uenv.id
-                ))
-              )
-        )';
-        $params[] = $envolvidoUserId;
-    }
-
-    if ($q !== '') {
-        if (ctype_digit($q)) {
-            $where[] = 'ch.id = ?';
-            $params[] = (int) $q;
-        } else {
-            $where[] = '(ch.titulo LIKE ? OR c.empresa LIKE ? OR CAST(ch.id AS CHAR) LIKE ?)';
-            $term      = '%' . $q . '%';
-            $params[] = $term;
-            $params[] = $term;
-            $params[] = '%' . $q . '%';
-        }
-    }
-
-    if ($dataAbertaDe !== null && $dataAbertaAte !== null
-        && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAbertaDe) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAbertaAte)
-        && $dataAbertaDe <= $dataAbertaAte) {
-        $where[] = 'DATE(ch.aberto_em) BETWEEN ? AND ?';
-        $params[] = $dataAbertaDe;
-        $params[] = $dataAbertaAte;
-    }
-
-    $sqlWhere = implode(' AND ', $where);
+    [$sqlWhere, $params] = _repo_chamados_admin_sql_where(
+        $filtro,
+        $q,
+        $clienteIdEscopo,
+        $dataAbertaDe,
+        $dataAbertaAte,
+        $envolvidoUserId,
+        $tecnicoUserId,
+        $localQ,
+        $excluirCancelados
+    );
     $stmt     = $pdo->prepare("
         SELECT COUNT(*) FROM chamados ch
         JOIN clientes c ON c.id = ch.cliente_id
@@ -2356,6 +2602,22 @@ function repo_chamados_admin_list(
         $offset     = ($page - 1) * $perPage;
     }
 
+    $tecnicoSelect = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome) AS tecnico_nome,
+            tecs.tecnico_ids AS tecnico_ids'
+        : 'ut.nome AS tecnico_nome,
+            NULL AS tecnico_ids';
+    $tecnicoJoin = $temTecnicosTabela
+        ? "
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR ', ') AS tecnico_nomes,
+                   GROUP_CONCAT(u.id ORDER BY u.nome SEPARATOR ',') AS tecnico_ids
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id"
+        : '';
     $sql = "
         SELECT
             ch.id, ch.cliente_id, ch.titulo, ch.descricao,
@@ -2364,10 +2626,11 @@ function repo_chamados_admin_list(
             ch.prioridade, ch.status, ch.responsavel,
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
-            ut.nome AS tecnico_nome
+            $tecnicoSelect
         FROM chamados ch
         JOIN clientes c ON c.id = ch.cliente_id
         LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        $tecnicoJoin
         WHERE $sqlWhere
         ORDER BY ch.aberto_em DESC, ch.id DESC
         LIMIT " . (int) $perPage . ' OFFSET ' . (int) $offset;
@@ -2378,11 +2641,100 @@ function repo_chamados_admin_list(
         $r['id']         = (int) $r['id'];
         $r['cliente_id'] = (int) $r['cliente_id'];
         $r['tecnico_user_id'] = isset($r['tecnico_user_id']) && $r['tecnico_user_id'] !== null ? (int) $r['tecnico_user_id'] : null;
+        _repo_chamado_normalizar_tecnico_ids($r);
         _repo_chamado_row_normalizar_geo($r);
     }
     unset($r);
 
     return ['rows' => $rows, 'total' => $total];
+}
+
+/**
+ * Agregados para capa / resumo executivo do PDF de chamados (mesmos filtros que a listagem admin).
+ *
+ * @return array{
+ *   total: int,
+ *   por_status: array<string,int>,
+ *   por_prioridade: array<string,int>,
+ *   com_anexo: int,
+ *   urgentes_abertos: int
+ * }
+ */
+function repo_chamados_admin_relatorio_resumo(
+    string $filtro,
+    string $q,
+    ?int $clienteIdEscopo = null,
+    ?string $dataAbertaDe = null,
+    ?string $dataAbertaAte = null,
+    ?int $envolvidoUserId = null,
+    ?int $tecnicoUserId = null,
+    ?string $localQ = null,
+    bool $excluirCancelados = false
+): array {
+    $empty = [
+        'total'            => 0,
+        'por_status'       => [],
+        'por_prioridade'   => [],
+        'com_anexo'        => 0,
+        'urgentes_abertos' => 0,
+    ];
+    $pdo = db();
+    if (!$pdo) {
+        return $empty;
+    }
+    [$sqlWhere, $params] = _repo_chamados_admin_sql_where(
+        $filtro,
+        $q,
+        $clienteIdEscopo,
+        $dataAbertaDe,
+        $dataAbertaAte,
+        $envolvidoUserId,
+        $tecnicoUserId,
+        $localQ,
+        $excluirCancelados
+    );
+    $base = 'FROM chamados ch JOIN clientes c ON c.id = ch.cliente_id WHERE ' . $sqlWhere;
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) ' . $base);
+    $stmt->execute($params);
+    $total = (int) $stmt->fetchColumn();
+
+    $porStatus = [];
+    $stmt = $pdo->prepare('SELECT ch.status, COUNT(*) AS n ' . $base . ' GROUP BY ch.status');
+    $stmt->execute($params);
+    while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $porStatus[(string) $r['status']] = (int) $r['n'];
+    }
+
+    $porPrioridade = [];
+    $stmt = $pdo->prepare('SELECT ch.prioridade, COUNT(*) AS n ' . $base . ' GROUP BY ch.prioridade');
+    $stmt->execute($params);
+    while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $porPrioridade[(string) $r['prioridade']] = (int) $r['n'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(DISTINCT ch.id) ' . $base
+        . ' AND EXISTS (SELECT 1 FROM chamado_anexos ca WHERE ca.chamado_id = ch.id)'
+    );
+    $stmt->execute($params);
+    $comAnexo = (int) $stmt->fetchColumn();
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) ' . $base
+        . ' AND ch.prioridade IN (\'Alta\',\'Urgente\')'
+        . ' AND ch.status NOT IN (\'Resolvido\',\'Fechado\',\'Cancelado\')'
+    );
+    $stmt->execute($params);
+    $urgentes = (int) $stmt->fetchColumn();
+
+    return [
+        'total'            => $total,
+        'por_status'       => $porStatus,
+        'por_prioridade'   => $porPrioridade,
+        'com_anexo'        => $comAnexo,
+        'urgentes_abertos' => $urgentes,
+    ];
 }
 
 /**
@@ -2413,6 +2765,23 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
     if ($dataDe > $dataAte) {
         return $ret;
     }
+    $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
+    $tecnicoSelect = $temTecnicosTabela
+        ? 'COALESCE(tecs.tecnico_nomes, ut.nome) AS tecnico_nome,
+            tecs.tecnico_ids AS tecnico_ids,'
+        : 'ut.nome AS tecnico_nome,
+            NULL AS tecnico_ids,';
+    $tecnicoJoin = $temTecnicosTabela
+        ? "
+        LEFT JOIN (
+            SELECT ct.chamado_id,
+                   GROUP_CONCAT(u.nome ORDER BY u.nome SEPARATOR ', ') AS tecnico_nomes,
+                   GROUP_CONCAT(u.id ORDER BY u.nome SEPARATOR ',') AS tecnico_ids
+            FROM chamado_tecnicos ct
+            JOIN usuarios u ON u.id = ct.usuario_id
+            GROUP BY ct.chamado_id
+        ) tecs ON tecs.chamado_id = ch.id"
+        : '';
     $sql = "
         SELECT
             ch.id,
@@ -2431,7 +2800,7 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS aberto_em,
             DATE_FORMAT(ch.aberto_em, '%d/%m/%Y') AS aberto_em_br,
             c.empresa AS unidade_nome,
-            ut.nome AS tecnico_nome,
+            $tecnicoSelect
             sv.nome AS servico_principal_nome,
             COALESCE(sv.valor_unitario, 0) AS servico_catalogo_valor_unit,
             (
@@ -2454,10 +2823,12 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
         FROM chamados ch
         INNER JOIN clientes c ON c.id = ch.cliente_id
         LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
+        $tecnicoJoin
         LEFT JOIN cliente_itens sv ON sv.id = ch.servico_id
         LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> 'Cancelado'
         ORDER BY ch.aberto_em ASC, ch.id ASC
     ";
     $st = $pdo->prepare($sql);
@@ -2468,6 +2839,7 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
     foreach ($rows as &$r) {
         $r['id']                         = (int) $r['id'];
         $r['cliente_id']                 = (int) $r['cliente_id'];
+        _repo_chamado_normalizar_tecnico_ids($r);
         $r['valor_materiais']            = (float) ($r['valor_materiais'] ?? 0);
         $r['valor_servicos_itens']       = (float) ($r['valor_servicos_itens'] ?? 0);
         $r['valor_devolvidos']           = (float) ($r['valor_devolvidos'] ?? 0);
@@ -2490,6 +2862,57 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
     $ret['totais']['valor_total']     = $tm + $ts;
 
     return $ret;
+}
+
+/**
+ * Itens com movimento «utilizado» em chamados da matriz no período (uma linha por lançamento).
+ *
+ * @return list<array<string,mixed>>
+ */
+function repo_chamados_itens_utilizados_periodo_linhas(int $empresaRaizId, string $dataDe, string $dataAte): array
+{
+    $pdo = db();
+    if (!$pdo || $empresaRaizId <= 0) {
+        return [];
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+    $sql = '
+        SELECT
+            DATE_FORMAT(ch.aberto_em, "%Y-%m") AS ref_mes,
+            ch.id AS chamado_id,
+            c.empresa AS unidade_nome,
+            it.nome AS produto_nome,
+            it.codigo AS produto_codigo,
+            it.tipo AS produto_tipo,
+            it.unidade AS catalogo_unidade,
+            ci.quantidade,
+            ci.valor_unitario,
+            ci.subtotal,
+            ci.observacao
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        INNER JOIN clientes c ON c.id = ch.cliente_id
+        INNER JOIN cliente_itens it ON it.id = ci.item_id
+        WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+          AND ci.movimento = \'utilizado\'
+          AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> \'Cancelado\'
+        ORDER BY ref_mes ASC, ch.id ASC, ci.id ASC
+    ';
+    $st = $pdo->prepare($sql);
+    $st->execute([$empresaRaizId, $empresaRaizId, $dataDe, $dataAte]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$r) {
+        $r['chamado_id']    = (int) ($r['chamado_id'] ?? 0);
+        $r['quantidade']    = (float) ($r['quantidade'] ?? 0);
+        $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
+        $r['subtotal']      = (float) ($r['subtotal'] ?? 0);
+    }
+    unset($r);
+
+    return $rows;
 }
 
 /**
@@ -2546,6 +2969,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         INNER JOIN cliente_itens it ON it.id = ci.item_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> 'Cancelado'
         GROUP BY ci.movimento, it.tipo, it.codigo, it.nome, it.unidade
         ORDER BY FIELD(ci.movimento, 'utilizado', 'devolvido'), it.tipo ASC, it.nome ASC
     ";
@@ -2613,6 +3037,7 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
                 GROUP BY ci.chamado_id
             ) agg ON agg.chamado_id = ch.id
             WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+              AND ch.status <> 'Cancelado'
             GROUP BY DATE_FORMAT(ch.aberto_em, '%Y-%m')
             ORDER BY ym DESC
             LIMIT 240";
@@ -4079,11 +4504,12 @@ function repo_operador_chamado_set_servico(int $chamadoId, int $empresaRaizId, ?
 }
 
 /**
- * Gestor vincula um chamado a um técnico/operador da mesma empresa.
+ * Gestor vincula um chamado a um ou mais técnicos/operadores da mesma empresa.
  *
+ * @param list<int> $tecnicoUserIds
  * @return array{ok: bool, err: string}
  */
-function repo_chamado_atribuir_tecnico(int $chamadoId, ?int $tecnicoUserId, int $empresaRaizId): array
+function repo_chamado_atribuir_tecnicos(int $chamadoId, array $tecnicoUserIds, int $empresaRaizId): array
 {
     $pdo = db();
     if (!$pdo || $chamadoId <= 0 || $empresaRaizId <= 0) {
@@ -4092,34 +4518,102 @@ function repo_chamado_atribuir_tecnico(int $chamadoId, ?int $tecnicoUserId, int 
     if (!repo_chamado_acessivel_operador_empresa($chamadoId, $empresaRaizId)) {
         return ['ok' => false, 'err' => 'Chamado fora da empresa.'];
     }
-    $tecnicoNome = null;
-    if ($tecnicoUserId !== null && $tecnicoUserId > 0) {
-        $st = $pdo->prepare("SELECT id, nome FROM usuarios WHERE id = ? AND perfil = 'operador' AND empresa_id = ? LIMIT 1");
-        $st->execute([$tecnicoUserId, $empresaRaizId]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
+
+    $ids = [];
+    foreach ($tecnicoUserIds as $tid) {
+        $tid = (int) $tid;
+        if ($tid > 0 && !in_array($tid, $ids, true)) {
+            $ids[] = $tid;
+        }
+    }
+    if (!empty($ids)) {
+        $stAtual = $pdo->prepare('SELECT tecnico_user_id FROM chamados WHERE id = ? LIMIT 1');
+        $stAtual->execute([$chamadoId]);
+        $principalAtual = (int) ($stAtual->fetchColumn() ?: 0);
+        if ($principalAtual > 0 && in_array($principalAtual, $ids, true)) {
+            $ids = array_values(array_merge([$principalAtual], array_values(array_diff($ids, [$principalAtual]))));
+        }
+    }
+    if (count($ids) > 1 && !repo_chamado_tecnicos_table_exists()) {
+        return ['ok' => false, 'err' => 'Migração chamado_tecnicos pendente para múltiplos técnicos.'];
+    }
+
+    $tecnicos = [];
+    if (!empty($ids)) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $params = $ids;
+        $params[] = $empresaRaizId;
+        $st = $pdo->prepare("
+            SELECT id, nome
+            FROM usuarios
+            WHERE id IN ($placeholders) AND perfil = 'operador' AND empresa_id = ?
+        ");
+        $st->execute($params);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as $row) {
+            $tecnicos[(int) $row['id']] = (string) ($row['nome'] ?? '');
+        }
+        if (count($tecnicos) !== count($ids)) {
             return ['ok' => false, 'err' => 'Técnico inválido para esta empresa.'];
         }
-        $tecnicoNome = (string) ($row['nome'] ?? '');
-    } else {
-        $tecnicoUserId = null;
     }
-    $statusSql = $tecnicoUserId !== null ? ", status = IF(status = 'Aberto', 'Em andamento', status)" : '';
-    $st = $pdo->prepare("
-        UPDATE chamados
-        SET tecnico_user_id = ?,
-            responsavel = ?,
-            finalizado_operador_em = NULL,
-            finalizado_operador_user_id = NULL,
-            aprovado_gestor_em = NULL,
-            aprovado_gestor_user_id = NULL,
-            checklist_realizado = NULL
-            $statusSql
-        WHERE id = ?
-    ");
-    $ok = $st->execute([$tecnicoUserId, $tecnicoNome, $chamadoId]);
 
-    return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Não foi possível atribuir técnico.'];
+    $principalId = $ids[0] ?? null;
+    $nomes = [];
+    foreach ($ids as $tid) {
+        $nome = trim((string) ($tecnicos[$tid] ?? ''));
+        if ($nome !== '') {
+            $nomes[] = $nome;
+        }
+    }
+    $responsavel = !empty($nomes) ? implode(', ', $nomes) : null;
+    $statusSql = $principalId !== null ? ", status = IF(status = 'Aberto', 'Em andamento', status)" : '';
+
+    try {
+        $pdo->beginTransaction();
+        if (repo_chamado_tecnicos_table_exists()) {
+            $stDel = $pdo->prepare('DELETE FROM chamado_tecnicos WHERE chamado_id = ?');
+            $stDel->execute([$chamadoId]);
+            if (!empty($ids)) {
+                $stIns = $pdo->prepare('INSERT INTO chamado_tecnicos (chamado_id, usuario_id) VALUES (?, ?)');
+                foreach ($ids as $tid) {
+                    $stIns->execute([$chamadoId, $tid]);
+                }
+            }
+        }
+        $st = $pdo->prepare("
+            UPDATE chamados
+            SET tecnico_user_id = ?,
+                responsavel = ?,
+                finalizado_operador_em = NULL,
+                finalizado_operador_user_id = NULL,
+                aprovado_gestor_em = NULL,
+                aprovado_gestor_user_id = NULL,
+                checklist_realizado = NULL
+                $statusSql
+            WHERE id = ?
+        ");
+        $st->execute([$principalId, $responsavel, $chamadoId]);
+        $pdo->commit();
+
+        return ['ok' => true, 'err' => ''];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'err' => 'Não foi possível atribuir técnico.'];
+    }
+}
+
+/**
+ * Compatibilidade: mantém a API antiga para telas/rotinas que enviam um único técnico.
+ *
+ * @return array{ok: bool, err: string}
+ */
+function repo_chamado_atribuir_tecnico(int $chamadoId, ?int $tecnicoUserId, int $empresaRaizId): array
+{
+    return repo_chamado_atribuir_tecnicos($chamadoId, $tecnicoUserId !== null && $tecnicoUserId > 0 ? [$tecnicoUserId] : [], $empresaRaizId);
 }
 
 /**
@@ -4183,7 +4677,7 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
     if (!$ch || !repo_chamado_acessivel_operador_empresa($chamadoId, $empresaRaizId)) {
         return ['ok' => false, 'err' => 'Chamado não encontrado.'];
     }
-    if ((int) ($ch['tecnico_user_id'] ?? 0) !== $operadorUserId) {
+    if (!repo_chamado_tecnico_vinculado($chamadoId, $operadorUserId)) {
         return ['ok' => false, 'err' => 'Este chamado não está atribuído ao seu usuário.'];
     }
     $stAtual = (string) ($ch['status'] ?? '');

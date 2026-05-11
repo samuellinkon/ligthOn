@@ -435,19 +435,19 @@ include __DIR__ . '/../includes/head.php';
         <input type="hidden" name="perfil_modal" id="equipe_perfil_modal" value="operador">
         <div class="form-group" style="margin-bottom:12px;">
           <label for="op_nome">Nome completo</label>
-          <input type="text" id="op_nome" name="nome" class="input" required maxlength="120" autocomplete="name">
+          <input type="text" id="op_nome" name="nome" class="input" required maxlength="120" autocomplete="name" placeholder="Nome e sobrenome">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="op_email">E-mail (login)</label>
-          <input type="email" id="op_email" name="email" class="input" required maxlength="150" autocomplete="email">
+          <input type="email" id="op_email" name="email" class="input" required maxlength="150" autocomplete="email" placeholder="nome@organização.gov.br">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="op_senha">Senha</label>
-          <input type="password" id="op_senha" name="senha" class="input" required minlength="6" autocomplete="new-password">
+          <input type="password" id="op_senha" name="senha" class="input" required minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
         </div>
         <div class="form-group" style="margin-bottom:16px;">
           <label for="op_senha2">Confirmar senha</label>
-          <input type="password" id="op_senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password">
+          <input type="password" id="op_senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password" placeholder="Repita a senha">
         </div>
         <div class="app-modal-actions" style="margin-top:0;">
           <button type="button" class="btn btn-secondary" data-close-modal-op>Cancelar</button>
@@ -487,19 +487,19 @@ include __DIR__ . '/../includes/head.php';
         <input type="hidden" name="perfil_modal" value="cliente">
         <div class="form-group" style="margin-bottom:12px;">
           <label for="cli_nome">Nome completo</label>
-          <input type="text" id="cli_nome" name="nome" class="input" required maxlength="120" autocomplete="name">
+          <input type="text" id="cli_nome" name="nome" class="input" required maxlength="120" autocomplete="name" placeholder="Nome e sobrenome">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="cli_email">E-mail (login)</label>
-          <input type="email" id="cli_email" name="email" class="input" required maxlength="150" autocomplete="email">
+          <input type="email" id="cli_email" name="email" class="input" required maxlength="150" autocomplete="email" placeholder="nome@organização.gov.br">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="cli_senha">Senha</label>
-          <input type="password" id="cli_senha" name="senha" class="input" required minlength="6" autocomplete="new-password">
+          <input type="password" id="cli_senha" name="senha" class="input" required minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
         </div>
         <div class="form-group" style="margin-bottom:16px;">
           <label for="cli_senha2">Confirmar senha</label>
-          <input type="password" id="cli_senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password">
+          <input type="password" id="cli_senha2" name="senha2" class="input" required minlength="6" autocomplete="new-password" placeholder="Repita a senha">
         </div>
         <div class="app-modal-actions" style="margin-top:0;">
           <button type="button" class="btn btn-secondary" data-close-modal-cli>Cancelar</button>

@@ -95,13 +95,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         $lngRaw = trim((string) ($_POST['longitude'] ?? ''));
         $lat    = $latRaw !== '' ? (float) str_replace(',', '.', $latRaw) : null;
         $lng    = $lngRaw !== '' ? (float) str_replace(',', '.', $lngRaw) : null;
-        $end = trim((string) ($_POST['endereco_completo'] ?? ''));
-        if ($lat === null || $lng === null || (abs($lat) < 0.0001 && abs($lng) < 0.0001)) {
-            flash_set('err', 'Informe latitude e longitude válidas (use Capturar GPS).');
+        $end    = trim((string) ($_POST['endereco_completo'] ?? ''));
+        $endTxt = $end !== '' ? $end : null;
+        if ($latRaw === '' && $lngRaw === '') {
+            if (repo_update_chamado_localizacao($id, $endTxt, null, null)) {
+                flash_set('ok', $endTxt !== null ? 'Endereço atualizado (coordenadas removidas).' : 'Coordenadas removidas.');
+            } else {
+                flash_set('err', 'Não foi possível salvar.');
+            }
+        } elseif ($lat === null || $lng === null) {
+            flash_set('err', 'Informe latitude e longitude juntos, ou deixe ambos vazios para limpar.');
         } elseif (abs($lat) > 90 || abs($lng) > 180) {
             flash_set('err', 'Coordenadas fora do intervalo válido.');
         } else {
-            $endTxt = $end !== '' ? $end : null;
             if (repo_update_chamado_localizacao($id, $endTxt, $lat, $lng)) {
                 flash_set('ok', 'Localização atualizada.');
             } else {

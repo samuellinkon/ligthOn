@@ -2,13 +2,13 @@
 declare(strict_types=1);
 
 /**
- * Grelha estilo Ordem de Serviço (3 painéis: contribuinte | local+classificação | descrição).
+ * Grelha estilo Ordem de Serviço (3 painéis: solicitante | local+classificação | descrição).
  *
  * Variáveis esperadas:
  * @var array<string,mixed> $ch_os_vals valores atuais (chaves como no banco)
  * @var string $ch_os_descricao valor do campo descrição
  * @var bool $ch_os_mostrar_ponto se deve exibir select de ponto de iluminação (só novo / quando lista existe)
- * @var array<int,array<string,mixed>> $ch_os_pontos_opcoes opções do select poste
+ * @var array<int,array<string,mixed>> $ch_os_pontos_opcoes opções do select de ponto
  */
 
 require_once __DIR__ . '/chamado_os_fields.php';
@@ -51,7 +51,7 @@ $tipoOpts = chamado_os_opcoes_tipo();
 ?>
 <div class="os-form-layout">
   <div class="os-section">
-    <div class="os-section-header">Dados do contribuinte</div>
+    <div class="os-section-header">Dados do solicitante</div>
     <div class="os-section-body">
       <div class="form-grid form-grid--os-pane">
         <div class="form-group">
@@ -62,6 +62,7 @@ $tipoOpts = chamado_os_opcoes_tipo();
         <div class="form-group">
           <label for="os_nome">Nome</label>
           <input type="text" id="os_nome" name="contribuinte_nome" class="input" maxlength="200"
+                 placeholder="Nome completo"
                  value="<?= $f('contribuinte_nome') ?>">
         </div>
         <div class="form-group">
@@ -72,12 +73,8 @@ $tipoOpts = chamado_os_opcoes_tipo();
         <div class="form-group">
           <label for="os_tel">Telefone</label>
           <input type="text" id="os_tel" name="contribuinte_telefone" class="input" maxlength="40"
+                 placeholder="(00) 00000-0000"
                  value="<?= $f('contribuinte_telefone') ?>">
-        </div>
-        <div class="form-group full">
-          <label for="os_email">E-mail</label>
-          <input type="email" id="os_email" name="contribuinte_email" class="input" maxlength="160"
-                 value="<?= $f('contribuinte_email') ?>">
         </div>
       </div>
     </div>
@@ -87,13 +84,6 @@ $tipoOpts = chamado_os_opcoes_tipo();
     <div class="os-section-header">Endereço e problema no local</div>
     <div class="os-section-body">
       <div class="form-grid form-grid--os-pane">
-        <div class="form-group full">
-          <label for="os_titulo">Título do chamado <span class="muted" style="font-weight:500;">(opcional)</span></label>
-          <input type="text" id="os_titulo" name="titulo" class="input" maxlength="200"
-                 placeholder="Se vazio, será montado a partir de tipo, problema e origem"
-                 value="<?= $f('titulo') ?>">
-        </div>
-
         <p class="os-pane-sub">Endereço</p>
         <div class="os-addr-grid" role="group" aria-label="Endereço">
           <div class="form-group os-addr-cep">
@@ -104,26 +94,31 @@ $tipoOpts = chamado_os_opcoes_tipo();
           <div class="form-group os-addr-logra">
             <label for="os_logradouro">Endereço</label>
             <input type="text" id="os_logradouro" name="os_logradouro" class="input" maxlength="255"
+                   placeholder="Rua, avenida…"
                    value="<?= $f('os_logradouro') ?>">
           </div>
           <div class="form-group os-addr-num">
             <label for="os_numero">Número</label>
             <input type="text" id="os_numero" name="os_numero" class="input" maxlength="32"
+                   placeholder="Nº"
                    value="<?= $f('os_numero') ?>">
           </div>
           <div class="form-group os-addr-comp">
             <label for="os_complemento">Complemento</label>
             <input type="text" id="os_complemento" name="os_complemento" class="input" maxlength="160"
+                   placeholder="Apto., bloco…"
                    value="<?= $f('os_complemento') ?>">
           </div>
           <div class="form-group os-addr-bairro">
             <label for="os_bairro">Bairro</label>
             <input type="text" id="os_bairro" name="os_bairro" class="input" maxlength="120"
+                   placeholder="Bairro"
                    value="<?= $f('os_bairro') ?>">
           </div>
           <div class="form-group os-addr-cidade">
             <label for="os_cidade">Cidade</label>
             <input type="text" id="os_cidade" name="os_cidade" class="input" maxlength="160"
+                   placeholder="Cidade"
                    value="<?= $f('os_cidade') ?>">
           </div>
           <div class="form-group os-addr-uf">
@@ -176,15 +171,16 @@ $tipoOpts = chamado_os_opcoes_tipo();
         <div class="form-group full">
           <label for="os_ref">Ponto de referência</label>
           <input type="text" id="os_ref" name="ponto_referencia" class="input" maxlength="255"
+                 placeholder="Ex.: em frente à praça, próximo ao…"
                  value="<?= $f('ponto_referencia') ?>">
         </div>
         <?php if ($ch_os_mostrar_ponto && !empty($ch_os_pontos_opcoes)): ?>
         <div class="form-group full">
-          <label for="ponto_iluminacao_id">Ponto de iluminação / poste</label>
+          <label for="ponto_iluminacao_id">Ponto de iluminação</label>
           <select id="ponto_iluminacao_id" name="ponto_iluminacao_id" class="select"
                   data-crm-custom-select-search="1"
-                  data-crm-custom-select-search-placeholder="Filtrar postes…">
-            <option value="0">— Sem vínculo com poste —</option>
+                  data-crm-custom-select-search-placeholder="Filtrar pontos…">
+            <option value="0">— Sem vínculo com ponto —</option>
             <?php foreach ($ch_os_pontos_opcoes as $p): ?>
             <option
               value="<?= (int) ($p['id'] ?? 0) ?>"
@@ -205,7 +201,23 @@ $tipoOpts = chamado_os_opcoes_tipo();
             </option>
             <?php endforeach; ?>
           </select>
-          <small class="muted" style="display:block;margin-top:8px;">Ao selecionar um poste, endereço e coordenadas podem ser preenchidos automaticamente.</small>
+          <small class="muted" style="display:block;margin-top:8px;">Ao selecionar um ponto, endereço e coordenadas podem ser preenchidos automaticamente.</small>
+          <div id="os_ponto_preview" class="os-ponto-preview" hidden>
+            <div id="os_ponto_preview_endereco" class="chamado-ponto-endereco os-ponto-preview__endereco" hidden>
+              <span class="chamado-ponto-endereco__label">Endereço do ponto</span>
+              <div id="os_ponto_preview_endereco_text" class="chamado-ponto-endereco__text"></div>
+            </div>
+            <p id="os_ponto_sem_coord" class="muted os-ponto-preview__hint" hidden>Coordenadas não cadastradas para este ponto — o Street View não está disponível.</p>
+            <div id="os_ponto_streetview_block" class="chamado-ponto-streetview" hidden>
+              <div class="chamado-ponto-streetview__head">
+                <span class="chamado-ponto-streetview__label">Street View</span>
+                <a id="os_ponto_streetview_tab" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
+              </div>
+              <div class="chamado-ponto-streetview__frame-wrap">
+                <iframe id="os_ponto_streetview_frame" class="chamado-ponto-streetview__frame" title="Street View do ponto selecionado"></iframe>
+              </div>
+            </div>
+          </div>
         </div>
         <?php endif; ?>
       </div>
@@ -223,3 +235,124 @@ $tipoOpts = chamado_os_opcoes_tipo();
     </div>
   </div>
 </div>
+<?php if ($ch_os_mostrar_ponto && !empty($ch_os_pontos_opcoes)): ?>
+<script>
+(function () {
+  function parseCoord(raw) {
+    if (raw === null || raw === undefined) return null;
+    var s = String(raw).trim().replace(',', '.');
+    if (s === '') return null;
+    var n = parseFloat(s);
+    return isFinite(n) ? n : null;
+  }
+
+  function applyPontoOsUi(sel) {
+    var wrap = document.getElementById('os_ponto_preview');
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var svBlock = document.getElementById('os_ponto_streetview_block');
+    var tab = document.getElementById('os_ponto_streetview_tab');
+    var endBlock = document.getElementById('os_ponto_preview_endereco');
+    var endText = document.getElementById('os_ponto_preview_endereco_text');
+    var hintNoCoord = document.getElementById('os_ponto_sem_coord');
+    if (!sel || !wrap || !iframe || !svBlock) return;
+
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value || opt.value === '0') {
+      wrap.hidden = true;
+      svBlock.hidden = true;
+      iframe.removeAttribute('src');
+      if (tab) {
+        tab.hidden = true;
+        tab.setAttribute('href', '#');
+      }
+      if (endBlock) endBlock.hidden = true;
+      if (endText) endText.textContent = '';
+      if (hintNoCoord) hintNoCoord.hidden = true;
+      return;
+    }
+
+    var end = (opt.getAttribute('data-endereco') || '').trim();
+    var lat = parseCoord(opt.getAttribute('data-lat'));
+    var lng = parseCoord(opt.getAttribute('data-lng'));
+
+    var log = document.getElementById('os_logradouro');
+    if (end && log) log.value = end;
+    if (lat !== null) {
+      var la = document.getElementById('chamado_latitude');
+      if (la) la.value = String(lat);
+    }
+    if (lng !== null) {
+      var lo = document.getElementById('chamado_longitude');
+      if (lo) lo.value = String(lng);
+    }
+
+    var hasEnd = end !== '';
+    var hasSv = lat !== null && lng !== null;
+
+    if (endText && endBlock) {
+      if (hasEnd) {
+        endText.textContent = end;
+        endBlock.hidden = false;
+      } else {
+        endText.textContent = '';
+        endBlock.hidden = true;
+      }
+    }
+
+    if (hintNoCoord) {
+      hintNoCoord.hidden = hasSv || !opt.value || opt.value === '0';
+    }
+
+    if (hasSv) {
+      var embed =
+        'https://www.google.com/maps?cbll=' +
+        encodeURIComponent(String(lat)) +
+        ',' +
+        encodeURIComponent(String(lng)) +
+        '&cbp=11,0,0,0,0&layer=c&output=svembed';
+      var tabUrl =
+        'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' +
+        encodeURIComponent(String(lat)) +
+        ',' +
+        encodeURIComponent(String(lng));
+      iframe.src = embed;
+      if (tab) {
+        tab.setAttribute('href', tabUrl);
+        tab.hidden = false;
+      }
+      svBlock.hidden = false;
+    } else {
+      iframe.removeAttribute('src');
+      svBlock.hidden = true;
+      if (tab) {
+        tab.hidden = true;
+        tab.setAttribute('href', '#');
+      }
+    }
+
+    var showPreview = hasEnd || hasSv;
+    if (!hasSv && opt.value && opt.value !== '0') {
+      showPreview = true;
+    }
+    wrap.hidden = !showPreview;
+  }
+
+  function boot() {
+    var sel = document.getElementById('ponto_iluminacao_id');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      applyPontoOsUi(sel);
+    });
+    window.setTimeout(function () {
+      applyPontoOsUi(sel);
+    }, 0);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+<?php endif; ?>

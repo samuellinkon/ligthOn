@@ -385,6 +385,7 @@ include __DIR__ . '/../includes/head.php';
         <div class="form-group">
           <label for="smtp_port">Porta</label>
           <input type="number" id="smtp_port" name="smtp_port" class="input" min="1" max="65535"
+                 placeholder="587 ou 465"
                  value="<?= (int) ($cfg['smtp_port'] ?? 587) ?>">
         </div>
         <div class="form-group">

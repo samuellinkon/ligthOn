@@ -317,7 +317,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group">
         <label for="modal_nome">Nome</label>
-        <input type="text" id="modal_nome" name="nome" class="input" required maxlength="160">
+        <input type="text" id="modal_nome" name="nome" class="input" required maxlength="160" placeholder="Nome do item ou serviço">
       </div>
       <div class="form-group">
         <label for="modal_codigo">Código</label>
@@ -338,7 +338,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="modal_descricao">Descrição</label>
-        <textarea id="modal_descricao" name="descricao" class="textarea" rows="3" maxlength="500"></textarea>
+        <textarea id="modal_descricao" name="descricao" class="textarea" rows="3" maxlength="500" placeholder="Descrição opcional para o catálogo"></textarea>
       </div>
     </div>
     <footer class="kb-modal-foot">

@@ -26,7 +26,6 @@
 .card .os-form-layout {
   margin-top: 12px;
   margin-bottom: 12px;
-  padding: 18px 22px;
   background: var(--bg);
   border-radius: var(--radius-lg);
   box-sizing: border-box;
@@ -1220,6 +1219,185 @@ form.info-row {
   overflow-y: auto;
 }
 
+/* ---------- Equipe no chamado (operadores — dupla / trio) ---------- */
+
+.equipe-picker-card .panel-sub {
+  max-width: 40rem;
+}
+
+.equipe-picker-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.equipe-picker-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.equipe-picker-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.equipe-picker-count--muted {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.equipe-picker-count--ok {
+  color: var(--primary);
+}
+
+.equipe-picker-top .equipe-picker-search {
+  flex: 1 1 11rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.equipe-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(83, 74, 183, 0.14);
+  background: var(--surface-raised, #fafafa);
+  min-height: 3.25rem;
+}
+
+.equipe-picker__opt {
+  position: relative;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.equipe-picker__opt--hidden {
+  display: none;
+}
+
+.equipe-picker__opt input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  clip: rect(0 0 0 0);
+}
+
+.equipe-picker__face {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.equipe-picker__line {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  max-width: 16rem;
+}
+
+.equipe-picker__gn {
+  font-weight: 700;
+  color: inherit;
+}
+
+.equipe-picker__sn {
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.88;
+}
+
+.equipe-picker__opt:hover .equipe-picker__face {
+  color: var(--text);
+  border-color: rgba(83, 74, 183, 0.35);
+}
+
+.equipe-picker__opt:hover .equipe-picker__sn {
+  opacity: 1;
+}
+
+.equipe-picker__opt input:checked + .equipe-picker__face {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(83, 74, 183, 0.22);
+}
+
+.equipe-picker__opt input:checked + .equipe-picker__face .equipe-picker__sn {
+  opacity: 0.95;
+}
+
+.equipe-picker__opt input:focus-visible + .equipe-picker__face {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.22);
+}
+
+.equipe-picker-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.equipe-picker-foot .equipe-picker-hint {
+  flex: 1 1 14rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.equipe-picker-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.equipe-picker-many {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.equipe-picker-many[hidden] {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  .equipe-picker-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .equipe-picker-foot .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* =========================================================
    Selects — reforço global (última camada na cascata do forms.css)
    Todo <select> simples dentro do shell .app (admin/cliente/operador).
@@ -1466,5 +1644,88 @@ select.crm-custom-select-native,
   padding-top: 10px;
   padding-bottom: 10px;
   font-size: 13px;
+}
+
+/* Pré-visualização do ponto (OS / novo chamado) — endereço + Street View */
+.os-ponto-preview {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.os-ponto-preview__hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.os-ponto-preview .chamado-ponto-endereco {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(83, 74, 183, 0.14);
+  background: var(--surface-raised, #fafafa);
+}
+
+.chamado-ponto-endereco__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.chamado-ponto-endereco__text {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.chamado-ponto-streetview {
+  margin-top: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.chamado-ponto-streetview__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chamado-ponto-streetview__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Largura total do painel: max-height + aspect-ratio fazia o bloco encolher horizontalmente */
+.chamado-ponto-streetview__frame-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: 0;
+  padding-bottom: 56.25%; /* 16:9 */
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: #e8ecf4;
+}
+
+.chamado-ponto-streetview__frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 

@@ -145,6 +145,37 @@ tr.table-subsection:hover td {
   color: var(--primary);
 }
 
+.td-actions .action.chamados-row-pdf {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  padding: 6px 8px;
+}
+
+.td-actions .action.chamados-row-pdf:hover {
+  background: rgba(83, 74, 183, 0.1);
+  color: var(--primary);
+}
+
+/* Admin — lista de chamados (endereço / geo) */
+table.chamados-admin-list th:nth-child(6),
+table.chamados-admin-list td.td-ch-endereco {
+  max-width: 13rem;
+  min-width: 7rem;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+
+table.chamados-admin-list td.td-ch-geo {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
 /* ---------- Badges ---------- */
 
 .badge {
