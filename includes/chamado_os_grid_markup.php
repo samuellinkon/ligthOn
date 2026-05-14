@@ -9,6 +9,7 @@ declare(strict_types=1);
  * @var string $ch_os_descricao valor do campo descrição
  * @var bool $ch_os_mostrar_ponto se deve exibir select de ponto de iluminação (só novo / quando lista existe)
  * @var array<int,array<string,mixed>> $ch_os_pontos_opcoes opções do select de ponto
+ * @var bool $ch_os_mostrar_preview_mapa bloco Street View / mapa embutido (ex.: false em admin/chamado_novo.php)
  */
 
 require_once __DIR__ . '/chamado_os_fields.php';
@@ -24,6 +25,9 @@ if (!isset($ch_os_mostrar_ponto)) {
 }
 if (!isset($ch_os_pontos_opcoes)) {
     $ch_os_pontos_opcoes = [];
+}
+if (!isset($ch_os_mostrar_preview_mapa)) {
+    $ch_os_mostrar_preview_mapa = true;
 }
 
 $f = static function (string $k, string $def = ''): string {
@@ -201,20 +205,26 @@ $tipoOpts = chamado_os_opcoes_tipo();
             </option>
             <?php endforeach; ?>
           </select>
-          <small class="muted" style="display:block;margin-top:8px;">Ao selecionar um ponto, endereço e coordenadas podem ser preenchidos automaticamente.</small>
+          <small class="muted" style="display:block;margin-top:8px;"><?php if ($ch_os_mostrar_preview_mapa): ?>Ao selecionar um ponto, o endereço (logradouro) pode ser preenchido automaticamente. O Street View e o mapa embutido usam a latitude, longitude ou o endereço preenchidos no chamado — não as coordenadas do cadastro do ponto.<?php else: ?>Ao selecionar um ponto, o endereço (logradouro) pode ser preenchido automaticamente.<?php endif; ?></small>
+        </div>
+        <?php elseif ($ch_os_mostrar_preview_mapa): ?>
+        <p class="muted os-pane-sub" style="margin:0 0 4px;">Street View e o mapa abaixo usam a latitude, longitude ou o endereço deste chamado (não exige vínculo com ponto de iluminação).</p>
+        <?php endif; ?>
+        <?php if ($ch_os_mostrar_preview_mapa): ?>
+        <div class="form-group full" style="margin-top:4px;">
           <div id="os_ponto_preview" class="os-ponto-preview" hidden>
             <div id="os_ponto_preview_endereco" class="chamado-ponto-endereco os-ponto-preview__endereco" hidden>
               <span class="chamado-ponto-endereco__label">Endereço do ponto</span>
               <div id="os_ponto_preview_endereco_text" class="chamado-ponto-endereco__text"></div>
             </div>
-            <p id="os_ponto_sem_coord" class="muted os-ponto-preview__hint" hidden>Coordenadas não cadastradas para este ponto — o Street View não está disponível.</p>
+            <p id="os_ponto_sem_coord" class="muted os-ponto-preview__hint" hidden>Informe latitude e longitude no chamado, ou preencha o endereço nos campos acima, para ver o Street View ou o mapa.</p>
             <div id="os_ponto_streetview_block" class="chamado-ponto-streetview" hidden>
               <div class="chamado-ponto-streetview__head">
-                <span class="chamado-ponto-streetview__label">Street View</span>
+                <span class="chamado-ponto-streetview__label" id="os_ponto_streetview_label">Street View</span>
                 <a id="os_ponto_streetview_tab" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
               </div>
               <div class="chamado-ponto-streetview__frame-wrap">
-                <iframe id="os_ponto_streetview_frame" class="chamado-ponto-streetview__frame" title="Street View do ponto selecionado"></iframe>
+                <iframe id="os_ponto_streetview_frame" class="chamado-ponto-streetview__frame" title="Street View da localização do chamado"></iframe>
               </div>
             </div>
           </div>
@@ -235,7 +245,7 @@ $tipoOpts = chamado_os_opcoes_tipo();
     </div>
   </div>
 </div>
-<?php if ($ch_os_mostrar_ponto && !empty($ch_os_pontos_opcoes)): ?>
+<?php if ($ch_os_mostrar_preview_mapa): ?>
 <script>
 (function () {
   function parseCoord(raw) {
@@ -246,51 +256,147 @@ $tipoOpts = chamado_os_opcoes_tipo();
     return isFinite(n) ? n : null;
   }
 
-  function applyPontoOsUi(sel) {
+  function getPontoSelect() {
+    return document.getElementById('ponto_iluminacao_id');
+  }
+
+  var mapGeocodeTimer = null;
+  var mapGeocodeGeneration = 0;
+
+  function getChamadoLatLng() {
+    var la = document.getElementById('chamado_latitude');
+    var lo = document.getElementById('chamado_longitude');
+    return {
+      lat: parseCoord(la && la.value),
+      lng: parseCoord(lo && lo.value)
+    };
+  }
+
+  function osFieldVal(id) {
+    var el = document.getElementById(id);
+    if (!el) return '';
+    return String(el.value || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+  }
+
+  /** Número ainda não preenchido / placeholder — não enviar ao geocoder (evita "Avenida Paulista, Nº, ..."). */
+  function isPlaceholderNumero(s) {
+    s = String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\./g, '');
+    if (s === '') return true;
+    if (/^n[º°']?o?$/.test(s)) return true;
+    if (/^num(ero)?$/.test(s)) return true;
+    if (/^s\/?n$/.test(s)) return true;
+    if (/^[—\-–_]+$/.test(s)) return true;
+    if (s === '#' || s === '0') return true;
+    return false;
+  }
+
+  /** Complemento tipo "de 612 a 1510 - lado par" = faixa ao longo da via (não é apto/sala); não misturar com número da OS no geocoder. */
+  function complementoEhFaixaNumeracao(comp) {
+    return /\bde\s*\d+\s*a\s*\d+/i.test(String(comp || '').trim());
+  }
+
+  /**
+   * Endereço só para geocódigo / iframe / Nominatim: sem complemento de faixa; sem "Nº" falso.
+   * Igual ao que o Google Maps costuma usar para um pin (logradouro + número + cidade/UF).
+   */
+  function buildChamadoEnderecoParaGeocode() {
+    var log = osFieldVal('os_logradouro');
+    if (!log) return '';
+    var num = osFieldVal('os_numero');
+    var comp = osFieldVal('os_complemento');
+    var bairro = osFieldVal('os_bairro');
+    var cidade = osFieldVal('os_cidade');
+    var uf = osFieldVal('os_uf').replace(/\./g, '').toUpperCase();
+    var cepRaw = osFieldVal('os_cep').replace(/\D/g, '');
+
+    var omitComp = complementoEhFaixaNumeracao(comp);
+
+    var headParts = [log];
+    if (!isPlaceholderNumero(num)) {
+      headParts.push(num);
+    }
+    if (comp && !omitComp) {
+      headParts.push(comp);
+    }
+    var head = headParts.join(', ');
+
+    var tail = [];
+    if (bairro) tail.push(bairro);
+    if (cidade && uf) {
+      tail.push(cidade + ' - ' + uf);
+    } else if (cidade) {
+      tail.push(cidade);
+    } else if (uf) {
+      tail.push(uf);
+    }
+    if (cepRaw.length === 8) {
+      tail.push(cepRaw.replace(/^(\d{5})(\d{3})$/, '$1-$2'));
+    }
+
+    var full = [head].concat(tail).join(', ');
+    if (full.indexOf('Brasil') === -1 && full.indexOf('Brazil') === -1) {
+      full += ', Brasil';
+    }
+    return full;
+  }
+
+  /** Linha "street" para Nominatim: número + logradouro (ex.: "100 Avenida Paulista"). */
+  function buildNominatimStreetLine() {
+    var log = osFieldVal('os_logradouro');
+    if (!log) return '';
+    var num = osFieldVal('os_numero');
+    if (!isPlaceholderNumero(num)) {
+      return String(num).trim() + ' ' + log;
+    }
+    return log;
+  }
+
+  /** Só no change do ponto: copia logradouro do cadastro do ponto (não nas digitações de lat/endereço). */
+  function fillLogradouroFromPonto(sel) {
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value || opt.value === '0') return;
+    var end = (opt.getAttribute('data-endereco') || '').trim();
+    var log = document.getElementById('os_logradouro');
+    if (end && log) log.value = end;
+  }
+
+  function refreshChamadoLocPreview() {
     var wrap = document.getElementById('os_ponto_preview');
     var iframe = document.getElementById('os_ponto_streetview_frame');
     var svBlock = document.getElementById('os_ponto_streetview_block');
     var tab = document.getElementById('os_ponto_streetview_tab');
+    var svLabel = document.getElementById('os_ponto_streetview_label');
     var endBlock = document.getElementById('os_ponto_preview_endereco');
     var endText = document.getElementById('os_ponto_preview_endereco_text');
     var hintNoCoord = document.getElementById('os_ponto_sem_coord');
-    if (!sel || !wrap || !iframe || !svBlock) return;
+    if (!wrap || !iframe || !svBlock) return;
 
-    var opt = sel.options[sel.selectedIndex];
-    if (!opt || !opt.value || opt.value === '0') {
-      wrap.hidden = true;
-      svBlock.hidden = true;
-      iframe.removeAttribute('src');
-      if (tab) {
-        tab.hidden = true;
-        tab.setAttribute('href', '#');
-      }
-      if (endBlock) endBlock.hidden = true;
-      if (endText) endText.textContent = '';
-      if (hintNoCoord) hintNoCoord.hidden = true;
-      return;
-    }
+    var sel = getPontoSelect();
+    var opt = sel ? sel.options[sel.selectedIndex] : null;
+    var pontoChosen = !!(sel && opt && opt.value && opt.value !== '0');
+    var end = pontoChosen && opt ? (opt.getAttribute('data-endereco') || '').trim() : '';
+    var coords = getChamadoLatLng();
+    var lat = coords.lat;
+    var lng = coords.lng;
+    var addrGeocode = buildChamadoEnderecoParaGeocode();
 
-    var end = (opt.getAttribute('data-endereco') || '').trim();
-    var lat = parseCoord(opt.getAttribute('data-lat'));
-    var lng = parseCoord(opt.getAttribute('data-lng'));
-
-    var log = document.getElementById('os_logradouro');
-    if (end && log) log.value = end;
-    if (lat !== null) {
-      var la = document.getElementById('chamado_latitude');
-      if (la) la.value = String(lat);
-    }
-    if (lng !== null) {
-      var lo = document.getElementById('chamado_longitude');
-      if (lo) lo.value = String(lng);
+    if (mapGeocodeTimer) {
+      clearTimeout(mapGeocodeTimer);
+      mapGeocodeTimer = null;
     }
 
     var hasEnd = end !== '';
     var hasSv = lat !== null && lng !== null;
+    var hasMapaEndereco = !hasSv && addrGeocode !== '';
 
     if (endText && endBlock) {
-      if (hasEnd) {
+      if (pontoChosen && hasEnd) {
         endText.textContent = end;
         endBlock.hidden = false;
       } else {
@@ -300,10 +406,14 @@ $tipoOpts = chamado_os_opcoes_tipo();
     }
 
     if (hintNoCoord) {
-      hintNoCoord.hidden = hasSv || !opt.value || opt.value === '0';
+      hintNoCoord.hidden = hasSv || hasMapaEndereco || !pontoChosen;
     }
 
+    if (tab) tab.textContent = 'Abrir em nova aba';
+    if (svLabel) svLabel.textContent = 'Street View';
+
     if (hasSv) {
+      mapGeocodeGeneration++;
       var embed =
         'https://www.google.com/maps?cbll=' +
         encodeURIComponent(String(lat)) +
@@ -321,7 +431,115 @@ $tipoOpts = chamado_os_opcoes_tipo();
         tab.hidden = false;
       }
       svBlock.hidden = false;
+    } else if (hasMapaEndereco) {
+      mapGeocodeGeneration++;
+      var gen = mapGeocodeGeneration;
+      var addrSnap = addrGeocode;
+      var streetLine = buildNominatimStreetLine();
+      var cidade = osFieldVal('os_cidade');
+      var ufRaw = osFieldVal('os_uf');
+      var uf = ufRaw.replace(/\./g, '').toUpperCase();
+      var qEnc = encodeURIComponent(addrSnap);
+      iframe.src =
+        'https://www.google.com/maps?q=' + qEnc + '&hl=pt-BR&output=embed';
+      if (tab) {
+        tab.setAttribute(
+          'href',
+          'https://www.google.com/maps/search/?api=1&query=' + qEnc
+        );
+        tab.hidden = false;
+        tab.textContent = 'Abrir no Google Maps';
+      }
+      if (svLabel) svLabel.textContent = 'Mapa (endereço do chamado)';
+      svBlock.hidden = false;
+
+      var nomOpts = {
+        method: 'GET',
+        headers: { 'Accept-Language': 'pt-BR,pt;q=0.9' },
+        mode: 'cors',
+        credentials: 'omit'
+      };
+      var nomEmail = 'crm-prefeitura-nominatim%40invalid.local';
+
+      function applyNominatimHit(hit) {
+        if (gen !== mapGeocodeGeneration || !iframe || !hit) return;
+        var la = parseFloat(hit.lat);
+        var lo = parseFloat(hit.lon);
+        if (!isFinite(la) || !isFinite(lo)) return;
+        var ll = la + ',' + lo;
+        var llEnc = encodeURIComponent(ll);
+        iframe.src =
+          'https://www.google.com/maps?q=' +
+          llEnc +
+          '&z=17&hl=pt-BR&output=embed';
+        if (tab) {
+          tab.setAttribute(
+            'href',
+            'https://www.google.com/maps/search/?api=1&query=' + llEnc
+          );
+        }
+      }
+
+      mapGeocodeTimer = window.setTimeout(function () {
+        mapGeocodeTimer = null;
+        var urlStruct = '';
+        if (streetLine && cidade && uf) {
+          urlStruct =
+            'https://nominatim.openstreetmap.org/search?format=json&limit=1&email=' +
+            nomEmail +
+            '&countrycodes=br' +
+            '&street=' +
+            encodeURIComponent(streetLine) +
+            '&city=' +
+            encodeURIComponent(cidade) +
+            '&state=' +
+            encodeURIComponent(uf) +
+            '&country=' +
+            encodeURIComponent('Brasil');
+        }
+
+        function fetchFreeText(q) {
+          return fetch(
+            'https://nominatim.openstreetmap.org/search?format=json&limit=1&email=' +
+              nomEmail +
+              '&q=' +
+              encodeURIComponent(q),
+            nomOpts
+          ).then(function (r) {
+            return r.ok ? r.json() : [];
+          });
+        }
+
+        if (urlStruct) {
+          fetch(urlStruct, nomOpts)
+            .then(function (r) {
+              return r.ok ? r.json() : [];
+            })
+            .then(function (d1) {
+              if (gen !== mapGeocodeGeneration) return { skip: true };
+              if (d1 && d1[0]) {
+                applyNominatimHit(d1[0]);
+                return { skip: true };
+              }
+              return fetchFreeText(addrSnap);
+            })
+            .then(function (d2) {
+              if (gen !== mapGeocodeGeneration || !d2) return;
+              if (d2.skip) return;
+              if (Array.isArray(d2) && d2[0]) applyNominatimHit(d2[0]);
+            })
+            .catch(function () {});
+        } else {
+          fetchFreeText(addrSnap)
+            .then(function (d2) {
+              if (gen !== mapGeocodeGeneration) return;
+              if (d2 && d2[0]) applyNominatimHit(d2[0]);
+            })
+            .catch(function () {});
+        }
+      }, 400);
     } else {
+      mapGeocodeGeneration++;
       iframe.removeAttribute('src');
       svBlock.hidden = true;
       if (tab) {
@@ -330,24 +548,55 @@ $tipoOpts = chamado_os_opcoes_tipo();
       }
     }
 
-    var showPreview = hasEnd || hasSv;
-    if (!hasSv && opt.value && opt.value !== '0') {
-      showPreview = true;
-    }
+    var showPreview = hasSv || hasMapaEndereco || pontoChosen;
     wrap.hidden = !showPreview;
   }
 
   function boot() {
-    var sel = document.getElementById('ponto_iluminacao_id');
-    if (!sel) return;
-    sel.addEventListener('change', function () {
-      applyPontoOsUi(sel);
+    var sel = getPontoSelect();
+    if (sel) {
+      sel.addEventListener('change', function () {
+        fillLogradouroFromPonto(sel);
+        refreshChamadoLocPreview();
+      });
+    }
+    ['chamado_latitude', 'chamado_longitude', 'os_logradouro', 'os_numero', 'os_complemento', 'os_bairro', 'os_cidade', 'os_uf', 'os_cep'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', function () {
+        refreshChamadoLocPreview();
+      });
     });
     window.setTimeout(function () {
-      applyPontoOsUi(sel);
+      refreshChamadoLocPreview();
     }, 0);
   }
 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+<?php else: ?>
+<script>
+(function () {
+  function fillLogradouroFromPonto(sel) {
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value || opt.value === '0') return;
+    var end = (opt.getAttribute('data-endereco') || '').trim();
+    var log = document.getElementById('os_logradouro');
+    if (end && log) log.value = end;
+  }
+  function boot() {
+    var sel = document.getElementById('ponto_iluminacao_id');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      fillLogradouroFromPonto(sel);
+    });
+  }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {

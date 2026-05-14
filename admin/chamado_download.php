@@ -26,9 +26,19 @@ $nome = $anexo['nome_original'];
 
 while (ob_get_level() > 0) { ob_end_clean(); }
 
+$inline = isset($_GET['inline']) && (string) $_GET['inline'] === '1';
+$mimeLc = strtolower((string) $mime);
+$ehImagemInline = $inline
+    && strncmp($mimeLc, 'image/', 8) === 0
+    && strpos($mimeLc, 'svg') === false;
+
 header('Content-Description: File Transfer');
 header('Content-Type: ' . $mime);
-header('Content-Disposition: attachment; filename="' . rawurlencode($nome) . '"; filename*=UTF-8\'\'' . rawurlencode($nome));
+if ($ehImagemInline) {
+    header('Content-Disposition: inline; filename="' . rawurlencode($nome) . '"; filename*=UTF-8\'\'' . rawurlencode($nome));
+} else {
+    header('Content-Disposition: attachment; filename="' . rawurlencode($nome) . '"; filename*=UTF-8\'\'' . rawurlencode($nome));
+}
 header('Content-Length: ' . $size);
 header('Cache-Control: private, no-transform, no-store, must-revalidate');
 header('Pragma: no-cache');

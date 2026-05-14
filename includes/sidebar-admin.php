@@ -46,6 +46,7 @@ $items = [
     ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'admin/pontos_iluminacao.php'],
     ['key' => 'catalogo',  'label' => 'Catálogo', 'href' => $hrefCatalogo],
     ['key' => 'relatorio_financeiro', 'label' => 'Relatório financeiro', 'href' => 'admin/relatorio_financeiro.php'],
+    ['key' => 'auditoria', 'label' => 'Auditoria', 'href' => 'admin/auditoria.php'],
     ['key' => 'configuracoes','label' => 'Avançado','href' => 'admin/configuracoes.php', 'admin_only' => true],
     ['key' => 'suporte',   'label' => 'Suporte',   'href' => 'admin/suporte.php'],
 ];
@@ -67,10 +68,10 @@ foreach ($items as $it) {
 ?>
 <aside class="sidebar" id="sidebar">
   <div class="brand">
-    <img class="brand-logo-img" src="<?= htmlspecialchars($basePath . (defined('APP_BRAND_SIDEBAR_LOGO') ? APP_BRAND_SIDEBAR_LOGO : (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png'))) ?>" width="64" height="64" alt="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?>">
+    <img class="brand-logo-img" src="<?= htmlspecialchars($basePath . (defined('APP_BRAND_SIDEBAR_LOGO') ? APP_BRAND_SIDEBAR_LOGO : (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png'))) ?>" width="64" height="64" alt="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight') ?>">
     <div class="brand-text">
       <small><?= htmlspecialchars(defined('APP_BRAND_TAGLINE') ? APP_BRAND_TAGLINE : 'Gestão em Iluminação') ?></small>
-      <h1><?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?></h1>
+      <h1><?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight') ?></h1>
     </div>
   </div>
 

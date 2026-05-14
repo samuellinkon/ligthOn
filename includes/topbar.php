@@ -12,35 +12,56 @@ if (!isset($topTitle))    $topTitle    = 'Dashboard';
 if (!isset($topSubtitle)) $topSubtitle = '';
 if (!isset($topAction))   $topAction   = null;
 if (!isset($topActions))  $topActions  = [];
+/** Se true, não renderiza o bloco .topbar-title (ex.: página com cabeçalho próprio). */
+if (!isset($topbarHideTitle)) {
+    $topbarHideTitle = false;
+}
 
 $painelNotifOk = false;
 $notifUnreadInitial = 0;
 $notifApiHref       = '';
-if (function_exists('current_user_painel_interno') && current_user_painel_interno()
-    && function_exists('db_ok') && db_ok()) {
+if (function_exists('db_ok') && db_ok()) {
     if (!function_exists('repo_notificacoes_table_exists')) {
         require_once __DIR__ . '/repository.php';
     }
     if (repo_notificacoes_table_exists()) {
-        $painelNotifOk = true;
-        $cu = function_exists('current_user') ? current_user() : null;
+        $cu   = function_exists('current_user') ? current_user() : null;
+        $perf = (string) ($cu['perfil'] ?? '');
         $uidN = (int) ($cu['id'] ?? 0);
-        if ($uidN > 0 && function_exists('repo_notificacoes_count_unread')) {
-            $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
+        $bp   = rtrim($basePath ?? '', '/');
+        if ($uidN > 0 && (function_exists('current_user_painel_interno') && current_user_painel_interno())) {
+            $painelNotifOk = true;
+            if (function_exists('repo_notificacoes_count_unread')) {
+                $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
+            }
+            $notifApiHref = $bp . '/admin/notificacoes_api.php';
+        } elseif ($uidN > 0 && $perf === 'operador') {
+            $painelNotifOk = true;
+            if (function_exists('repo_notificacoes_count_unread')) {
+                $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
+            }
+            $notifApiHref = $bp . '/operador/notificacoes_api.php';
+        } elseif ($uidN > 0 && $perf === 'cliente') {
+            $painelNotifOk = true;
+            if (function_exists('repo_notificacoes_count_unread')) {
+                $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
+            }
+            $notifApiHref = $bp . '/cliente/notificacoes_api.php';
         }
-        $notifApiHref = rtrim($basePath, '/') . '/admin/notificacoes_api.php';
     }
 }
 ?>
 <header class="topbar">
   <div class="topbar-start">
     <button class="hamburger" aria-label="Abrir menu"><span></span></button>
+    <?php if (!$topbarHideTitle): ?>
     <div class="topbar-title">
       <h2><?= htmlspecialchars($topTitle) ?></h2>
       <?php if ($topSubtitle): ?>
         <p><?= htmlspecialchars($topSubtitle) ?></p>
       <?php endif; ?>
     </div>
+    <?php endif; ?>
   </div>
   <?php if ($topAction || !empty($topActions) || !empty($topbarMinhaContaHref) || $painelNotifOk): ?>
   <div class="top-actions">
@@ -141,16 +162,39 @@ if (function_exists('current_user_painel_interno') && current_user_painel_intern
           if (markAll) markAll.hidden = !anyUnread;
         }
 
+        function notifDropdownNarrow() {
+          return window.matchMedia('(max-width: 900px)').matches;
+        }
+
+        function syncNotifDropdownGeom() {
+          if (!dd || !btn || dd.hidden) return;
+          if (!notifDropdownNarrow()) {
+            dd.style.removeProperty('top');
+            dd.style.removeProperty('max-height');
+            return;
+          }
+          var r = btn.getBoundingClientRect();
+          var gap = 8;
+          var topPx = Math.round(r.bottom + gap);
+          dd.style.top = topPx + 'px';
+          var bottomPad = 16;
+          var room = window.innerHeight - topPx - bottomPad;
+          dd.style.maxHeight = Math.max(160, Math.min(420, room)) + 'px';
+        }
+
         function openList() {
           if (!dd) return;
           dd.hidden = false;
           if (btn) btn.setAttribute('aria-expanded', 'true');
+          syncNotifDropdownGeom();
+          requestAnimationFrame(syncNotifDropdownGeom);
           fetchJson(api + '?action=list').then(function (d) {
             if (d && d.ok) {
               loaded = true;
               renderItems(d.items || []);
               refreshCount();
             }
+            requestAnimationFrame(syncNotifDropdownGeom);
           }).catch(function () {});
         }
 
@@ -158,6 +202,8 @@ if (function_exists('current_user_painel_interno') && current_user_painel_intern
           if (!dd) return;
           dd.hidden = true;
           if (btn) btn.setAttribute('aria-expanded', 'false');
+          dd.style.removeProperty('top');
+          dd.style.removeProperty('max-height');
         }
 
         if (btn && dd) {
@@ -191,6 +237,9 @@ if (function_exists('current_user_painel_interno') && current_user_painel_intern
         }
 
         setInterval(refreshCount, 60000);
+        window.addEventListener('resize', function () {
+          syncNotifDropdownGeom();
+        });
       })();
       </script>
       <?php endif; ?>

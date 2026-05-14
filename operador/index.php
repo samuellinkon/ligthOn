@@ -44,8 +44,10 @@ if (db_ok() && $empresaId > 0 && $operadorId > 0) {
 }
 $loadLeaflet = db_ok() && $empresaId > 0;
 
-$topTitle    = 'Painel do operador';
-$topSubtitle = htmlspecialchars((string) ($user['empresa'] ?? 'Sua empresa'));
+$dash = db_ok() && $empresaId > 0 ? repo_dashboard_admin_stats($empresaId) : null;
+
+$topTitle    = 'Painel';
+$topSubtitle = '';
 $topSearch   = '';
 $topAction   = ['label' => 'Chamados', 'href' => 'chamados.php', 'icon' => '→'];
 
@@ -56,7 +58,54 @@ include __DIR__ . '/../includes/head.php';
 <main class="main">
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
-<section class="content">
+<section class="content ch-op-page">
+  <div class="ch-op-metrics-wrap">
+    <div class="dashboard-admin-metrics">
+      <div class="cards-metrics">
+        <div class="card metric">
+          <div class="metric-top">
+            <div>
+              <div class="metric-label">Abertos</div>
+              <div class="metric-value"><?= $dash ? (int) $dash['ch_abertos'] : 0 ?></div>
+            </div>
+            <div class="icon-box">AB</div>
+          </div>
+          <div class="metric-change metric-change--admin"><?= $dash ? 'Ao vivo' : '—' ?></div>
+        </div>
+        <div class="card metric">
+          <div class="metric-top">
+            <div>
+              <div class="metric-label">Em andamento</div>
+              <div class="metric-value"><?= $dash ? (int) $dash['ch_andamento'] : 0 ?></div>
+            </div>
+            <div class="icon-box">EA</div>
+          </div>
+          <div class="metric-change metric-change--admin">Em atendimento</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-top">
+            <div>
+              <div class="metric-label">Urgentes</div>
+              <div class="metric-value"><?= $dash ? (int) $dash['ch_urgentes'] : 0 ?></div>
+            </div>
+            <div class="icon-box">!!</div>
+          </div>
+          <div class="metric-change metric-change--admin">Prioridade alta</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-top">
+            <div>
+              <div class="metric-label">Resolvidos 7d</div>
+              <div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : 0 ?></div>
+            </div>
+            <div class="icon-box">OK</div>
+          </div>
+          <div class="metric-change metric-change--admin"><?= $dash ? 'Últimos 7 dias' : '—' ?></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <?php if ($loadLeaflet): ?>
   <div class="card dashboard-map-card" style="margin-bottom:24px;">
     <div class="panel-head">

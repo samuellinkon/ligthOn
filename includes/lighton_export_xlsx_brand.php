@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Constantes LightOn e badges XLS — partilhado entre exportações PhpSpreadsheet.
+ * Constantes de marca (cores XLS) e badges — partilhado entre exportações PhpSpreadsheet.
  */
 
 const LO_WHITE = 'FFFFFFFF';

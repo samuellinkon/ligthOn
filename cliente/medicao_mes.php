@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/medicao_helpers.php';
 $CLIENTE = require_auth('cliente');
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_cliente('medicao');
+require_once __DIR__ . '/../includes/audit_log.php';
 
 $pageTitle  = 'Medição';
 $basePath   = '../';
@@ -65,6 +66,12 @@ $mesLabel     = medicao_mes_label_pt($mesRef);
 
 if (($_GET['export'] ?? '') === 'planilha') {
     require_once __DIR__ . '/../includes/medicao_export.php';
+    audit_log_registar('medicao.exportar_planilha_csv', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+        'ref_ym'    => $mesRef,
+        'contrato'  => $contratoDisp,
+        'n_linhas'  => count($linhasExibicao),
+        'portal'    => 1,
+    ]);
     medicao_export_planilha_csv(
         $clienteMatriz,
         $contratoDisp,
@@ -76,6 +83,12 @@ if (($_GET['export'] ?? '') === 'planilha') {
     );
     exit;
 }
+
+audit_log_registar('medicao.acessar_mes', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+    'ref_ym'  => $mesRef,
+    'empresa' => function_exists('mb_substr') ? mb_substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120, 'UTF-8') : substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120),
+    'portal'  => 1,
+]);
 
 $medicaoFiltrosQs = [
     'mes'      => $mesRef,

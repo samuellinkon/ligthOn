@@ -5,8 +5,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>lightOn | Gestao publica digital para prefeituras</title>
-    <meta name="description" content="LightOn e a plataforma govtech para prefeituras com protocolos, chamados, ouvidoria, indicadores e rastreabilidade em um unico fluxo digital.">
+    <title>OnLight | Gestao publica digital para prefeituras</title>
+    <meta name="description" content="OnLight e a plataforma govtech para prefeituras com protocolos, chamados, ouvidoria, indicadores e rastreabilidade em um unico fluxo digital.">
     <link rel="icon" type="image/png" href="assets/img/lighton-icon.png">
     <link rel="apple-touch-icon" href="assets/img/lighton-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -868,7 +868,7 @@
     <header class="site-header">
         <div class="container nav">
             <a href="#inicio" class="brand">
-                <img src="assets/img/lighton-logo-transparent.png" alt="Logo lightOn">
+                <img src="assets/img/lighton-logo-transparent.png" alt="Logo OnLight">
                 <strong>light<span>On</span></strong>
             </a>
             <nav class="menu" id="menu">
@@ -910,8 +910,8 @@
                     </div>
                 </div>
 
-                <div class="screenshot-frame" aria-label="Tela real do sistema lightOn">
-                    <img src="assets/img/admin-dashboard.png" alt="Tela real do sistema lightOn">
+                <div class="screenshot-frame" aria-label="Tela real do sistema OnLight">
+                    <img src="assets/img/admin-dashboard.png" alt="Tela real do sistema OnLight">
                 </div>
             </div>
         </section>
@@ -935,12 +935,12 @@
         <section class="section" id="solucao">
             <div class="container">
                 <div class="section-head">
-                    <h2>O lightOn organiza toda a operação em um único fluxo digital</h2>
+                    <h2>O OnLight organiza toda a operação em um único fluxo digital</h2>
                 </div>
                 <div class="solution-wrap">
                     <div class="solution-copy">
                         <p>
-                            O lightOn conecta atendimento ao cidadão, protocolos, ouvidoria, chamados internos e indicadores gerenciais em uma plataforma unificada.
+                            O OnLight conecta atendimento ao cidadão, protocolos, ouvidoria, chamados internos e indicadores gerenciais em uma plataforma unificada.
                             Cada demanda segue um fluxo claro com status, prazo, setor e responsável.
                         </p>
                         <p>
@@ -981,7 +981,7 @@
         <section class="section screenshots" id="telas">
             <div class="container">
                 <div class="section-head">
-                    <h2>Módulos do lightOn na prática</h2>
+                    <h2>Módulos do OnLight na prática</h2>
                     <p>Explore as telas reais da plataforma e veja, de forma objetiva, como cada módulo organiza a operação municipal com mais controle, agilidade e rastreabilidade.</p>
                 </div>
                 <div class="shot-carousel" id="shotCarousel">
@@ -989,7 +989,7 @@
                         <div class="shot-track" id="shotTrack">
                             <div class="shot-slide">
                                 <article class="shot-card">
-                                    <img src="assets/img/admin-dashboard.png" alt="Dashboard do sistema lightOn">
+                                    <img src="assets/img/admin-dashboard.png" alt="Dashboard do sistema OnLight">
                                     <h3>Módulo Dashboard Executivo</h3>
                                     <p>Painel central com visão da operação, indicadores e mapa de chamados em tempo real.</p>
                                     <ul class="shot-functions">
@@ -1011,7 +1011,7 @@
                             </div>
                             <div class="shot-slide">
                                 <article class="shot-card">
-                                    <img src="assets/img/admin-chamados.png" alt="Gestão de chamados no lightOn">
+                                    <img src="assets/img/admin-chamados.png" alt="Gestão de chamados no OnLight">
                                     <h3>Módulo Gestão de Chamados</h3>
                                     <p>Controle operacional da fila de atendimento com filtros, SLA e priorização de execução.</p>
                                     <ul class="shot-functions">
@@ -1050,7 +1050,7 @@
         <section class="section lighting-section" id="iluminacao">
             <div class="container">
                 <div class="section-head">
-                    <h2>Controle de iluminação pública integrado ao lightOn</h2>
+                    <h2>Controle de iluminação pública integrado ao OnLight</h2>
                     <p>
                         Cadastre pontos de luz, acompanhe falhas, distribua ordens de serviço e monitore execução por bairro, equipe e prazo.
                         Tudo com rastreabilidade, histórico e visão gerencial em tempo real.
@@ -1157,7 +1157,7 @@
         <section class="section cta" id="cta">
             <div class="container cta-box">
                 <h2>Pronto para modernizar o atendimento da sua prefeitura?</h2>
-                <p>Solicite uma demonstração e veja como o lightOn pode organizar protocolos, chamados e indicadores da sua gestão.</p>
+                <p>Solicite uma demonstração e veja como o OnLight pode organizar protocolos, chamados e indicadores da sua gestão.</p>
                 <div class="cta-actions">
                     <a class="btn btn-primary" href="https://wa.me/5500000000000" target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
                     <a class="btn btn-outline" href="login.php">Acessar sistema</a>
@@ -1171,7 +1171,7 @@
                     <h2>Perguntas frequentes</h2>
                 </div>
                 <div class="faq-list">
-                    <details><summary>O sistema funciona em nuvem?</summary><p>Sim, o lightOn é uma plataforma web e pode ser acessada com segurança em nuvem.</p></details>
+                    <details><summary>O sistema funciona em nuvem?</summary><p>Sim, o OnLight é uma plataforma web e pode ser acessada com segurança em nuvem.</p></details>
                     <details><summary>É possível separar acessos por secretaria?</summary><p>Sim, o sistema possui perfis e permissões por secretaria, equipe e função.</p></details>
                     <details><summary>Existe histórico das movimentações?</summary><p>Sim, todas as ações e mudanças de status ficam registradas para auditoria.</p></details>
                     <details><summary>A equipe recebe treinamento?</summary><p>Sim, a implantação inclui treinamento e acompanhamento do início da operação.</p></details>
@@ -1184,7 +1184,7 @@
 
     <footer class="footer">
         <div class="container wrap">
-            <p>&copy; <?php echo date('Y'); ?> lightOn. Todos os direitos reservados.</p>
+            <p>&copy; <?php echo date('Y'); ?> OnLight. Todos os direitos reservados.</p>
             <a href="login.php">Acessar sistema</a>
         </div>
     </footer>

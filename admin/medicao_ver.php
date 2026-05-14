@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/medicao_helpers.php';
 $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('medicao');
+require_once __DIR__ . '/../includes/audit_log.php';
 
 $pageTitle  = 'Ver medição';
 $basePath   = '../';
@@ -71,6 +72,11 @@ if (($_GET['export'] ?? '') === 'relatorio_xlsx') {
     try {
         require_once __DIR__ . '/../includes/medicao_export_relatorio_xlsx.php';
         $sheet = medicao_relatorio_detalhado_sheet_rows($linhas, $impLinhas, $mesRef);
+        audit_log_registar('medicao.exportar_relatorio_xlsx', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+            'ref_ym'   => $mesRef,
+            'n_chamados_rel' => count($linhas),
+            'n_linhas_imp' => count($impLinhas),
+        ]);
         medicao_export_relatorio_detalhado_xlsx_send(
             $mesRef,
             $sheet,
@@ -84,6 +90,11 @@ if (($_GET['export'] ?? '') === 'relatorio_xlsx') {
     }
     exit;
 }
+
+audit_log_registar('medicao.acessar_resumo', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+    'ref_ym'  => $mesRef,
+    'empresa' => function_exists('mb_substr') ? mb_substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120, 'UTF-8') : substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120),
+]);
 
 $linhasExibicao = medicao_linhas_exibicao_mes($linhas, $impLinhas);
 $totExibicao    = medicao_tot_resumo_com_import_bm($tot, $impLinhas);

@@ -3,11 +3,13 @@
  * Envio de e-mail: SMTP (configurável, ex.: Hostinger) ou mail() nativo.
  */
 
+require_once __DIR__ . '/config.php';
+
 if (!defined('MAIL_FROM')) {
     define('MAIL_FROM', 'nao-responda@crm-control.com');
 }
 if (!defined('MAIL_FROM_NAME')) {
-    define('MAIL_FROM_NAME', 'LightOn');
+    define('MAIL_FROM_NAME', defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight');
 }
 
 require_once __DIR__ . '/app_runtime.php';
@@ -62,12 +64,14 @@ function mail_send(string $to, string $subject, string $htmlBody): array
  */
 function mail_welcome(string $to, string $nome, string $empresa, string $email, string $senha, string $portalUrl): array
 {
+    $brand      = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
+    $brandH     = htmlspecialchars($brand, ENT_QUOTES, 'UTF-8');
     $logoColor = '#2563eb';
     $rodape     = htmlspecialchars(app_mail_settings()['from_name'], ENT_QUOTES, 'UTF-8');
     $body = '<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;">'
         . '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);">'
         . '<div style="background:linear-gradient(135deg,' . $logoColor . ' 0%,#1e40af 100%);color:#fff;padding:28px 32px;">'
-        . '<h1 style="margin:0 0 4px;font-size:22px;">Bem-vindo ao LightOn</h1>'
+        . '<h1 style="margin:0 0 4px;font-size:22px;">Bem-vindo ao ' . $brandH . '</h1>'
         . '<p style="margin:0;opacity:.9;font-size:14px;">Seu acesso foi criado com sucesso</p>'
         . '</div>'
         . '<div style="padding:28px 32px;">'
@@ -94,7 +98,7 @@ function mail_welcome(string $to, string $nome, string $empresa, string $email, 
         . '</div>'
         . '</div></body></html>';
 
-    return mail_send($to, 'Seu acesso ao LightOn', $body);
+    return mail_send($to, 'Seu acesso ao ' . $brand, $body);
 }
 
 /**

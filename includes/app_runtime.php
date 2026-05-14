@@ -56,7 +56,7 @@ function app_mail_settings(): array
     $c = repo_config_all();
 
     $defFrom = defined('MAIL_FROM') ? (string) MAIL_FROM : 'nao-responda@crm-control.com';
-    $defName = defined('MAIL_FROM_NAME') ? (string) MAIL_FROM_NAME : (defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn');
+    $defName = defined('MAIL_FROM_NAME') ? (string) MAIL_FROM_NAME : (defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight');
 
     $from = trim((string) ($c['mail_from'] ?? ''));
     if ($from === '') {

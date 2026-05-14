@@ -1,10 +1,18 @@
 <?php
+$CRM_CATALOGO_IMPORT_PORTAL = !empty($CRM_CATALOGO_IMPORT_PORTAL);
+
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 
-$me = require_auth_gestao();
-require_once __DIR__ . '/../includes/modules.php';
-require_modulo_admin('catalogo');
+if ($CRM_CATALOGO_IMPORT_PORTAL) {
+    $CLIENTE = require_auth('cliente');
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_cliente('catalogo');
+} else {
+    $me = require_auth_gestao();
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_admin('catalogo');
+}
 
 $pageTitle  = 'Importar catálogo';
 $basePath   = '../';
@@ -12,37 +20,45 @@ $activePage = 'catalogo';
 
 if (!db_ok()) {
     flash_set('err', 'Banco indisponível.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_IMPORT_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
 
-$escopoEmpresa = gestao_scope_cliente_id($me);
-$empresas = $escopoEmpresa !== null
-    ? (($c0 = repo_cliente($escopoEmpresa)) ? [$c0] : [])
-    : repo_clientes_empresas();
-
-$reqClienteId = (int) ($_GET['cliente_id'] ?? $_POST['cliente_id'] ?? 0);
-if ($escopoEmpresa !== null) {
-    $clienteId = $escopoEmpresa;
-} elseif ($reqClienteId > 0) {
-    $clienteId = repo_cliente_catalogo_dono_id($reqClienteId);
+if ($CRM_CATALOGO_IMPORT_PORTAL) {
+    $clienteId = repo_cliente_catalogo_dono_id((int) ($CLIENTE['cliente_id'] ?? 0));
+    $escopoEmpresa = null;
+    $empresas = [];
 } else {
-    $clienteId = (int) ($empresas[0]['id'] ?? 0);
+    $escopoEmpresa = gestao_scope_cliente_id($me);
+    $empresas = $escopoEmpresa !== null
+        ? (($c0 = repo_cliente($escopoEmpresa)) ? [$c0] : [])
+        : repo_clientes_empresas();
+
+    $reqClienteId = (int) ($_GET['cliente_id'] ?? $_POST['cliente_id'] ?? 0);
+    if ($escopoEmpresa !== null) {
+        $clienteId = $escopoEmpresa;
+    } elseif ($reqClienteId > 0) {
+        $clienteId = repo_cliente_catalogo_dono_id($reqClienteId);
+    } else {
+        $clienteId = (int) ($empresas[0]['id'] ?? 0);
+    }
 }
 
 if ($clienteId <= 0) {
     flash_set('err', 'Cadastre uma empresa raiz antes de importar produtos e serviços.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_IMPORT_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
 
 $cliente = repo_cliente($clienteId);
 if (!$cliente) {
     flash_set('err', 'Empresa não encontrada.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_IMPORT_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
-gestor_assert_escopo_cliente($clienteId, 'catalogo.php');
+if (!$CRM_CATALOGO_IMPORT_PORTAL) {
+    gestor_assert_escopo_cliente($clienteId, 'catalogo.php');
+}
 
 if (!empty($_GET['exportar_modelo'])) {
     $fn = 'modelo_importacao_catalogo.csv';
@@ -80,30 +96,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: cliente_itens_importar.php?cliente_id=' . $clienteId);
+    header('Location: ' . ($CRM_CATALOGO_IMPORT_PORTAL ? 'catalogo_importar.php' : ('cliente_itens_importar.php?cliente_id=' . $clienteId)));
     exit;
 }
 
 $topTitle    = 'Importar produtos e serviços';
 $topSubtitle = 'Upload de planilha para ' . (string) ($cliente['empresa'] ?? '');
 $topSearch   = '';
-$topAction   = ['label' => 'Voltar à listagem', 'href' => 'catalogo.php?cliente_id=' . $clienteId, 'icon' => '←'];
+$topAction   = [
+    'label' => 'Voltar à listagem',
+    'href'  => $CRM_CATALOGO_IMPORT_PORTAL ? 'catalogo.php' : ('catalogo.php?cliente_id=' . $clienteId),
+    'icon'  => '←',
+];
+
+$catalogoImportFormAction = $CRM_CATALOGO_IMPORT_PORTAL
+    ? 'catalogo_importar.php'
+    : ('cliente_itens_importar.php?cliente_id=' . (int) $clienteId);
+$catalogoImportModeloHref = $CRM_CATALOGO_IMPORT_PORTAL
+    ? 'catalogo_importar.php?exportar_modelo=1'
+    : ('cliente_itens_importar.php?cliente_id=' . (int) $clienteId . '&exportar_modelo=1');
+$catalogoImportCancelHref = $CRM_CATALOGO_IMPORT_PORTAL ? 'catalogo.php' : ('catalogo.php?cliente_id=' . (int) $clienteId);
+$catalogoImportSidebar = $CRM_CATALOGO_IMPORT_PORTAL ? 'sidebar-cliente.php' : 'sidebar-admin.php';
 
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">
-<?php include __DIR__ . '/../includes/sidebar-admin.php'; ?>
+<?php include __DIR__ . '/../includes/' . $catalogoImportSidebar; ?>
 <main class="main">
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
 <section class="content">
   <div class="content-grid-2">
-    <form class="card" method="post" action="cliente_itens_importar.php?cliente_id=<?= $clienteId ?>" enctype="multipart/form-data">
+    <form class="card" method="post" action="<?= htmlspecialchars($catalogoImportFormAction) ?>" enctype="multipart/form-data">
       <div class="panel-head">
         <h4>Enviar planilha</h4>
         <span class="panel-sub">CSV ou TXT com separador vírgula ou ponto e vírgula</span>
       </div>
       <div class="panel-body form form-grid">
+        <?php if (!$CRM_CATALOGO_IMPORT_PORTAL): ?>
         <div class="form-group full">
           <label for="cliente_id">Empresa</label>
           <select id="cliente_id" name="cliente_id" class="select" <?= $escopoEmpresa !== null ? 'disabled' : '' ?> onchange="location.href='cliente_itens_importar.php?cliente_id=' + this.value">
@@ -115,6 +145,7 @@ include __DIR__ . '/../includes/head.php';
           </select>
           <?php if ($escopoEmpresa !== null): ?><input type="hidden" name="cliente_id" value="<?= (int) $clienteId ?>"><?php endif; ?>
         </div>
+        <?php endif; ?>
         <div class="form-group full">
           <label for="planilha">Arquivo</label>
           <input type="file" id="planilha" name="planilha" class="input" accept=".csv,.txt,text/csv" required>
@@ -123,7 +154,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="panel-body">
         <div class="form-actions" style="padding:0;border:0;background:transparent;">
-          <a class="btn btn-secondary" href="catalogo.php?cliente_id=<?= $clienteId ?>">Cancelar</a>
+          <a class="btn btn-secondary" href="<?= htmlspecialchars($catalogoImportCancelHref) ?>">Cancelar</a>
           <button class="btn btn-primary" type="submit">Enviar e importar</button>
         </div>
       </div>
@@ -135,7 +166,7 @@ include __DIR__ . '/../includes/head.php';
           <h4>Formato da planilha</h4>
           <span class="panel-sub">Campos aceitos</span>
         </div>
-        <a class="btn btn-secondary btn-sm" href="cliente_itens_importar.php?cliente_id=<?= (int) $clienteId ?>&amp;exportar_modelo=1">Baixar CSV modelo</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoImportModeloHref) ?>">Baixar CSV modelo</a>
       </div>
       <div class="panel-body">
         <p class="muted" style="line-height:1.6;margin-top:0;">

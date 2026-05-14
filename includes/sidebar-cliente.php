@@ -10,34 +10,25 @@ $CLIENTE = (function_exists('current_user') ? current_user() : null)
     ?? $MOCK_USER_CLIENTE
     ?? ['nome' => 'Cliente', 'tipo' => 'Cliente', 'iniciais' => 'CL', 'empresa' => ''];
 
-$cid = (int) ($CLIENTE['cliente_id'] ?? 0);
-require_once __DIR__ . '/repository.php';
-$sidebarTagsC = [];
-if ($cid > 0 && function_exists('db_ok') && db_ok() && function_exists('repo_sidebar_cliente_tags')) {
-    $sidebarTagsC = repo_sidebar_cliente_tags(repo_cliente_matriz_raiz_id($cid), true);
-}
-
-$zc = static function (string $key) use ($sidebarTagsC): string {
-    return isset($sidebarTagsC[$key]) ? $sidebarTagsC[$key] : '0';
-};
-
 require_once __DIR__ . '/modules.php';
 require_once __DIR__ . '/sidebar_nav_icon.php';
 
 $items = [
-    ['key' => 'dashboard', 'label' => 'Painel',     'href' => 'cliente/index.php',    'tag' => 'Home'],
-    ['key' => 'chamados',  'label' => 'Meus Chamados', 'href' => 'cliente/chamados.php', 'tag' => $zc('chamados')],
-    ['key' => 'medicao',   'label' => 'Medição',       'href' => 'cliente/medicao.php',  'tag' => $zc('medicao')],
-    ['key' => 'os',        'label' => 'OS',            'href' => 'cliente/os.php',        'tag' => $zc('os')],
-    ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'cliente/pontos_iluminacao.php', 'tag' => $zc('pontos_iluminacao')],
-    ['key' => 'documentos','label' => 'Documentos',    'href' => 'cliente/documentos.php', 'tag' => $zc('documentos')],
-    ['key' => 'suporte',   'label' => 'Suporte',       'href' => 'cliente/suporte.php',  'tag' => $zc('suporte')],
+    ['key' => 'dashboard', 'label' => 'Painel',          'href' => 'cliente/index.php'],
+    ['key' => 'chamados',  'label' => 'Meus Chamados',  'href' => 'cliente/chamados.php'],
+    ['key' => 'medicao',   'label' => 'Medição',        'href' => 'cliente/medicao.php'],
+    ['key' => 'catalogo',  'label' => 'Catálogo',       'href' => 'cliente/catalogo.php'],
+    ['key' => 'auditoria', 'label' => 'Auditoria',      'href' => 'cliente/auditoria.php'],
+    ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'cliente/pontos_iluminacao.php'],
+    ['key' => 'documentos', 'label' => 'Documentos',    'href' => 'cliente/documentos.php'],
+    ['key' => 'meus_dados', 'label' => 'Meus dados',   'href' => 'cliente/meus_dados.php'],
+    ['key' => 'suporte',   'label' => 'Suporte',        'href' => 'cliente/suporte.php'],
 ];
 
 $itemsNav = [];
 foreach ($items as $it) {
     $k = (string) ($it['key'] ?? '');
-    if ($k !== 'dashboard' && $k !== 'perfil' && !app_modulo_habilitado('cliente', $k)) {
+    if ($k !== 'dashboard' && $k !== 'perfil' && $k !== 'meus_dados' && !app_modulo_habilitado('cliente', $k)) {
         continue;
     }
     $itemsNav[] = $it;
@@ -45,10 +36,10 @@ foreach ($items as $it) {
 ?>
 <aside class="sidebar" id="sidebar">
   <div class="brand">
-    <img class="brand-logo-img" src="<?= htmlspecialchars($basePath . (defined('APP_BRAND_SIDEBAR_LOGO') ? APP_BRAND_SIDEBAR_LOGO : (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png'))) ?>" width="64" height="64" alt="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?>">
+    <img class="brand-logo-img" src="<?= htmlspecialchars($basePath . (defined('APP_BRAND_SIDEBAR_LOGO') ? APP_BRAND_SIDEBAR_LOGO : (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png'))) ?>" width="64" height="64" alt="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight') ?>">
     <div class="brand-text">
       <small>Portal da prefeitura</small>
-      <h1><?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn') ?></h1>
+      <h1><?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight') ?></h1>
     </div>
   </div>
 
@@ -57,7 +48,6 @@ foreach ($items as $it) {
     <?php foreach ($itemsNav as $it): ?>
       <a href="<?= $basePath . $it['href'] ?>" class="<?= $activePage === $it['key'] ? 'active' : '' ?>">
         <span class="nav-link-main"><?= app_sidebar_nav_icon_svg((string) $it['key']) ?><span class="nav-link-label"><?= htmlspecialchars((string) $it['label']) ?></span></span>
-        <span class="tag"><?= htmlspecialchars((string) $it['tag']) ?></span>
       </a>
     <?php endforeach; ?>
   </nav>
@@ -75,4 +65,4 @@ foreach ($items as $it) {
 </aside>
 <?php
 $topbarMinhaContaHref   = $basePath . 'cliente/perfil.php';
-$topbarMinhaContaActive = ($activePage === 'perfil');
+$topbarMinhaContaActive = ($activePage === 'perfil' || $activePage === 'meus_dados');

@@ -26,7 +26,7 @@ $cssBust = static function (string $file): int {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'LightOn') ?></title>
+  <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight') ?></title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,7 +42,18 @@ $cssBust = static function (string $file): int {
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/dashboard.css?v=<?= $cssBust('dashboard.css') ?>">
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/responsive.css?v=<?= $cssBust('responsive.css') ?>">
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/modal.css?v=<?= $cssBust('modal.css') ?>">
-  <?php if (function_exists('current_user_painel_interno') && current_user_painel_interno()): ?>
+  <?php
+  /** Sino na topbar: admin, gestor, operador e cliente (ver includes/topbar.php). */
+  $includeNotificacoesCss = false;
+  if (function_exists('current_user')) {
+      $uHead = current_user();
+      if ($uHead) {
+          $pHead = (string) ($uHead['perfil'] ?? '');
+          $includeNotificacoesCss = in_array($pHead, ['admin', 'gestor', 'operador', 'cliente'], true);
+      }
+  }
+  ?>
+  <?php if ($includeNotificacoesCss): ?>
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/notificacoes.css?v=<?= $cssBust('notificacoes.css') ?>">
   <?php endif; ?>
   <?php if (!empty($loadLeaflet)): ?>

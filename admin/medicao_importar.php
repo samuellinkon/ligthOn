@@ -156,9 +156,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirm_import'])) {
 
     $tmp = (string) $_FILES['planilha']['tmp_name'];
     if ($ext === 'xlsx') {
-        $parse = medicao_xlsx_parse_bm_upload($tmp);
+        $parse = medicao_xlsx_parse_bm_upload($tmp, $refYm);
     } else {
-        $parse = medicao_csv_parse_bm_planilha($tmp);
+        $parse = medicao_csv_parse_bm_planilha($tmp, $refYm);
     }
     if (!$parse['ok']) {
         flash_set('err', $parse['erro'] !== '' ? $parse['erro'] : 'Falha ao interpretar o arquivo.');

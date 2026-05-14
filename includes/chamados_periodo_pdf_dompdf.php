@@ -45,7 +45,7 @@ function chamados_dompdf_apply_writable_options(\Dompdf\Options $options): void
 /**
  * Gera PDF binário (Dompdf) a partir do HTML do relatório de chamados + anexos e envia-o (com merge FPDI opcional).
  *
- * @param string|null $downloadUtf8 Nome sugerido (UTF-8), ex.: "Chamados e anexos — 01_05_2026 — 31_05_2026 — LightOn.pdf"
+ * @param string|null $downloadUtf8 Nome sugerido (UTF-8), ex.: "Chamados e anexos — 01_05_2026 — 31_05_2026 — OnLight.pdf"
  * @param list<string> $pdfAnexoPaths caminhos absolutos de PDFs a juntar após o relatório Dompdf (FPDI)
  *
  * @throws RuntimeException se Dompdf não estiver instalado ou falhar a renderização
@@ -70,6 +70,7 @@ function chamados_periodo_anexos_stream_pdf(string $html, ?string $downloadUtf8 
     chamados_dompdf_apply_writable_options($options);
 
     $dompdf = new \Dompdf\Dompdf($options);
+    @ini_set('memory_limit', '512M');
     $html = chamados_dompdf_strip_empty_resource_uris($html);
     $dompdf->loadHtml($html, 'UTF-8');
     $dompdf->setPaper('A4', 'portrait');

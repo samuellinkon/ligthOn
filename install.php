@@ -1,6 +1,6 @@
 <?php
 /**
- * Instalador web do LightOn.
+ * Instalador web do OnLight.
  * Passos:
  *   1) Conecta no MySQL (sem DB).
  *   2) Cria o banco (DB_NAME) se não existir.
@@ -11,7 +11,7 @@
 
 require_once __DIR__ . '/includes/config.php';
 
-$pageTitle = 'Instalador · LightOn';
+$pageTitle = 'Instalador · OnLight';
 $basePath  = '';
 $logs      = [];
 $ok        = false;
@@ -226,7 +226,7 @@ $cssBustInstall = static function (string $file): int {
 
 <div class="install-card">
     <div class="install-head">
-        <h1>Instalador do LightOn</h1>
+        <h1>Instalador do OnLight</h1>
         <p>Cria o banco <code><?= htmlspecialchars(DB_NAME) ?></code>, executa schema + seed e cria usuários padrão.</p>
     </div>
 
@@ -248,7 +248,7 @@ $cssBustInstall = static function (string $file): int {
 
         <?php if ($ok): ?>
             <div class="alert alert-ok">
-                Instalação concluída com sucesso. O LightOn já está ligado ao banco.
+                Instalação concluída com sucesso. O OnLight já está ligado ao banco.
             </div>
         <?php elseif ($erro): ?>
             <div class="alert alert-err">

@@ -5,10 +5,12 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/chamados_list_urls.php';
 
 $CLIENTE = require_auth('cliente');
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_cliente('medicao');
+require_once __DIR__ . '/../includes/audit_log.php';
 
 $pageTitle  = 'Ver medição';
 $basePath   = '../';
@@ -58,17 +60,34 @@ $impCab    = $impPkg['cabecalho'] ?? null;
 $impLinhas = is_array($impPkg['linhas'] ?? null) ? $impPkg['linhas'] : [];
 
 if (($_GET['export'] ?? '') === 'relatorio_xlsx') {
-    require_once __DIR__ . '/../includes/medicao_export_relatorio_xlsx.php';
-    $sheet = medicao_relatorio_detalhado_sheet_rows($linhas, $impLinhas, $mesRef);
-    medicao_export_relatorio_detalhado_xlsx_send(
-        $mesRef,
-        $sheet,
-        (string) ($clienteMatriz['empresa'] ?? ''),
-        medicao_mes_label_pt($mesRef),
-        (int) $clienteId
-    );
+    try {
+        require_once __DIR__ . '/../includes/medicao_export_relatorio_xlsx.php';
+        $sheet = medicao_relatorio_detalhado_sheet_rows($linhas, $impLinhas, $mesRef);
+        audit_log_registar('medicao.exportar_relatorio_xlsx', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+            'ref_ym'         => $mesRef,
+            'n_chamados_rel' => count($linhas),
+            'n_linhas_imp'   => count($impLinhas),
+            'portal'         => 1,
+        ]);
+        medicao_export_relatorio_detalhado_xlsx_send(
+            $mesRef,
+            $sheet,
+            (string) ($clienteMatriz['empresa'] ?? ''),
+            medicao_mes_label_pt($mesRef),
+            (int) $clienteId
+        );
+    } catch (Throwable $e) {
+        flash_set('err', 'Falha ao exportar XLSX: ' . $e->getMessage());
+        header('Location: medicao_ver.php?' . http_build_query(['mes' => $mesRef]));
+    }
     exit;
 }
+
+audit_log_registar('medicao.acessar_resumo', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+    'ref_ym'  => $mesRef,
+    'empresa' => function_exists('mb_substr') ? mb_substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120, 'UTF-8') : substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120),
+    'portal'  => 1,
+]);
 
 $linhasExibicao = medicao_linhas_exibicao_mes($linhas, $impLinhas);
 $totExibicao    = medicao_tot_resumo_com_import_bm($tot, $impLinhas);
@@ -88,8 +107,25 @@ $periodoTxt = date('d/m/Y', strtotime($dataDe)) . ' a ' . date('d/m/Y', strtotim
 $mesLabel   = medicao_mes_label_pt($mesRef);
 
 $hrefBoletim = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef]);
+$hrefExport  = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef, 'export' => 'planilha']);
 $hrefExportRelatorioXlsx = 'medicao_ver.php?' . http_build_query(['mes' => $mesRef, 'export' => 'relatorio_xlsx']);
 $hrefChamados = 'chamados.php?' . http_build_query(['medicao_mes' => $mesRef]);
+$hrefBoletimBmXlsx = 'medicao_export_boletim_bm.php?' . http_build_query(['mes' => $mesRef]);
+$chExportCtxVer = [
+    'medicao_mes'       => $mesRef,
+    'periodo_de'        => '',
+    'periodo_ate'       => '',
+    'periodo_limpar'    => false,
+    'cliente_id'        => null,
+    'envolvido_user'    => null,
+    'tecnico_user_id'   => null,
+    'local_q'           => null,
+];
+$hrefXlsxDetalhesCh = adm_chamados_export_url('xlsx_detalhes', '', '', $chExportCtxVer);
+$hrefPdfAnexosCh    = adm_chamados_export_url('pdf_anexos', '', '', $chExportCtxVer);
+if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
+    $hrefPdfAnexosCh .= (strpos($hrefPdfAnexosCh, '?') !== false ? '&' : '?') . 'pdf_debug=1';
+}
 
 function medicao_ver_fmt_qtd(float $valor): string
 {
@@ -156,8 +192,12 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="medicao-view-actions">
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefBoletim) ?>">Boletim</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExportRelatorioXlsx) ?>">Exportar</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExport) ?>">Exportar CSV (boletim)</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExportRelatorioXlsx) ?>">Exportar XLSX (relatório detalhado)</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefChamados) ?>">Chamados</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefBoletimBmXlsx) ?>">Excel — boletim BM</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefXlsxDetalhesCh) ?>">Excel — chamados (detalhes)</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefPdfAnexosCh) ?>" target="_blank" rel="noopener">PDF — chamados (anexos)</a>
       </div>
     </div>
     <div class="panel-body">

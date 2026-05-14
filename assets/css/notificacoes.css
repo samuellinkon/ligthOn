@@ -1,45 +1,59 @@
-/* Sino e lista de notificações (topbar admin/gestor) */
+/* Sino e lista de notificações (topbar — mesmo layout em admin, gestor, operador e cliente) */
 
 .topbar-notif-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
-.topbar-notif-btn {
+.topbar .topbar-notif-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  margin: 0;
+  border: 1px solid var(--border, #e2e8f0);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: inherit;
+  background: #fff;
+  color: var(--text, #0f172a);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  font: inherit;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
-.topbar-notif-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(148, 163, 184, 0.55);
+.topbar .topbar-notif-btn:hover {
+  background: var(--surface-raised, #f8fafc);
+  border-color: var(--primary, #534ab7);
+  color: var(--primary, #534ab7);
 }
 
-.topbar-notif-btn[aria-expanded="true"] {
-  background: rgba(59, 130, 246, 0.18);
-  border-color: rgba(59, 130, 246, 0.45);
+.topbar .topbar-notif-btn[aria-expanded="true"] {
+  background: rgba(83, 74, 183, 0.08);
+  border-color: var(--primary, #534ab7);
+  color: var(--primary, #534ab7);
+  box-shadow: 0 0 0 2px rgba(83, 74, 183, 0.12);
 }
 
 .topbar-notif-icon {
   display: block;
+  flex-shrink: 0;
+  opacity: 0.92;
 }
 
-.topbar-notif-badge {
+.topbar .topbar-notif-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 2px;
+  right: 2px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -50,9 +64,12 @@
   font-weight: 700;
   line-height: 18px;
   text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
-.topbar-notif-badge[hidden] {
+.topbar .topbar-notif-badge[hidden] {
   display: none !important;
 }
 
@@ -60,15 +77,37 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: min(380px, calc(100vw - 32px));
+  left: auto;
+  /* Ancorado à direita do wrap; reserva ~140px à esquerda (menu + título) para não cortar na viewport */
+  width: min(
+    380px,
+    max(
+      220px,
+      calc(100vw - 24px - 140px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))
+    )
+  );
   max-height: min(420px, 70vh);
   overflow: auto;
   z-index: 200;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(15, 23, 42, 0.12);
   background: #0f172a;
   color: #e2e8f0;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+/* Mobile / topbar estreita: painel em largura útil, abaixo do sino (top definido em JS) */
+@media (max-width: 900px) {
+  .topbar-notif-dropdown {
+    position: fixed;
+    top: 88px; /* fallback até o JS definir */
+    left: max(12px, env(safe-area-inset-left, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: auto;
+    max-width: none;
+    max-height: min(420px, calc(100vh - 100px - env(safe-area-inset-bottom, 0px)));
+    z-index: 2000;
+  }
 }
 
 .topbar-notif-dropdown[hidden] {
@@ -80,13 +119,30 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 12px 14px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.25);
   font-weight: 600;
   font-size: 14px;
 }
 
+@media (max-width: 480px) {
+  .topbar-notif-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-notif-head button {
+    width: 100%;
+    justify-content: center;
+    padding: 8px 10px;
+  }
+}
+
 .topbar-notif-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 8px;
@@ -131,6 +187,7 @@
   font-weight: 600;
   font-size: 13px;
   margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 
 .topbar-notif-meta {

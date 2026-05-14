@@ -334,3 +334,139 @@ a.pag-btn {
   font-size: 12px;
   margin-top: 2px;
 }
+
+/* ---------- Medição — listagem mensal (coluna Ações: ícones) ---------- */
+
+/* Ocupa toda a largura útil do card; colunas repartem o espaço (evita “vazio” à direita). */
+.table-wrap:has(.medicao-meses-table) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.medicao-meses-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  box-sizing: border-box;
+}
+
+.medicao-meses-table th,
+.medicao-meses-table td {
+  box-sizing: border-box;
+}
+
+.medicao-meses-table th:nth-child(1),
+.medicao-meses-table td:nth-child(1) {
+  width: 18%;
+}
+
+.medicao-meses-table th:nth-child(2),
+.medicao-meses-table td:nth-child(2) {
+  width: 10%;
+}
+
+.medicao-meses-table th:nth-child(3),
+.medicao-meses-table td:nth-child(3),
+.medicao-meses-table th:nth-child(4),
+.medicao-meses-table td:nth-child(4) {
+  width: 15%;
+}
+
+.medicao-meses-table th:nth-child(5),
+.medicao-meses-table td:nth-child(5) {
+  width: 16%;
+}
+
+.medicao-meses-table th.td-actions,
+.medicao-meses-table td.td-actions {
+  width: 26%;
+  padding-left: 10px;
+  padding-right: 12px;
+}
+
+.medicao-meses-table tbody td {
+  height: 72px;
+  vertical-align: middle;
+}
+
+.medicao-meses-table th.td-actions,
+.medicao-meses-table td.td-actions {
+  text-align: right;
+}
+
+.medicao-meses-table td.td-actions {
+  white-space: nowrap;
+}
+
+.medicao-meses-table .actions-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.medicao-meses-table .action-icon {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid #dfe2ea;
+  background: #fff;
+  color: #25283a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-size: 16px;
+  transition: 0.16s ease;
+}
+
+.medicao-meses-table .action-icon:hover {
+  transform: translateY(-1px);
+  border-color: #c9cce0;
+  box-shadow: 0 8px 18px rgba(18, 24, 40, 0.08);
+}
+
+.medicao-meses-table .action-icon.primary {
+  background: #f0efff;
+  color: #5b4df1;
+  border-color: #dedbff;
+}
+
+.medicao-meses-table .action-icon.excel {
+  color: #147a46;
+  background: #f1fbf6;
+  border-color: #d8f0e4;
+}
+
+.medicao-meses-table .action-icon.pdf {
+  color: #b42318;
+  background: #fff4f2;
+  border-color: #ffd8d2;
+}
+
+.medicao-meses-table .action-icon::after {
+  content: attr(aria-label);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  transform: translateX(-50%) translateY(4px);
+  opacity: 0;
+  pointer-events: none;
+  background: #17172a;
+  color: #fff;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: 0.14s ease;
+  z-index: 20;
+}
+
+.medicao-meses-table .action-icon:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

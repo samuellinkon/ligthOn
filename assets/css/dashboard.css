@@ -86,6 +86,31 @@
   color: #6d63d4;
 }
 
+/* KPIs do operador (painel inicial): grade 2 colunas, um card abaixo do outro em pares */
+.ch-op-metrics-wrap {
+  margin: 0 0 16px;
+  padding-bottom: 0;
+}
+.ch-op-page .ch-op-metrics-wrap .cards-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.ch-op-page .ch-op-metrics-wrap .cards-metrics .card.metric {
+  min-width: 0;
+  max-width: none;
+  width: auto;
+  padding: 12px 14px;
+}
+.ch-op-page .ch-op-metrics-wrap .metric-value {
+  font-size: 1.35rem;
+}
+.ch-op-page .ch-op-metrics-wrap .metric-label {
+  font-size: 10px;
+}
+
 .metric-value.metric-value--compact {
   font-size: 1rem;
   font-weight: 700;
@@ -1117,6 +1142,14 @@ body.dashboard-map-resize-dragging * {
   border: 1px solid var(--border-soft);
   background: #e8ecf4;
 }
+
+/* Leaflet usa z-index alto nos painéis/controlos; isolar para não cobrir topbar/sidebar */
+.main .leaflet-container {
+  isolation: isolate;
+  z-index: 0;
+  position: relative;
+}
+
 .dashboard-map-empty {
   display: flex;
   align-items: center;

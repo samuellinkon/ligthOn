@@ -14,7 +14,7 @@ require_once __DIR__ . '/medicao_csv_import.php';
  *   linhas: list<array<string, mixed>>
  * }
  */
-function medicao_xlsx_parse_bm_upload(string $path): array
+function medicao_xlsx_parse_bm_upload(string $path, ?string $refYm = null): array
 {
     $empty = [
         'ok'                 => false,
@@ -68,7 +68,7 @@ function medicao_xlsx_parse_bm_upload(string $path): array
     $grid = medicao_xlsx_sheet_to_sparse_grid($sheetXml, $strings);
     $rows    = medicao_xlsx_grid_to_rows($grid);
 
-    return medicao_parse_bm_from_rows($rows);
+    return medicao_parse_bm_from_rows($rows, $refYm);
 }
 
 function medicao_xlsx_parse_shared_strings_xml(string $xml): array

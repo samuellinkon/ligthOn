@@ -13,7 +13,7 @@
   display: flex;
   flex-direction: column;
   padding: 18px 14px;
-  z-index: 30;
+  z-index: 110;
   transition: transform .25s ease;
 }
 
@@ -242,7 +242,7 @@
   position: fixed;
   inset: 0;
   background: rgba(10, 10, 30, 0.45);
-  z-index: 25;
+  z-index: 105;
 }
 
 .sidebar-overlay.active { display: block; }

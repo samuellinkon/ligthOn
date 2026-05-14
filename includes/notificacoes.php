@@ -7,8 +7,9 @@ declare(strict_types=1);
 
 /**
  * @param int|null $mensagemId ID em chamado_respostas (pode ser null se chamador não passar)
+ * @param string|null $preview Trecho da mensagem (opcional) para aparecer na lista de notificações
  */
-function criarNotificacoesChamado(int $chamadoId, ?int $mensagemId, int $autorId, bool $interna): void
+function criarNotificacoesChamado(int $chamadoId, ?int $mensagemId, int $autorId, bool $interna, ?string $preview = null): void
 {
     if ($autorId <= 0 || !function_exists('repo_notificacoes_table_exists') || !repo_notificacoes_table_exists()) {
         return;
@@ -27,6 +28,9 @@ function criarNotificacoesChamado(int $chamadoId, ?int $mensagemId, int $autorId
 
     $titulo = sprintf('Nova mensagem no chamado #%d por %s.', $chamadoId, $nomeAutor);
     $descricao = null;
+    if ($preview !== null && $preview !== '') {
+        $descricao = function_exists('mb_substr') ? mb_substr($preview, 0, 400, 'UTF-8') : substr($preview, 0, 400);
+    }
 
     foreach ($dest as $uid) {
         repo_notificacao_insert($uid, $chamadoId, $mensagemId, $titulo, $descricao, 'chamado_mensagem');

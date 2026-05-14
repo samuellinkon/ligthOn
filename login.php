@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/app_runtime.php';
+require_once __DIR__ . '/includes/audit_log.php';
 
 $pageTitle = 'Acessar o sistema';
 $erro = '';
@@ -14,6 +15,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $u = mock_login($email, $senha);
     if ($u) {
+        $cidLog = 0;
+        if (!empty($u['empresa_id'])) {
+            $cidLog = (int) $u['empresa_id'];
+        } elseif (!empty($u['cliente_id'])) {
+            $cidLog = (int) $u['cliente_id'];
+        }
+        audit_log_registar('auth.login', 'sessao', null, $cidLog > 0 ? $cidLog : null, [
+            'email' => function_exists('mb_substr') ? mb_substr(trim((string) $email), 0, 160, 'UTF-8') : substr(trim((string) $email), 0, 160),
+        ]);
         $p = (string) ($u['perfil'] ?? '');
         if ($p === 'admin' || $p === 'gestor') {
             $destino = 'admin/index.php';
@@ -25,6 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . $destino);
         exit;
     }
+    audit_log_registar('auth.login_falha', 'auth', null, null, [
+        'email' => function_exists('mb_substr') ? mb_substr(trim((string) $email), 0, 160, 'UTF-8') : substr(trim((string) $email), 0, 160),
+    ], null);
     $erro = 'E-mail ou senha inválidos.';
 }
 
@@ -42,7 +55,7 @@ $cssBustLogin = static function (string $file): int {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'LightOn — Gestão em Iluminação') ?></title>
+  <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?></title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -107,8 +120,8 @@ $cssBustLogin = static function (string $file): int {
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="brand brand--login-logo">
-      <img class="brand-logo-img brand-logo-img--login-full" src="<?= htmlspecialchars(defined('APP_BRAND_LOGO') ? APP_BRAND_LOGO : 'assets/img/lighton-logo.png') ?>" width="280" height="120" alt="<?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'LightOn — Gestão em Iluminação') ?>">
-      <h1 class="sr-only"><?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'LightOn') ?></h1>
+      <img class="brand-logo-img brand-logo-img--login-full" src="<?= htmlspecialchars(defined('APP_BRAND_LOGO') ? APP_BRAND_LOGO : 'assets/img/lighton-logo.png') ?>" width="280" height="120" alt="<?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?>">
+      <h1 class="sr-only"><?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight') ?></h1>
     </div>
 
     <h2>Acessar sistema</h2>

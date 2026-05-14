@@ -101,10 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         $quando = date('d/m/Y') . ' às ' . date('H:i:s');
-        $html = '<p style="font-family:system-ui,sans-serif;font-size:15px;">Este é um <strong>e-mail de teste</strong> enviado pelo LightOn em '
+        $nomeMarca = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
+        $html = '<p style="font-family:system-ui,sans-serif;font-size:15px;">Este é um <strong>e-mail de teste</strong> enviado pelo '
+            . htmlspecialchars($nomeMarca, ENT_QUOTES, 'UTF-8')
+            . ' em '
             . htmlspecialchars($quando, ENT_QUOTES, 'UTF-8')
             . '.</p><p style="font-size:13px;color:#64748b;">Se recebeu esta mensagem, o envio (SMTP ou servidor) está funcionando.</p>';
-        $res = mail_send($para, 'LightOn — teste de envio', $html);
+        $res = mail_send($para, $nomeMarca . ' — teste de envio', $html);
         flash_set(
             $res['ok'] ? 'ok' : 'err',
             $res['ok'] ? 'E-mail de teste enviado para ' . htmlspecialchars($para) . '.' : ('Falha no envio: ' . htmlspecialchars($res['motivo'] ?: 'erro desconhecido'))
@@ -340,7 +343,7 @@ include __DIR__ . '/../includes/head.php';
         <label for="mail_from_name">Nome do remetente</label>
         <input type="text" id="mail_from_name" name="mail_from_name" class="input"
                value="<?= htmlspecialchars((string) ($cfg['mail_from_name'] ?? '')) ?>"
-               placeholder="<?= htmlspecialchars(defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : (defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'LightOn')) ?>">
+               placeholder="<?= htmlspecialchars(defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : (defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight')) ?>">
         <small class="muted">Aparece como “De:” no cliente de e-mail.</small>
       </div>
       <div class="form-group">

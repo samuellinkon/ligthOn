@@ -48,6 +48,7 @@ function chamados_periodo_anexos_export_html(
     if ($embedImagesBase64) {
         require_once __DIR__ . '/upload.php';
     }
+    $projectRootFs = realpath(dirname(__DIR__)) ?: dirname(__DIR__);
     $brand   = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'CRM';
     $tagline = defined('APP_BRAND_TAGLINE') ? (string) APP_BRAND_TAGLINE : '';
 
@@ -217,7 +218,6 @@ function chamados_periodo_anexos_export_html(
     }
     .chamado-doc {
       page-break-before: always;
-      page-break-inside: avoid;
     }
     .chamado-doc-first {
       page-break-before: auto;
@@ -311,67 +311,21 @@ function chamados_periodo_anexos_export_html(
       font-size: 10px;
       margin: 12px 0;
     }
-    .badge {
-      display: inline-block;
-      padding: 2px 7px;
-      font-size: 9px;
-      font-weight: 600;
-      border: 1px solid var(--line);
-      margin-right: 4px;
-      white-space: nowrap;
-    }
-    .badge-pri-urgente, .badge-pri-alta { background: #fef2f2; border-color: #f87171; color: #991b1b; }
-    .badge-pri-normal, .badge-pri-media, .badge-pri-média { background: #f8fafc; border-color: #94a3b8; }
-    .badge-pri-baixa { background: #f0fdf4; border-color: #86efac; color: #166534; }
-    .badge-st-aberto { background: #eff6ff; border-color: #93c5fd; color: #1e40af; }
-    .badge-st-em_andamento { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
-    .badge-st-aguardando { background: #faf5ff; border-color: #d8b4fe; color: #6b21a8; }
-    .badge-st-resolvido { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
-    .badge-st-fechado { background: #f1f5f9; border-color: #94a3b8; color: #334155; }
-    .badge-st-cancelado { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
     .ch-head {
       border: 1px solid var(--line);
       background: var(--panel);
       padding: 12px 14px;
       margin-bottom: 10px;
     }
-    .ch-id { font-size: 20px; font-weight: 700; color: var(--accent); }
-    .ch-title { font-size: 13px; font-weight: 600; margin: 4px 0 8px; }
-    .data-grid {
-      width: 100%;
-      font-size: 10px;
-      border: 1px solid var(--line);
-      margin-bottom: 10px;
-      page-break-inside: avoid;
-    }
-    .data-grid th {
-      background: #f8fafc;
-      border: 1px solid var(--line);
-      padding: 6px 8px;
-      text-align: left;
-      color: var(--muted);
-      font-weight: 600;
-      width: 22%;
-    }
-    .data-grid td {
-      border: 1px solid var(--line);
-      padding: 6px 8px;
-      vertical-align: top;
-    }
-    .desc-box {
-      border: 1px solid var(--line);
-      padding: 10px 12px;
-      font-size: 10px;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      margin-bottom: 10px;
-      page-break-inside: avoid;
-    }
+    .ch-id { font-size: 20px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+    .ch-date { font-size: 11px; color: var(--muted); }
     .anexo-table {
       width: 100%;
       font-size: 10px;
       border: 1px solid var(--line);
-      page-break-inside: avoid;
+    }
+    tr.anexo-img-row-break {
+      page-break-before: always;
     }
     .anexo-table th {
       background: var(--panel);
@@ -386,7 +340,7 @@ function chamados_periodo_anexos_export_html(
     }
     .anexo-img {
       max-width: 100%;
-      max-height: 240px;
+      max-height: 280px;
       height: auto;
       border: 1px solid var(--line);
       display: block;
@@ -511,65 +465,18 @@ function chamados_periodo_anexos_export_html(
         $ch     = $pack['chamado'];
         $anexos = $pack['anexos'];
         $cid    = (int) ($ch['id'] ?? 0);
-        $st     = (string) ($ch['status'] ?? '—');
-        $pr     = (string) ($ch['prioridade'] ?? '—');
-        $stSlug = strtolower(preg_replace('/\s+/', '_', $st) ?: 'x');
-        $prSlug = strtolower(preg_replace('/\s+/', '_', $pr) ?: 'x');
         $chClass = 'chamado-doc' . ($firstChamadoPdf ? ' chamado-doc-first' : '');
         $firstChamadoPdf = false;
+        $dataCh = trim((string) ($ch['data'] ?? ''));
         ?>
     <section class="<?= $h($chClass) ?>">
       <div class="ch-head">
         <div class="ch-id">Chamado #<?= $h((string) $cid) ?></div>
-        <div class="ch-title"><?= $h(trim((string) ($ch['titulo'] ?? '')) ?: '—') ?></div>
-        <span class="badge badge-st-<?= $h($stSlug) ?>"><?= $h($st) ?></span>
-        <span class="badge badge-pri-<?= $h($prSlug) ?>"><?= $h($pr) ?></span>
+        <div class="ch-date">Data: <?= $h($dataCh !== '' ? $dataCh : '—') ?></div>
       </div>
 
-      <table class="data-grid">
-        <tr>
-          <th>Órgão / unidade</th>
-          <td colspan="3"><?= $h((string) ($ch['cliente'] ?? '—')) ?></td>
-        </tr>
-        <tr>
-          <th>Aberto em</th>
-          <td><?= $h((string) ($ch['data'] ?? '—')) ?></td>
-          <th>Responsável</th>
-          <td><?= $h((string) ($ch['responsavel'] ?? '—')) ?></td>
-        </tr>
-        <tr>
-          <th>Técnicos</th>
-          <td colspan="3"><?= $h((string) ($ch['tecnico_nome'] ?? $ch['responsavel'] ?? '—')) ?></td>
-        </tr>
-        <tr>
-          <th>Endereço</th>
-          <td colspan="3"><?= $h(trim((string) ($ch['endereco_completo'] ?? '')) ?: '—') ?></td>
-        </tr>
-        <tr>
-          <th>Coordenadas</th>
-          <td colspan="3">
-            <?php
-            $lat = $ch['latitude'] ?? null;
-            $lon = $ch['longitude'] ?? null;
-        if ($lat !== null && $lat !== '' && $lon !== null && $lon !== '') {
-            echo $h((string) $lat) . ', ' . $h((string) $lon);
-        } else {
-            echo '—';
-        }
-        ?>
-          </td>
-        </tr>
-      </table>
-
-      <?php
-        $desc = trim((string) ($ch['descricao'] ?? ''));
-        if ($desc !== ''):
-            ?>
-      <p class="section-title">Descrição</p>
-      <div class="desc-box"><?= nl2br($h($desc)) ?></div>
-      <?php endif; ?>
-
       <p class="section-title">Anexos</p>
+      <?php $pdfImgSeqChamado = 0; ?>
       <?php if ($anexos === []): ?>
       <p style="font-size:10px;color:var(--muted);font-style:italic;">Sem anexos neste chamado.</p>
       <?php else: ?>
@@ -595,28 +502,46 @@ function chamados_periodo_anexos_export_html(
             $ehImg = $anexoEhImagem($a);
             $ehPdf = ($ext === 'pdf') || (stripos($mime, 'pdf') !== false);
 
-            $srcTrim = '';
+            $srcImg = '';
             if ($embedImagesBase64 && $ehImg && $cid > 0) {
                 $path = $fn !== '' ? upload_dir_chamado($cid) . DIRECTORY_SEPARATOR . $fn : '';
                 $real = ($path !== '' && is_file($path)) ? realpath($path) : false;
                 $readPath = $real !== false ? $real : $path;
                 if ($readPath !== '' && is_file($readPath) && is_readable($readPath)) {
-                    $rawImg = @file_get_contents($readPath);
-                    if ($rawImg !== false && $rawImg !== '') {
-                        $dataMime     = $mimeImagemParaDataUri($readPath, $mime, $nome, $fn);
-                        $srcTrim      = 'data:' . $dataMime . ';base64,' . base64_encode((string) $rawImg);
+                    $rootNorm = str_replace('\\', '/', $projectRootFs);
+                    $readNorm = str_replace('\\', '/', $readPath);
+                    if ($rootNorm !== '' && str_starts_with($readNorm, $rootNorm)) {
+                        /* Caminho absoluto sob a raiz do projecto: Dompdf lê via chroot sem data URI gigante. */
+                        $srcImg = $readNorm;
+                    } else {
+                        $rawImg = @file_get_contents($readPath);
+                        if ($rawImg !== false && $rawImg !== '') {
+                            $dataMime = $mimeImagemParaDataUri($readPath, $mime, $nome, $fn);
+                            $srcImg   = 'data:' . $dataMime . ';base64,' . base64_encode((string) $rawImg);
+                        } else {
+                            error_log('[crm_prefeitura] PDF chamado ' . $cid . ' anexo id=' . $aid . ': leitura vazia — ' . $readPath);
+                        }
                     }
+                } elseif ($fn !== '') {
+                    error_log('[crm_prefeitura] PDF chamado ' . $cid . ' anexo id=' . $aid . ': ficheiro não encontrado — ' . $path);
+                }
+            }
+            $rowClassTr = '';
+            if ($ehImg) {
+                ++$pdfImgSeqChamado;
+                if ($pdfImgSeqChamado > 1) {
+                    $rowClassTr = ' class="anexo-img-row-break"';
                 }
             }
             ?>
-          <tr>
+          <tr<?= $rowClassTr ?>>
             <td><strong><?= $h($nome !== '' ? $nome : 'Anexo #' . (string) $aid) ?></strong></td>
             <td><?= $h($tipoLabel) ?></td>
             <td><?= $h($fmtBytes($tam)) ?></td>
             <td>
               <?php if ($ehImg): ?>
-                <?php if ($srcTrim !== ''): ?>
-              <img class="anexo-img" src="<?= $h($srcTrim) ?>" alt="<?= $h($nome) ?>" />
+                <?php if ($srcImg !== ''): ?>
+              <img class="anexo-img" src="<?= $h($srcImg) ?>" alt="<?= $h($nome) ?>" />
               <div class="anexo-meta"><?= $h($nome) ?> · <?= $h($fmtBytes($tam)) ?></div>
                 <?php else: ?>
               <span style="color:#b45309;font-size:9px;">Imagem não incorporada (ficheiro em falta ou indisponível).</span>
@@ -624,7 +549,7 @@ function chamados_periodo_anexos_export_html(
                 <?php endif; ?>
               <?php elseif ($ehPdf && $aid > 0 && in_array($aid, $anexoPdfIdsIncorporados, true)): ?>
               <div style="font-size:9px;color:var(--muted);margin-bottom:6px;">
-                As páginas deste PDF foram <strong>acrescidas ao final deste relatório</strong> (único ficheiro descarregado). Ordem: relatório LightOn, depois anexos PDF por chamado.
+                As páginas deste PDF foram <strong>acrescidas ao final deste relatório</strong> (único ficheiro descarregado). Ordem: relatório <?= $h($brand) ?>, depois anexos PDF por chamado.
               </div>
               <div class="anexo-meta"><a href="<?= $href ?>">Abrir também no CRM — anexo #<?= (int) $aid ?></a></div>
               <?php elseif ($ehPdf): ?>

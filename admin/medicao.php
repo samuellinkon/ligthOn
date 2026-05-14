@@ -1,14 +1,16 @@
 <?php
 /**
- * Medição — listagem de medições mensais (atalhos para planilha, boletim e chamados).
+ * Medição — listagem de medições mensais (ver mês, chamados e exportações).
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/chamados_list_urls.php';
 
 $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('medicao');
+require_once __DIR__ . '/../includes/audit_log.php';
 
 $pageTitle  = 'Medição';
 $basePath   = '../';
@@ -46,6 +48,10 @@ if (!$clienteMatriz) {
 }
 gestor_assert_escopo_cliente($clienteId, 'medicao.php');
 
+audit_log_registar('medicao.acessar_lista', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
+    'empresa' => function_exists('mb_substr') ? mb_substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120, 'UTF-8') : substr((string) ($clienteMatriz['empresa'] ?? ''), 0, 120),
+]);
+
 $mesesLista = repo_medicao_resumo_mensal_list($clienteId, 60);
 
 $topTitle    = 'Medição';
@@ -72,7 +78,7 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap">
-        <table>
+        <table class="medicao-meses-table">
           <thead>
             <tr>
               <th>Mês</th>
@@ -80,7 +86,7 @@ include __DIR__ . '/../includes/head.php';
               <th class="text-right">Materiais</th>
               <th class="text-right">Serv. itens</th>
               <th class="text-right">Total</th>
-              <th class="text-right td-actions">Ações</th>
+              <th class="td-actions">Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -92,9 +98,30 @@ include __DIR__ . '/../includes/head.php';
               </tr>
             <?php else: foreach ($mesesLista as $row):
               $ym = (string) ($row['ym'] ?? '');
-              $hrefExportXlsx = 'medicao_ver.php?' . http_build_query(['mes' => $ym, 'export' => 'relatorio_xlsx']);
               $hrefVerMedicao = 'medicao_ver.php?' . http_build_query(['mes' => $ym]);
-              $hrefChamados = 'chamados.php?' . http_build_query(['medicao_mes' => $ym]);
+              $hrefChamados = 'chamados.php?' . http_build_query(array_filter([
+                  'medicao_mes' => $ym,
+                  'cliente_id' => $clienteId > 0 ? $clienteId : null,
+              ], static fn ($v) => $v !== null && $v !== ''));
+              $hrefBoletimBm = 'medicao_export_boletim_bm.php?' . http_build_query(array_filter([
+                  'mes' => $ym,
+                  'cliente_id' => $clienteId > 0 ? $clienteId : null,
+              ], static fn ($v) => $v !== null && $v !== ''));
+              $chExportCtx = [
+                  'medicao_mes'       => $ym,
+                  'periodo_de'        => '',
+                  'periodo_ate'       => '',
+                  'periodo_limpar'    => false,
+                  'cliente_id'        => $clienteId > 0 ? $clienteId : null,
+                  'envolvido_user'    => null,
+                  'tecnico_user_id'   => null,
+                  'local_q'           => null,
+              ];
+              $hrefXlsxDet = adm_chamados_export_url('xlsx_detalhes', '', '', $chExportCtx);
+              $hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', '', '', $chExportCtx);
+              if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
+                  $hrefPdfAnexos .= (strpos($hrefPdfAnexos, '?') !== false ? '&' : '?') . 'pdf_debug=1';
+              }
               ?>
               <tr>
                 <td class="td-strong"><?= htmlspecialchars(medicao_mes_label_pt($ym)) ?></td>
@@ -103,9 +130,13 @@ include __DIR__ . '/../includes/head.php';
                 <td class="text-right td-mute">R$ <?= number_format((float) ($row['valor_servicos'] ?? 0), 2, ',', '.') ?></td>
                 <td class="text-right"><strong>R$ <?= number_format((float) ($row['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>
                 <td class="td-actions">
-                  <a class="action primary" href="<?= htmlspecialchars($hrefVerMedicao) ?>">Ver medição</a>
-                  <a class="action primary" href="<?= htmlspecialchars($hrefExportXlsx) ?>" target="_blank" rel="noopener">Exportar</a>
-                  <a class="action" href="<?= htmlspecialchars($hrefChamados) ?>">Chamados</a>
+                  <div class="actions-inline">
+                    <a class="action-icon primary" href="<?= htmlspecialchars($hrefVerMedicao) ?>" title="Ver medição" aria-label="Ver medição">📊</a>
+                    <a class="action-icon" href="<?= htmlspecialchars($hrefChamados) ?>" title="Chamados" aria-label="Chamados">💬</a>
+                    <a class="action-icon excel" href="<?= htmlspecialchars($hrefBoletimBm) ?>" title="Excel — boletim BM" aria-label="Excel — boletim BM">📄</a>
+                    <a class="action-icon excel" href="<?= htmlspecialchars($hrefXlsxDet) ?>" title="Excel — com detalhes" aria-label="Excel — com detalhes">📋</a>
+                    <a class="action-icon pdf" href="<?= htmlspecialchars($hrefPdfAnexos) ?>" title="PDF com anexos" aria-label="PDF com anexos">📎</a>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; endif; ?>
@@ -113,8 +144,8 @@ include __DIR__ . '/../includes/head.php';
         </table>
       </div>
       <p class="muted" style="margin:16px 20px 20px;font-size:13px;line-height:1.45;">
-        <strong>Exportar</strong> baixa o relatório detalhado do mês no layout da planilha.
-        <strong>Chamados</strong> lista os chamados daquele mês.
+        O ícone <strong>Excel — boletim BM</strong> gera a planilha no layout do boletim de medição (modelo BM), com as quantidades do catálogo lançadas nos chamados do mês.
+        Os ícones <strong>Excel — com detalhes</strong> e <strong>PDF com anexos</strong> usam a exportação da listagem em Chamados.
       </p>
     </div>
   </div>

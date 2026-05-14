@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/medicao_helpers.php';
+
 function medicao_csv_row_is_relatorio_header_row(array $row): bool
 {
     $hasData = false;
@@ -229,7 +231,7 @@ function medicao_csv_try_parse_relatorio_detalhado(array $rows): array
  *   }>
  * }
  */
-function medicao_csv_parse_bm_planilha(string $path): array
+function medicao_csv_parse_bm_planilha(string $path, ?string $refYm = null): array
 {
     $empty = [
         'ok'                 => false,
@@ -275,7 +277,152 @@ function medicao_csv_parse_bm_planilha(string $path): array
         return array_merge($empty, ['erro' => 'Nenhuma linha no CSV.']);
     }
 
-    return medicao_parse_bm_from_rows($rows);
+    return medicao_parse_bm_from_rows($rows, $refYm);
+}
+
+/**
+ * Texto agregado de cabeçalho (linhas iniciais + linha ITEM) para detetar colunas BM.
+ *
+ * @param list<list<string>> $rows
+ */
+function medicao_bm_linhas_texto_cabecalho_coluna(array $rows, int $itemRowIdx, int $colIdx): string
+{
+    $nRows = count($rows);
+    if ($nRows === 0) {
+        return '';
+    }
+    $want = array_unique(array_merge(
+        range(0, min(19, $nRows - 1)),
+        [$itemRowIdx, min($itemRowIdx + 1, $nRows - 1)]
+    ));
+    $parts = [];
+    foreach ($want as $ri) {
+        $c = (string) ($rows[$ri][$colIdx] ?? '');
+        if ($c === '') {
+            continue;
+        }
+        $parts[] = medicao_csv_header_norm_cell_for_match($c);
+    }
+
+    return trim(implode(' ', $parts));
+}
+
+/**
+ * @param list<list<string>> $rows
+ */
+function medicao_bm_linhas_coluna_predominantemente_datas_excel_lixo(array $rows, int $itemRowIdx, int $colIdx): bool
+{
+    static $ghostNeedles = [
+        '31/12/1899', '30/12/1899', '29/12/1899', '00/01/1900', '01/01/1900', '02/01/1900', '03/01/1900',
+        '04/01/1900', '05/01/1900', '06/01/1900', '07/01/1900', '08/01/1900', '09/01/1900', '10/01/1900',
+        '11/01/1900', '12/01/1900', '13/01/1900', '14/01/1900', '15/01/1900', '16/01/1900',
+        '14/02/1900', '28/02/1900', '29/02/1900',
+    ];
+    $n = 0;
+    $g = 0;
+    $lim = min(count($rows), $itemRowIdx + 260);
+    for ($r = $itemRowIdx + 2; $r < $lim; $r++) {
+        $t = trim((string) ($rows[$r][$colIdx] ?? ''));
+        if ($t === '' || $t === '—' || $t === '-') {
+            continue;
+        }
+        $n++;
+        foreach ($ghostNeedles as $gh) {
+            if (str_contains($t, $gh)) {
+                $g++;
+                break;
+            }
+        }
+    }
+
+    return $n >= 4 && $g >= (int) ceil($n * 0.55);
+}
+
+/**
+ * Remove colunas de períodos BM antigos (cabeçalho BMnn) e colunas de «datas fantasma» 1899/1900.
+ *
+ * @param list<list<string>> $rows
+ * @return list<list<string>>
+ */
+function medicao_bm_linhas_remover_colunas_historicas_bm(array $rows, int $itemRowIdx, ?string $refYm): array
+{
+    $maxCol = 0;
+    foreach ($rows as $row) {
+        $maxCol = max($maxCol, count($row));
+    }
+    if ($maxCol < 10) {
+        return $rows;
+    }
+
+    $needleRaw = ($refYm !== null && preg_match('/^\d{4}-\d{2}$/', $refYm))
+        ? medicao_bm_needle_periodo_planilha($refYm)
+        : null;
+    $needle = ($needleRaw !== null && $needleRaw !== '')
+        ? mb_strtoupper((string) $needleRaw, 'UTF-8')
+        : null;
+
+    $bmCols = [];
+    for ($j = 0; $j < $maxCol; $j++) {
+        $h = mb_strtoupper(medicao_bm_linhas_texto_cabecalho_coluna($rows, $itemRowIdx, $j), 'UTF-8');
+        if ($h !== '' && preg_match('/\bBM\s*\d+/u', $h)) {
+            $bmCols[] = $j;
+        }
+    }
+
+    $toRemove = [];
+    if ($bmCols !== []) {
+        if ($needle !== null && $needle !== '') {
+            foreach ($bmCols as $j) {
+                $h = mb_strtoupper(medicao_bm_linhas_texto_cabecalho_coluna($rows, $itemRowIdx, $j), 'UTF-8');
+                if (!str_contains($h, $needle)) {
+                    $toRemove[] = $j;
+                }
+            }
+        } else {
+            $keepJ = max($bmCols);
+            foreach ($bmCols as $j) {
+                if ($j !== $keepJ) {
+                    $toRemove[] = $j;
+                }
+            }
+        }
+    }
+
+    for ($j = 0; $j < $maxCol; $j++) {
+        if (in_array($j, $toRemove, true)) {
+            continue;
+        }
+        $h = mb_strtoupper(medicao_bm_linhas_texto_cabecalho_coluna($rows, $itemRowIdx, $j), 'UTF-8');
+        if (preg_match('/\bBM\s*\d+/u', $h)) {
+            continue;
+        }
+        if ($h !== '' && (
+            str_contains($h, 'ITEM') || str_contains($h, 'DESCRI') || str_contains($h, 'UNID')
+            || str_contains($h, 'PRECO') || str_contains($h, 'PREC') || str_contains($h, 'QUANT')
+            || str_contains($h, 'TERMO') || str_contains($h, 'EXECUTADO') || str_contains($h, 'MEDIDO')
+            || str_contains($h, 'VALOR') || str_contains($h, 'ADIT')
+        )) {
+            continue;
+        }
+        if (medicao_bm_linhas_coluna_predominantemente_datas_excel_lixo($rows, $itemRowIdx, $j)) {
+            $toRemove[] = $j;
+        }
+    }
+
+    $toRemove = array_values(array_unique($toRemove));
+    if ($toRemove === []) {
+        return $rows;
+    }
+    rsort($toRemove);
+    foreach ($rows as $i => $_row) {
+        foreach ($toRemove as $j) {
+            if ($j < count($rows[$i])) {
+                array_splice($rows[$i], $j, 1);
+            }
+        }
+    }
+
+    return $rows;
 }
 
 /**
@@ -284,7 +431,7 @@ function medicao_csv_parse_bm_planilha(string $path): array
  * @param list<list<string>> $rows
  * @return array{ok:bool,erro:string,idx_qtd_medido:?int,idx_valor_medido:?int,linhas:list<array<string,mixed>>}
  */
-function medicao_parse_bm_from_rows(array $rows): array
+function medicao_parse_bm_from_rows(array $rows, ?string $refYm = null): array
 {
     $empty = [
         'ok'                 => false,
@@ -336,6 +483,16 @@ function medicao_parse_bm_from_rows(array $rows): array
     if ($itemRowIdx < 0 || $itemCol < 0) {
         return array_merge($empty, ['erro' => 'Não reconhecido como relatório detalhado BM nem como matriz com coluna ITEM. Exporte a aba «RELATÓRIO DETALHADO BM» ou a matriz em CSV/Excel.']);
     }
+
+    $rows = medicao_bm_linhas_remover_colunas_historicas_bm($rows, $itemRowIdx, $refYm);
+    $maxCols = 0;
+    foreach ($rows as $r) {
+        $maxCols = max($maxCols, count($r));
+    }
+    foreach ($rows as &$r) {
+        $r = array_pad($r, $maxCols, '');
+    }
+    unset($r);
 
     $headerRow = $rows[$itemRowIdx];
     $descCol   = medicao_csv_find_col_header($headerRow, static function (string $u): bool {

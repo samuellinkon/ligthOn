@@ -189,6 +189,7 @@ include __DIR__ . '/../includes/head.php';
     $ch_os_descricao = '';
     $ch_os_mostrar_ponto = !empty($pontosIluminacaoChamado);
     $ch_os_pontos_opcoes = $pontosIluminacaoChamado ?: [];
+    $ch_os_mostrar_preview_mapa = false;
     include __DIR__ . '/../includes/chamado_os_grid_markup.php';
     ?>
 

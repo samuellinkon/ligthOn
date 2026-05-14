@@ -73,10 +73,19 @@ function chamado_export_xlsx_send(
     ?array $exportUser,
     float $totalUtilizado
 ): void {
+    if (!defined('APP_BRAND_NAME')) {
+        require_once __DIR__ . '/config.php';
+    }
+    $brandName = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
+    $tagline   = defined('APP_BRAND_TAGLINE') ? trim((string) APP_BRAND_TAGLINE) : 'Gestão em Iluminação Pública';
+    if ($tagline === '') {
+        $tagline = 'Gestão em Iluminação Pública';
+    }
+
     $spreadsheet = new Spreadsheet();
     $spreadsheet->getDefaultStyle()->getFont()->setName('Calibri')->setSize(11);
     $spreadsheet->getProperties()
-        ->setCreator('LightOn')
+        ->setCreator($brandName)
         ->setTitle('Chamado #' . $chamadoId)
         ->setSubject('Relatório operacional')
         ->setDescription('Exportação gerencial do chamado');
@@ -120,15 +129,6 @@ function chamado_export_xlsx_send(
 
         return $base . '/chamado_download.php?id=' . $anexoId;
     };
-
-    if (!defined('APP_BRAND_NAME')) {
-        require_once __DIR__ . '/config.php';
-    }
-    $brandName = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'LightOn';
-    $tagline   = defined('APP_BRAND_TAGLINE') ? trim((string) APP_BRAND_TAGLINE) : 'Gestão em Iluminação Pública';
-    if ($tagline === '') {
-        $tagline = 'Gestão em Iluminação Pública';
-    }
 
     $emitidoStr = date('d/m/Y H:i:s');
 
@@ -195,7 +195,7 @@ function chamado_export_xlsx_send(
         $exportNome = '—';
     }
 
-    /* ---------- Aba 1: Resumo (identidade LightOn — vertical A:B) ---------- */
+    /* ---------- Aba 1: Resumo (identidade da app — vertical A:B) ---------- */
     $sheet = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Resumo');
     $sheet->setShowGridlines(false);
@@ -483,10 +483,10 @@ function chamado_export_xlsx_send(
 
     $footerRow = $r + 1;
     $sheet->mergeCells('A' . $footerRow . ':B' . ($footerRow + 2));
-    $rodape = "Gerado por LightOn · {$brandName}\n"
+    $rodape = "Gerado por {$brandName}\n"
         . 'Exportado em ' . $emitidoStr . "\n"
         . 'Utilizador: ' . $exportNome . "\n"
-        . 'LightOn · identidade visual do sistema';
+        . $brandName . ' · identidade visual do sistema';
     $sheet->setCellValue('A' . $footerRow, $rodape);
     $sheet->getStyle('A' . $footerRow)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB(CH_XLSX_FOOTER_BAND);
     $sheet->getStyle('A' . $footerRow)->applyFromArray($pairBorderResumo);
@@ -504,8 +504,8 @@ function chamado_export_xlsx_send(
         ->setRowsToRepeatAtTopByStartAndEnd(1, $headerRepeatEnd);
     $sheet->getPageMargins()->setTop(0.22)->setBottom(0.22)->setLeft(0.28)->setRight(0.28)->setHeader(0.18)->setFooter(0.28);
     $sheet->getHeaderFooter()
-        ->setOddHeader('&C&"-,Bold"&11LightOn · Chamado #' . $chamadoId)
-        ->setOddFooter('&C&9Gerado por LightOn · ' . $brandName . ' · &D &T · &P/&N');
+        ->setOddHeader('&C&"-,Bold"&11' . $brandName . ' · Chamado #' . $chamadoId)
+        ->setOddFooter('&C&9Gerado por ' . $brandName . ' · &D &T · &P/&N');
 
     /* ---------- Conversa (timeline) ---------- */
     $conv = $spreadsheet->createSheet();
@@ -557,7 +557,7 @@ function chamado_export_xlsx_send(
 
     $footC = $rx + 1;
     $conv->mergeCells('A' . $footC . ':D' . $footC);
-    $conv->setCellValue('A' . $footC, 'Gerado por LightOn · ' . $brandName . ' · ' . $emitidoStr);
+    $conv->setCellValue('A' . $footC, 'Gerado por ' . $brandName . ' · ' . $emitidoStr);
     $conv->getStyle('A' . $footC)->getFont()->setSize(9)->getColor()->setARGB('FF94A3B8');
     $conv->getStyle('A' . $footC)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
@@ -636,7 +636,7 @@ function chamado_export_xlsx_send(
 
     $footU = $totRow + 2;
     $u->mergeCells('A' . $footU . ':G' . $footU);
-    $u->setCellValue('A' . $footU, 'Gerado por LightOn · Valores em Real (R$) · ' . $emitidoStr);
+    $u->setCellValue('A' . $footU, 'Gerado por ' . $brandName . ' · Valores em Real (R$) · ' . $emitidoStr);
     $u->getStyle('A' . $footU)->getFont()->setSize(9)->getColor()->setARGB('FF94A3B8');
     $u->getStyle('A' . $footU)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
@@ -689,7 +689,7 @@ function chamado_export_xlsx_send(
 
     $footD = $r + 1;
     $d->mergeCells('A' . $footD . ':E' . $footD);
-    $d->setCellValue('A' . $footD, 'Gerado por LightOn · Devoluções / recolha · ' . $emitidoStr);
+    $d->setCellValue('A' . $footD, 'Gerado por ' . $brandName . ' · Devoluções / recolha · ' . $emitidoStr);
     $d->getStyle('A' . $footD)->getFont()->setSize(9)->getColor()->setARGB('FF94A3B8');
     $d->getStyle('A' . $footD)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
@@ -750,7 +750,7 @@ function chamado_export_xlsx_send(
 
     $footA = $r + 1;
     $ax->mergeCells('A' . $footA . ':F' . $footA);
-    $ax->setCellValue('A' . $footA, 'Gerado por LightOn · Tamanhos em KB/MB · ' . $emitidoStr);
+    $ax->setCellValue('A' . $footA, 'Gerado por ' . $brandName . ' · Tamanhos em KB/MB · ' . $emitidoStr);
     $ax->getStyle('A' . $footA)->getFont()->setSize(9)->getColor()->setARGB('FF94A3B8');
     $ax->getStyle('A' . $footA)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 

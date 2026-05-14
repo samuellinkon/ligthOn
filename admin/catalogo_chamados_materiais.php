@@ -2,11 +2,20 @@
 /**
  * Catálogo aplicado em chamados — lançamentos planos (exportável).
  */
+$CRM_CATALOGO_APLICADO_PORTAL = !empty($CRM_CATALOGO_APLICADO_PORTAL);
+
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 
-$me = require_auth_gestao();
-require_once __DIR__ . '/../includes/modules.php';
+if ($CRM_CATALOGO_APLICADO_PORTAL) {
+    $CLIENTE = require_auth('cliente');
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_cliente('catalogo');
+} else {
+    $me = require_auth_gestao();
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_admin('catalogo');
+}
 
 if (!defined('CRM_ADMIN_CATALOGO_ENTRY')) {
     define('CRM_ADMIN_CATALOGO_ENTRY', 'cliente_itens.php');
@@ -19,52 +28,61 @@ $activePage = 'catalogo';
 
 if (!db_ok()) {
     flash_set('err', 'Banco indisponível.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_APLICADO_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
 
-$escopoEmpresa = gestao_scope_cliente_id($me);
-$empresas = $escopoEmpresa !== null
-    ? (($c0 = repo_cliente($escopoEmpresa)) ? [$c0] : [])
-    : repo_clientes_empresas();
-
-$reqClienteId = (int) ($_GET['cliente_id'] ?? $_GET['id'] ?? 0);
-if ($escopoEmpresa !== null) {
-    $clienteId = $escopoEmpresa;
-} elseif ($reqClienteId > 0) {
-    $clienteId = repo_cliente_catalogo_dono_id($reqClienteId);
+if ($CRM_CATALOGO_APLICADO_PORTAL) {
+    $clienteId = repo_cliente_catalogo_dono_id((int) ($CLIENTE['cliente_id'] ?? 0));
 } else {
-    $clienteId = 0;
-    $pid = repo_catalogo_cliente_id_padrao_admin();
-    if ($pid !== null && $pid > 0) {
-        $clienteId = $pid;
-    }
-    if ($clienteId <= 0) {
-        $clienteId = (int) ($empresas[0]['id'] ?? 0);
-    }
-    if ($clienteId <= 0) {
-        $fallback = repo_catalogo_cliente_id_padrao_admin();
-        if ($fallback !== null && $fallback > 0) {
-            $clienteId = $fallback;
+    $escopoEmpresa = gestao_scope_cliente_id($me);
+    $empresas = $escopoEmpresa !== null
+        ? (($c0 = repo_cliente($escopoEmpresa)) ? [$c0] : [])
+        : repo_clientes_empresas();
+
+    $reqClienteId = (int) ($_GET['cliente_id'] ?? $_GET['id'] ?? 0);
+    if ($escopoEmpresa !== null) {
+        $clienteId = $escopoEmpresa;
+    } elseif ($reqClienteId > 0) {
+        $clienteId = repo_cliente_catalogo_dono_id($reqClienteId);
+    } else {
+        $clienteId = 0;
+        $pid = repo_catalogo_cliente_id_padrao_admin();
+        if ($pid !== null && $pid > 0) {
+            $clienteId = $pid;
+        }
+        if ($clienteId <= 0) {
+            $clienteId = (int) ($empresas[0]['id'] ?? 0);
+        }
+        if ($clienteId <= 0) {
+            $fallback = repo_catalogo_cliente_id_padrao_admin();
+            if ($fallback !== null && $fallback > 0) {
+                $clienteId = $fallback;
+            }
         }
     }
 }
 
 if ($clienteId <= 0) {
     flash_set('err', 'Cadastre uma empresa raiz antes de continuar.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_APLICADO_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
 
 $cliente = repo_cliente($clienteId);
 if (!$cliente) {
     flash_set('err', 'Empresa não encontrada.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_CATALOGO_APLICADO_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
-gestor_assert_escopo_cliente($clienteId, $catalogoAdminScript);
+if (!$CRM_CATALOGO_APLICADO_PORTAL) {
+    gestor_assert_escopo_cliente($clienteId, $catalogoAdminScript);
+}
 
-require_modulo_admin('catalogo');
+$catalogoAplicadoSidebar = $CRM_CATALOGO_APLICADO_PORTAL ? 'sidebar-cliente.php' : 'sidebar-admin.php';
+$catalogoAplicadoVoltarHref = $CRM_CATALOGO_APLICADO_PORTAL
+    ? 'catalogo.php'
+    : ('catalogo.php?cliente_id=' . (int) $clienteId);
 
 $today      = date('Y-m-d');
 $defaultDe  = date('Y-m-01');
@@ -114,12 +132,12 @@ foreach ($linhas as $ln) {
 $topTitle = 'Catálogo aplicado em chamados';
 $topSubtitle = (string) ($cliente['empresa'] ?? '');
 $topSearch = '';
-$topAction = ['label' => 'Voltar ao catálogo', 'href' => 'catalogo.php?cliente_id=' . $clienteId, 'icon' => '←'];
+$topAction = ['label' => 'Voltar ao catálogo', 'href' => $catalogoAplicadoVoltarHref, 'icon' => '←'];
 
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">
-<?php include __DIR__ . '/../includes/sidebar-admin.php'; ?>
+<?php include __DIR__ . '/../includes/' . $catalogoAplicadoSidebar; ?>
 <main class="main">
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
@@ -140,7 +158,9 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <form class="filters filters--form catalogo-aplicado-filters" method="get" action="catalogo_chamados_materiais.php" style="margin-bottom:18px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <?php if (!$CRM_CATALOGO_APLICADO_PORTAL): ?>
         <input type="hidden" name="cliente_id" value="<?= (int) $clienteId ?>">
+        <?php endif; ?>
         <div class="form-group" style="margin:0;">
           <label for="data_de">Período — de</label>
           <input type="date" id="data_de" name="data_de" class="input" value="<?= htmlspecialchars($dataDe) ?>" required>

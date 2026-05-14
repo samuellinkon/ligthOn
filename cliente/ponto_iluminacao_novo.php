@@ -9,10 +9,11 @@ require_modulo_cliente('pontos_iluminacao');
 $pageTitle  = 'Ponto de iluminação';
 $basePath   = '../';
 $activePage = 'pontos_iluminacao';
-$clienteId  = (int) ($user['cliente_id'] ?? 0);
-$id         = (int) ($_GET['id'] ?? 0);
+$userClienteId = (int) ($user['cliente_id'] ?? 0);
+$id             = (int) ($_GET['id'] ?? 0);
+$scopeRaiz      = $userClienteId > 0 ? repo_cliente_matriz_raiz_id($userClienteId) : 0;
 
-if (!db_ok() || $clienteId <= 0) {
+if (!db_ok() || $userClienteId <= 0 || $scopeRaiz <= 0) {
     flash_set('err', 'Banco indisponível ou cliente inválido.');
     header('Location: pontos_iluminacao.php');
     exit;
@@ -32,7 +33,7 @@ $ponto = [
 ];
 if ($id > 0) {
     $pontoDb = repo_ponto_iluminacao($id);
-    if (!$pontoDb || (int) ($pontoDb['cliente_id'] ?? 0) !== $clienteId) {
+    if (!$pontoDb || !repo_ponto_iluminacao_pertence_empresa($id, $scopeRaiz)) {
         flash_set('err', 'Ponto não encontrado.');
         header('Location: pontos_iluminacao.php');
         exit;
@@ -41,9 +42,18 @@ if ($id > 0) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $clienteSalvar = (int) ($_POST['cliente_id'] ?? 0);
+    if ($clienteSalvar <= 0) {
+        $clienteSalvar = $userClienteId;
+    }
+    if (!repo_cliente_pertence_empresa($clienteSalvar, $scopeRaiz)) {
+        flash_set('err', 'Unidade inválida para o seu acesso.');
+        header('Location: pontos_iluminacao.php');
+        exit;
+    }
     $save = repo_ponto_iluminacao_salvar([
         'id' => (int) ($_POST['id'] ?? 0),
-        'cliente_id' => $clienteId,
+        'cliente_id' => $clienteSalvar,
         'codigo_poste' => $_POST['codigo_poste'] ?? '',
         'identificador_externo' => $_POST['identificador_externo'] ?? '',
         'endereco_completo' => $_POST['endereco_completo'] ?? '',
@@ -79,6 +89,7 @@ include __DIR__ . '/../includes/head.php';
 <section class="content">
   <form class="card" method="post" action="ponto_iluminacao_novo.php<?= $id > 0 ? '?id=' . (int) $id : '' ?>" autocomplete="off">
     <input type="hidden" name="id" value="<?= (int) ($ponto['id'] ?? 0) ?>">
+    <input type="hidden" name="cliente_id" value="<?= (int) ($ponto['cliente_id'] ?? $userClienteId) ?>">
     <div class="panel-head">
       <h4>Dados do poste</h4>
       <span class="panel-sub">Esses dados ajudam a abrir chamados no ponto correto.</span>
@@ -162,6 +173,4 @@ include __DIR__ . '/../includes/head.php';
 })();
 </script>
 
-</main>
-</div>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

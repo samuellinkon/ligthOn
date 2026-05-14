@@ -1,5 +1,5 @@
 {
-  "name": "LightOn — Operador",
+  "name": "OnLight — Operador",
   "short_name": "Operador",
   "description": "Chamados e atendimento em campo",
   "start_url": "./chamados.php",

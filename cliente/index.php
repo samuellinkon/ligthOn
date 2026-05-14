@@ -227,6 +227,7 @@ include __DIR__ . '/../includes/head.php';
       <div class="metric-change success"><?= $dash ? 'Atribuídos / em execução' : 'Conecte o MySQL' ?></div>
     </div>
 
+    <?php if (app_modulo_habilitado('cliente', 'os')): ?>
     <div class="card metric">
       <div class="metric-top">
         <div>
@@ -237,6 +238,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="metric-change info"><?= htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) ?> · R$ <?= number_format((float) ($osMesResumo['valor_total'] ?? 0), 2, ',', '.') ?> em itens</div>
     </div>
+    <?php endif; ?>
 
     <div class="card metric">
       <div class="metric-top">

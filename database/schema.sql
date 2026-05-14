@@ -7,6 +7,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS notificacoes;
+DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS chamado_respostas;
 DROP TABLE IF EXISTS chamado_anexos;
 DROP TABLE IF EXISTS chamado_templates;
@@ -94,6 +95,7 @@ INSERT INTO saas_modulos (grupo, modulo_key, label, habilitado, ordem) VALUES
 ('super_admin', 'pontos_iluminacao', 'Pontos de iluminação', 1, 45),
 ('super_admin', 'catalogo', 'Produtos e serviços', 1, 65),
 ('super_admin', 'relatorio_financeiro', 'Relatório financeiro', 1, 70),
+('super_admin', 'auditoria', 'Auditoria', 1, 75),
 ('super_admin', 'configuracoes', 'Configurações', 1, 80),
 ('super_admin', 'suporte', 'Suporte interno', 1, 90),
 ('gestor', 'dashboard', 'Dashboard', 1, 3),
@@ -104,13 +106,38 @@ INSERT INTO saas_modulos (grupo, modulo_key, label, habilitado, ordem) VALUES
 ('gestor', 'usuarios', 'Usuários e operadores', 1, 20),
 ('gestor', 'pontos_iluminacao', 'Pontos de iluminação', 1, 45),
 ('gestor', 'catalogo', 'Produtos e serviços', 1, 65),
+('gestor', 'auditoria', 'Auditoria', 1, 68),
 ('cliente', 'chamados', 'Meus chamados', 1, 10),
 ('cliente', 'medicao', 'Medição', 1, 15),
-('cliente', 'os', 'Minhas OS', 1, 16),
+('cliente', 'catalogo', 'Catálogo', 1, 18),
+('cliente', 'auditoria', 'Auditoria', 1, 22),
 ('cliente', 'pontos_iluminacao', 'Pontos de iluminação', 1, 25),
 ('cliente', 'documentos', 'Documentos', 1, 40),
 ('cliente', 'suporte', 'Suporte', 1, 50),
 ('operador', 'chamados', 'Chamados', 1, 10);
+
+-- -----------------------------------------------------
+-- Auditoria (append-only)
+-- -----------------------------------------------------
+CREATE TABLE audit_logs (
+    id                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    criado_em          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ator_user_id       INT UNSIGNED NULL DEFAULT NULL,
+    ator_nome          VARCHAR(255) NOT NULL DEFAULT '',
+    ator_perfil        VARCHAR(32) NOT NULL DEFAULT '',
+    acao               VARCHAR(96) NOT NULL,
+    entidade_tipo      VARCHAR(64) NULL DEFAULT NULL,
+    entidade_id        INT UNSIGNED NULL DEFAULT NULL,
+    cliente_id         INT UNSIGNED NULL DEFAULT NULL,
+    ip                 VARCHAR(45) NULL DEFAULT NULL,
+    user_agent         VARCHAR(500) NULL DEFAULT NULL,
+    payload            JSON NULL,
+    INDEX idx_audit_criado (criado_em),
+    INDEX idx_audit_acao (acao),
+    INDEX idx_audit_entidade (entidade_tipo, entidade_id),
+    INDEX idx_audit_cliente (cliente_id, criado_em),
+    INDEX idx_audit_ator (ator_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
 -- Anexos do cliente (contratos, documentos)

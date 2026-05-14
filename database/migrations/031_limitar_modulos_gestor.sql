@@ -3,7 +3,7 @@
 
 DELETE FROM saas_modulos
 WHERE grupo = 'gestor'
-  AND modulo_key NOT IN ('clientes', 'usuarios', 'chamados', 'medicao', 'os', 'pontos_iluminacao', 'catalogo');
+  AND modulo_key NOT IN ('clientes', 'usuarios', 'chamados', 'medicao', 'os', 'pontos_iluminacao', 'catalogo', 'auditoria');
 
 INSERT IGNORE INTO saas_modulos (grupo, modulo_key, label, habilitado, ordem) VALUES
 ('gestor', 'clientes', 'Clientes', 1, 10),
@@ -12,4 +12,5 @@ INSERT IGNORE INTO saas_modulos (grupo, modulo_key, label, habilitado, ordem) VA
 ('gestor', 'medicao', 'Medição', 1, 40),
 ('gestor', 'os', 'OS', 1, 50),
 ('gestor', 'pontos_iluminacao', 'Pontos de iluminação', 1, 55),
-('gestor', 'catalogo', 'Catálogo', 1, 60);
+('gestor', 'catalogo', 'Catálogo', 1, 60),
+('gestor', 'auditoria', 'Auditoria', 1, 58);

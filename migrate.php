@@ -11,7 +11,7 @@
 
 require_once __DIR__ . '/includes/config.php';
 
-$pageTitle = 'Atualizar banco · LightOn';
+$pageTitle = 'Atualizar banco · OnLight';
 $logs      = [];
 $ok        = false;
 $erro      = null;

@@ -188,3 +188,25 @@ function medicao_import_linhas_para_chamados_listagem(array $impLinhas, string $
 
     return $out;
 }
+
+/**
+ * Texto usado nos cabeçalhos de coluna BM (ex.: MAI/2026) para alinhar export/import ao mês da medição.
+ */
+function medicao_bm_needle_periodo_planilha(string $refYm): ?string
+{
+    if (!preg_match('/^(\d{4})-(\d{2})$/', $refYm, $m)) {
+        return null;
+    }
+    $siglas = [
+        1 => 'JAN', 2 => 'FEV', 3 => 'MAR', 4 => 'ABR', 5 => 'MAI', 6 => 'JUN',
+        7 => 'JUL', 8 => 'AGO', 9 => 'SET', 10 => 'OUT', 11 => 'NOV', 12 => 'DEZ',
+    ];
+    $mo = (int) $m[2];
+    $y  = (int) $m[1];
+    $s  = $siglas[$mo] ?? '';
+    if ($s === '') {
+        return null;
+    }
+
+    return $s . '/' . $y;
+}

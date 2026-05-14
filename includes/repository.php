@@ -8,6 +8,8 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/upload.php';
 require_once __DIR__ . '/chamado_os_fields.php';
+require_once __DIR__ . '/chamado_anexo_sync_ponto_foto.php';
+require_once __DIR__ . '/audit_log.php';
 
 /* ------------------------------------------------------------------ */
 /*  CONFIG (app_config)                                                 */
@@ -2091,14 +2093,15 @@ function repo_chamado_respostas_do_ticket(int $chamadoId, bool $somentePublicas)
 }
 
 /**
- * Chamados visíveis ao operador (toda a carteira da empresa: raiz + clientes filhos).
+ * Chamados em que o operador intervém: técnico principal (`tecnico_user_id`) ou linha em `chamado_tecnicos`.
+ * Apenas clientes da empresa raiz (matriz e filhos). Sem utilizador válido, lista vazia.
  *
  * @return array{rows: list<array<string,mixed>>, total: int}
  */
 function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string $q, int $page, int $perPage, ?int $operadorUserId = null): array
 {
     $pdo = db();
-    if (!$pdo || $empresaRaizId <= 0 || $perPage < 1) {
+    if (!$pdo || $empresaRaizId <= 0 || $perPage < 1 || $operadorUserId === null || $operadorUserId <= 0) {
         return ['rows' => [], 'total' => 0];
     }
     $filtro = strtolower(trim($filtro));
@@ -2107,18 +2110,16 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
 
     $where = ['ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)'];
     $params = [$empresaRaizId, $empresaRaizId];
-    if ($operadorUserId !== null && $operadorUserId > 0) {
-        if ($temTecnicosTabela) {
-            $where[] = '(ch.tecnico_user_id = ? OR EXISTS (
+    if ($temTecnicosTabela) {
+        $where[] = '(ch.tecnico_user_id = ? OR EXISTS (
                 SELECT 1 FROM chamado_tecnicos ctf
                 WHERE ctf.chamado_id = ch.id AND ctf.usuario_id = ?
             ))';
-            $params[] = $operadorUserId;
-            $params[] = $operadorUserId;
-        } else {
-            $where[] = 'ch.tecnico_user_id = ?';
-            $params[] = $operadorUserId;
-        }
+        $params[] = $operadorUserId;
+        $params[] = $operadorUserId;
+    } else {
+        $where[] = 'ch.tecnico_user_id = ?';
+        $params[] = $operadorUserId;
     }
 
     if ($filtro === 'andamento') {
@@ -2624,6 +2625,7 @@ function repo_chamados_admin_list(
             ch.endereco_completo, ch.latitude, ch.longitude,
             ch.tecnico_user_id, ch.finalizado_operador_em, ch.aprovado_gestor_em,
             ch.prioridade, ch.status, ch.responsavel,
+            ch.ponto_iluminacao_id,
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
             $tecnicoSelect
@@ -2640,6 +2642,8 @@ function repo_chamados_admin_list(
     foreach ($rows as &$r) {
         $r['id']         = (int) $r['id'];
         $r['cliente_id'] = (int) $r['cliente_id'];
+        $r['ponto_iluminacao_id'] = isset($r['ponto_iluminacao_id']) && $r['ponto_iluminacao_id'] !== null && $r['ponto_iluminacao_id'] !== ''
+            ? (int) $r['ponto_iluminacao_id'] : null;
         $r['tecnico_user_id'] = isset($r['tecnico_user_id']) && $r['tecnico_user_id'] !== null ? (int) $r['tecnico_user_id'] : null;
         _repo_chamado_normalizar_tecnico_ids($r);
         _repo_chamado_row_normalizar_geo($r);
@@ -3179,8 +3183,8 @@ function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe
 
 /**
  * Itens de catálogo no período, filtrados pela data do LANÇAMENTO (criado_em; fallback na data usada no WHERE
- * se criado_em for nulo). Uma linha por registo em chamado_itens (sem GROUP BY) — analítico para auditoria.
- * Usado pelo boletim de medição (consolidação na tabela principal é feita no export, não aqui).
+ * se criado_em for nulo). Uma linha por registo em chamado_itens (sem GROUP BY) — analítico na origem.
+ * No XLSX do boletim, o detalhe por chamado é agrupado/consolidado em PHP (bm_med_agrupar_detalhamento_chamados_consolidado).
  *
  * @return list<array<string,mixed>>
  */
@@ -3227,6 +3231,14 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
             TRIM(COALESCE(ch.origem_os, \'\')) AS chamado_canal,
             TRIM(COALESCE(ch.responsavel, \'\')) AS chamado_responsavel,
             ch.endereco_completo,
+            ch.os_bairro AS ch_os_bairro,
+            ch.os_logradouro AS ch_os_logradouro,
+            ch.os_numero AS ch_os_numero,
+            ch.latitude AS ch_latitude,
+            ch.longitude AS ch_longitude,
+            pi.bairro AS pi_bairro,
+            pi.latitude AS pi_latitude,
+            pi.longitude AS pi_longitude,
             svc.tipo AS servico_categoria_tipo,
             pi.codigo_poste AS ponto_codigo_poste,
             it.id AS item_id_catalogo,
@@ -3268,6 +3280,14 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
         $r['movimento']      = (string) ($r['movimento'] ?? '');
         $r['observacao']    = isset($r['observacao']) ? (string) $r['observacao'] : '';
         $r['item_criado_em'] = isset($r['item_criado_em']) && $r['item_criado_em'] !== null ? (string) $r['item_criado_em'] : '';
+        $r['ch_os_bairro']   = isset($r['ch_os_bairro']) ? (string) $r['ch_os_bairro'] : '';
+        $r['ch_os_logradouro'] = isset($r['ch_os_logradouro']) ? (string) $r['ch_os_logradouro'] : '';
+        $r['ch_os_numero']   = isset($r['ch_os_numero']) ? (string) $r['ch_os_numero'] : '';
+        $r['ch_latitude']    = isset($r['ch_latitude']) && $r['ch_latitude'] !== null && $r['ch_latitude'] !== '' ? (string) $r['ch_latitude'] : '';
+        $r['ch_longitude']   = isset($r['ch_longitude']) && $r['ch_longitude'] !== null && $r['ch_longitude'] !== '' ? (string) $r['ch_longitude'] : '';
+        $r['pi_bairro']      = isset($r['pi_bairro']) ? (string) $r['pi_bairro'] : '';
+        $r['pi_latitude']    = isset($r['pi_latitude']) && $r['pi_latitude'] !== null && $r['pi_latitude'] !== '' ? (string) $r['pi_latitude'] : '';
+        $r['pi_longitude']   = isset($r['pi_longitude']) && $r['pi_longitude'] !== null && $r['pi_longitude'] !== '' ? (string) $r['pi_longitude'] : '';
     }
     unset($r);
 
@@ -3455,6 +3475,62 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
 }
 
 /**
+ * Quantidades utilizadas em chamados no período, agrupadas por item do catálogo (uma linha por item).
+ * Usado no boletim BM: evita duplicar o mesmo código por tipo/movimento e permite cruzar com a planilha modelo.
+ *
+ * @return list<array{item_id:int, item_codigo:string, item_nome:string, unidade:string, valor_unitario:float, quantidade:float}>
+ */
+function repo_medicao_bm_utilizado_quantidades_por_item(int $empresaRaizId, string $dataDe, string $dataAte): array
+{
+    if ($empresaRaizId <= 0) {
+        return [];
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return [];
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+
+    $sql = "
+        SELECT
+            it.id AS item_id,
+            MAX(COALESCE(NULLIF(TRIM(it.codigo), ''), '')) AS item_codigo,
+            MAX(it.nome) AS item_nome,
+            MAX(it.unidade) AS unidade,
+            MAX(it.valor_unitario) AS valor_unitario,
+            SUM(ci.quantidade) AS quantidade
+        FROM chamado_itens ci
+        INNER JOIN chamados ch ON ch.id = ci.chamado_id
+        INNER JOIN cliente_itens it ON it.id = ci.item_id
+        WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+          AND DATE(ch.aberto_em) BETWEEN ? AND ?
+          AND ch.status <> 'Cancelado'
+          AND ci.movimento = 'utilizado'
+        GROUP BY it.id
+        HAVING SUM(ci.quantidade) <> 0
+        ORDER BY MAX(it.codigo) ASC, MAX(it.nome) ASC
+    ";
+    $st = $pdo->prepare($sql);
+    $st->execute([$empresaRaizId, $empresaRaizId, $dataDe, $dataAte]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $out = [];
+    foreach ($rows as $r) {
+        $out[] = [
+            'item_id'          => (int) ($r['item_id'] ?? 0),
+            'item_codigo'      => (string) ($r['item_codigo'] ?? ''),
+            'item_nome'        => (string) ($r['item_nome'] ?? ''),
+            'unidade'          => (string) ($r['unidade'] ?? 'UN'),
+            'valor_unitario'   => (float) ($r['valor_unitario'] ?? 0),
+            'quantidade'       => (float) ($r['quantidade'] ?? 0),
+        ];
+    }
+
+    return $out;
+}
+
+/**
  * Resumo por mês civil na matriz — para listagem de medições mensais.
  * Inclui meses com chamados (data de abertura) e meses que só existem por importação BM.
  *
@@ -3631,6 +3707,14 @@ function repo_medicao_import_substituir(
 
         $pdo->commit();
         $ret['ok'] = true;
+        audit_log_registar('medicao.importar', 'medicao', null, $clienteMatrizId > 0 ? $clienteMatrizId : null, [
+            'ref_ym'        => $refYm,
+            'nome_arquivo'  => function_exists('mb_substr') ? mb_substr($nomeArquivo, 0, 200, 'UTF-8') : substr($nomeArquivo, 0, 200),
+            'n_linhas'      => count($linhas),
+            'importado_por' => $importadoPor !== null && $importadoPor !== ''
+                ? (function_exists('mb_substr') ? mb_substr($importadoPor, 0, 80, 'UTF-8') : substr($importadoPor, 0, 80))
+                : '',
+        ]);
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -3746,6 +3830,11 @@ function repo_delete_chamado(int $id): bool
     if (!$pdo || $id <= 0) {
         return false;
     }
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return false;
+    }
+    $cidLog = (int) ($ch['cliente_id'] ?? 0);
     $dir = __DIR__ . '/../uploads/chamados/' . $id;
     if (is_dir($dir)) {
         foreach (glob($dir . DIRECTORY_SEPARATOR . '*') ?: [] as $f) {
@@ -3756,8 +3845,15 @@ function repo_delete_chamado(int $id): bool
         @rmdir($dir);
     }
     $stmt = $pdo->prepare('DELETE FROM chamados WHERE id = ?');
+    $ok   = $stmt->execute([$id]);
+    if ($ok && $stmt->rowCount() > 0) {
+        audit_log_registar('chamado.excluir', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
+            'titulo' => function_exists('mb_substr') ? mb_substr((string) ($ch['titulo'] ?? ''), 0, 200, 'UTF-8') : substr((string) ($ch['titulo'] ?? ''), 0, 200),
+            'status' => (string) ($ch['status'] ?? ''),
+        ]);
+    }
 
-    return $stmt->execute([$id]);
+    return $ok;
 }
 
 /**
@@ -4176,17 +4272,12 @@ function repo_sidebar_cliente_tags(int $clienteId, bool $todaMatriz = false): ar
             $st->execute([$clienteId, $clienteId]);
             $nSp = (int) $st->fetchColumn();
 
-            $nOs = 0;
-            try {
-                $st = $pdo->prepare('
-                    SELECT COUNT(*) FROM os_pedidos
-                    WHERE cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-                ');
-                $st->execute([$clienteId, $clienteId]);
-                $nOs = (int) $st->fetchColumn();
-            } catch (Throwable $e) {
-                $nOs = 0;
-            }
+            $st = $pdo->prepare('
+                SELECT COUNT(*) FROM cliente_itens
+                WHERE ativo = 1 AND cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+            ');
+            $st->execute([$clienteId, $clienteId]);
+            $nCat = (int) $st->fetchColumn();
         } else {
             $st = $pdo->prepare('SELECT COUNT(*) FROM chamados WHERE cliente_id = ?');
             $st->execute([$clienteId]);
@@ -4208,23 +4299,19 @@ function repo_sidebar_cliente_tags(int $clienteId, bool $todaMatriz = false): ar
             $st->execute([$clienteId]);
             $nSp = (int) $st->fetchColumn();
 
-            $nOs = 0;
-            try {
-                $st = $pdo->prepare('SELECT COUNT(*) FROM os_pedidos WHERE cliente_id = ?');
-                $st->execute([$clienteId]);
-                $nOs = (int) $st->fetchColumn();
-            } catch (Throwable $e) {
-                $nOs = 0;
-            }
+            $st = $pdo->prepare('SELECT COUNT(*) FROM cliente_itens WHERE ativo = 1 AND cliente_id = ?');
+            $st->execute([$clienteId]);
+            $nCat = (int) $st->fetchColumn();
         }
 
         return [
-            'chamados'   => (string) $nCh,
-            'medicao'    => (string) $nCh,
-            'os'         => (string) $nOs,
-            'pontos_iluminacao' => (string) $nPontos,
-            'documentos' => (string) $nDoc,
-            'suporte'    => (string) $nSp,
+            'chamados'           => (string) $nCh,
+            'medicao'            => (string) $nCh,
+            'catalogo'           => (string) $nCat,
+            'auditoria'          => '0',
+            'pontos_iluminacao'  => (string) $nPontos,
+            'documentos'         => (string) $nDoc,
+            'suporte'            => (string) $nSp,
         ];
     } catch (Throwable $e) {
         return [];
@@ -4361,7 +4448,20 @@ function repo_create_chamado(array $d): ?int
         $d['status'] ?? 'Aberto',
         $d['responsavel'] ?? null,
     ]);
-    return (int) $pdo->lastInsertId();
+    $nid = (int) $pdo->lastInsertId();
+    if ($nid > 0) {
+        $cidLog = (int) ($d['cliente_id'] ?? 0);
+        audit_log_registar('chamado.criar', 'chamado', $nid, $cidLog > 0 ? $cidLog : null, [
+            'titulo'               => function_exists('mb_substr') ? mb_substr((string) ($d['titulo'] ?? ''), 0, 200, 'UTF-8') : substr((string) ($d['titulo'] ?? ''), 0, 200),
+            'descricao'            => function_exists('mb_substr') ? mb_substr(trim((string) ($d['descricao'] ?? '')), 0, 400, 'UTF-8') : substr(trim((string) ($d['descricao'] ?? '')), 0, 400),
+            'prioridade'           => (string) ($d['prioridade'] ?? ''),
+            'status'               => (string) ($d['status'] ?? 'Aberto'),
+            'ponto_iluminacao_id'  => $pontoId,
+            'contribuinte_nome'    => function_exists('mb_substr') ? mb_substr(trim((string) ($d['contribuinte_nome'] ?? '')), 0, 120, 'UTF-8') : substr(trim((string) ($d['contribuinte_nome'] ?? '')), 0, 120),
+        ]);
+    }
+
+    return $nid;
 }
 
 /**
@@ -4381,6 +4481,13 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
         return false;
     }
     $clienteId = (int) ($ch['cliente_id'] ?? 0);
+
+    $keysAuditOs = [
+        'ponto_iluminacao_id', 'titulo', 'descricao', 'contribuinte_cpf', 'contribuinte_nome', 'contribuinte_telefone', 'contribuinte_email',
+        'data_abertura_os', 'origem_os', 'problema_os', 'tipo_os', 'ponto_referencia',
+        'os_cep', 'os_logradouro', 'os_numero', 'os_complemento', 'os_bairro', 'os_cidade', 'os_uf',
+        'endereco_completo', 'latitude', 'longitude',
+    ];
 
     [$la, $lo] = _repo_parse_latlng_pair(
         isset($d['latitude']) ? (string) $d['latitude'] : null,
@@ -4417,7 +4524,7 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
             endereco_completo = ?, latitude = ?, longitude = ?
         WHERE id = ?
     ');
-    return $stmt->execute([
+    $ok = $stmt->execute([
         $pontoId,
         $d['titulo'] ?? '',
         $d['descricao'] ?? '',
@@ -4442,6 +4549,41 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
         $lo,
         $id,
     ]);
+    if ($ok) {
+        $depoisAudit = [
+            'ponto_iluminacao_id'     => $pontoId,
+            'titulo'                  => (string) ($d['titulo'] ?? ''),
+            'descricao'               => (string) ($d['descricao'] ?? ''),
+            'contribuinte_cpf'        => $d['contribuinte_cpf'] ?? null,
+            'contribuinte_nome'       => $d['contribuinte_nome'] ?? null,
+            'contribuinte_telefone'   => $d['contribuinte_telefone'] ?? null,
+            'contribuinte_email'      => $d['contribuinte_email'] ?? null,
+            'data_abertura_os'        => $dab,
+            'origem_os'               => $d['origem_os'] ?? null,
+            'problema_os'             => $d['problema_os'] ?? null,
+            'tipo_os'                 => $d['tipo_os'] ?? null,
+            'ponto_referencia'        => $d['ponto_referencia'] ?? null,
+            'os_cep'                  => $d['os_cep'] ?? null,
+            'os_logradouro'           => $d['os_logradouro'] ?? null,
+            'os_numero'               => $d['os_numero'] ?? null,
+            'os_complemento'          => $d['os_complemento'] ?? null,
+            'os_bairro'               => $d['os_bairro'] ?? null,
+            'os_cidade'               => $d['os_cidade'] ?? null,
+            'os_uf'                   => $d['os_uf'] ?? null,
+            'endereco_completo'       => $endereco,
+            'latitude'                => $la,
+            'longitude'               => $lo,
+        ];
+        $diffOs = audit_log_diff_campos($ch, $depoisAudit, $keysAuditOs);
+        audit_log_registar('chamado.alterar', 'chamado', $id, $clienteId > 0 ? $clienteId : null, [
+            'campos'       => 'ficha_os',
+            'titulo'       => function_exists('mb_substr') ? mb_substr((string) ($d['titulo'] ?? ''), 0, 160, 'UTF-8') : substr((string) ($d['titulo'] ?? ''), 0, 160),
+            'alteracoes'   => $diffOs,
+            'n_alteracoes' => count($diffOs),
+        ]);
+    }
+
+    return $ok;
 }
 
 function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?float $latitude, ?float $longitude): bool
@@ -4450,6 +4592,11 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
     if (!$pdo || $id <= 0) {
         return false;
     }
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return false;
+    }
+    $clienteId = (int) ($ch['cliente_id'] ?? 0);
     $end = $enderecoCompleto !== null ? trim($enderecoCompleto) : '';
     $end = $end !== '' ? $end : null;
     $stmt = $pdo->prepare('
@@ -4457,7 +4604,28 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
         SET endereco_completo = ?, latitude = ?, longitude = ?
         WHERE id = ?
     ');
-    return $stmt->execute([$end, $latitude, $longitude, $id]);
+    $ok = $stmt->execute([$end, $latitude, $longitude, $id]);
+    if ($ok) {
+        $antesLoc = [
+            'endereco_completo' => $ch['endereco_completo'] ?? null,
+            'latitude'          => $ch['latitude'] ?? null,
+            'longitude'         => $ch['longitude'] ?? null,
+        ];
+        $depoisLoc = [
+            'endereco_completo' => $end,
+            'latitude'          => $latitude,
+            'longitude'         => $longitude,
+        ];
+        $diffLoc = audit_log_diff_campos($antesLoc, $depoisLoc, ['endereco_completo', 'latitude', 'longitude']);
+        if ($diffLoc !== []) {
+            audit_log_registar('chamado.alterar_localizacao', 'chamado', $id, $clienteId > 0 ? $clienteId : null, [
+                'alteracoes'   => $diffLoc,
+                'n_alteracoes' => count($diffLoc),
+            ]);
+        }
+    }
+
+    return $ok;
 }
 
 function repo_update_chamado_status(int $id, string $status): bool
@@ -4470,17 +4638,42 @@ function repo_update_chamado_status(int $id, string $status): bool
     if (!$pdo) {
         return false;
     }
-    $stmt = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
+    $antes = repo_chamado($id);
+    $stmt  = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
+    $ok    = $stmt->execute([$status, $id]);
+    if ($ok && $antes) {
+        $cidLog = (int) ($antes['cliente_id'] ?? 0);
+        audit_log_registar('chamado.status', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
+            'status_anterior' => (string) ($antes['status'] ?? ''),
+            'status_novo'     => $status,
+        ]);
+    }
 
-    return $stmt->execute([$status, $id]);
+    return $ok;
 }
 
 function repo_update_chamado_responsavel(int $id, string $responsavel): bool
 {
     $pdo = db();
-    if (!$pdo) return false;
-    $stmt = $pdo->prepare('UPDATE chamados SET responsavel = ? WHERE id = ?');
-    return $stmt->execute([$responsavel, $id]);
+    if (!$pdo) {
+        return false;
+    }
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return false;
+    }
+    $clienteId = (int) ($ch['cliente_id'] ?? 0);
+    $antesResp  = trim((string) ($ch['responsavel'] ?? ''));
+    $stmt       = $pdo->prepare('UPDATE chamados SET responsavel = ? WHERE id = ?');
+    $ok         = $stmt->execute([$responsavel, $id]);
+    if ($ok && $antesResp !== $responsavel) {
+        audit_log_registar('chamado.alterar_responsavel', 'chamado', $id, $clienteId > 0 ? $clienteId : null, [
+            'antes'  => function_exists('mb_substr') ? mb_substr($antesResp, 0, 120, 'UTF-8') : substr($antesResp, 0, 120),
+            'depois' => function_exists('mb_substr') ? mb_substr($responsavel, 0, 120, 'UTF-8') : substr($responsavel, 0, 120),
+        ]);
+    }
+
+    return $ok;
 }
 
 /**
@@ -5189,6 +5382,11 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
             $operadorUserId
         );
         $pdo->commit();
+        $cidOp = (int) ($ch['cliente_id'] ?? 0);
+        audit_log_registar('chamado.operador.enviar_os', 'chamado', $chamadoId, $cidOp > 0 ? $cidOp : null, [
+            'operador_user_id' => $operadorUserId,
+            'status_novo'      => 'Aguardando',
+        ]);
 
         return ['ok' => true, 'err' => ''];
     } catch (Throwable $e) {
@@ -5212,7 +5410,20 @@ function repo_create_chamado_resposta(int $chamadoId, string $autor, string $tip
     $newId = (int) $pdo->lastInsertId();
     if ($newId > 0 && $autorUsuarioId !== null && $autorUsuarioId > 0) {
         require_once __DIR__ . '/notificacoes.php';
-        criarNotificacoesChamado($chamadoId, $newId, $autorUsuarioId, $interna);
+        $previewNotif = trim($texto);
+        criarNotificacoesChamado($chamadoId, $newId, $autorUsuarioId, $interna, $previewNotif !== '' ? $previewNotif : null);
+    }
+    if ($newId > 0) {
+        $chR = repo_chamado($chamadoId);
+        $cidR = $chR ? (int) ($chR['cliente_id'] ?? 0) : 0;
+        $txtLog = trim($texto);
+        audit_log_registar('chamado.resposta', 'chamado', $chamadoId, $cidR > 0 ? $cidR : null, [
+            'resposta_id' => $newId,
+            'tipo'        => $tipo,
+            'interna'     => $interna ? 1 : 0,
+            'autor'       => function_exists('mb_substr') ? mb_substr($autor, 0, 80, 'UTF-8') : substr($autor, 0, 80),
+            'texto'       => function_exists('mb_substr') ? mb_substr($txtLog, 0, 500, 'UTF-8') : substr($txtLog, 0, 500),
+        ]);
     }
 
     return $newId;
@@ -5307,6 +5518,19 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
         $tu = isset($ch['tecnico_user_id']) && $ch['tecnico_user_id'] !== null ? (int) $ch['tecnico_user_id'] : 0;
         if ($tu > 0) {
             $ids[] = $tu;
+        }
+
+        if ($empresaRaiz > 0) {
+            $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'operador\' AND empresa_id = ?');
+            $st->execute([$empresaRaiz]);
+            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+            $st2 = $pdo->prepare(
+                'SELECT id FROM usuarios WHERE perfil = \'operador\' AND cliente_id IN (
+                    SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
+                )'
+            );
+            $st2->execute([$empresaRaiz, $empresaRaiz]);
+            $pushIds($st2->fetchAll(PDO::FETCH_COLUMN, 0));
         }
 
         return array_values(array_unique($ids));
@@ -5477,7 +5701,33 @@ function repo_create_chamado_anexo(array $d): ?int
         ':enviado_por'   => $d['enviado_por']  ?? null,
         ':enviado_tipo'  => $d['enviado_tipo'] ?? 'admin',
     ]);
-    return (int) $pdo->lastInsertId();
+    $newId = (int) $pdo->lastInsertId();
+    if ($newId > 0) {
+        chamado_anexo_sync_primeira_imagem_para_ponto(
+            (int) $d['chamado_id'],
+            (string) $d['nome_arquivo'],
+            is_string($d['mime'] ?? null) && ($d['mime'] ?? '') !== '' ? (string) $d['mime'] : null,
+            (int) ($d['tamanho'] ?? 0),
+            (string) ($d['nome_original'] ?? '')
+        );
+        $chAn = repo_chamado((int) $d['chamado_id']);
+        $cidA  = $chAn ? (int) ($chAn['cliente_id'] ?? 0) : 0;
+        $mimeS = is_string($d['mime'] ?? null) ? (string) $d['mime'] : '';
+        $ehFoto = ($mimeS !== '' && strncmp($mimeS, 'image/', 6) === 0)
+            || (function_exists('upload_extensao_imagem') && upload_extensao_imagem((string) ($d['nome_original'] ?? '')));
+        audit_log_registar('chamado.anexo', 'chamado', (int) $d['chamado_id'], $cidA > 0 ? $cidA : null, [
+            'anexo_id'       => $newId,
+            'nome_original'  => function_exists('mb_substr') ? mb_substr((string) ($d['nome_original'] ?? ''), 0, 200, 'UTF-8') : substr((string) ($d['nome_original'] ?? ''), 0, 200),
+            'mime'           => $mimeS,
+            'tamanho_bytes'  => (int) ($d['tamanho'] ?? 0),
+            'resposta_id'    => !empty($d['resposta_id']) ? (int) $d['resposta_id'] : null,
+            'enviado_tipo'   => (string) ($d['enviado_tipo'] ?? ''),
+            'enviado_por'    => isset($d['enviado_por']) && $d['enviado_por'] !== null && $d['enviado_por'] !== '' ? (int) $d['enviado_por'] : null,
+            'tipo_ficheiro'  => $ehFoto ? 'imagem' : 'outro',
+        ]);
+    }
+
+    return $newId;
 }
 
 function repo_chamado_anexos(int $chamadoId): array
@@ -5502,6 +5752,56 @@ function repo_chamado_anexos(int $chamadoId): array
         $r['tamanho']     = (int) $r['tamanho'];
     }
     return $rows;
+}
+
+/**
+ * Resumo de anexos para listagem admin (uma query para vários chamados).
+ *
+ * @param list<int> $chamadoIds
+ * @return array<int, array{total: int, imagens: list<array{id: int, nome: string}>}>
+ */
+function repo_chamados_anexos_resumo_listagem(array $chamadoIds): array
+{
+    $chamadoIds = array_values(array_unique(array_filter(array_map(static function ($v): int {
+        $n = (int) $v;
+
+        return $n > 0 ? $n : 0;
+    }, $chamadoIds))));
+    $out = [];
+    foreach ($chamadoIds as $cid) {
+        $out[$cid] = ['total' => 0, 'imagens' => []];
+    }
+    if ($chamadoIds === []) {
+        return $out;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return $out;
+    }
+    $placeholders = implode(',', array_fill(0, count($chamadoIds), '?'));
+    $sql = 'SELECT chamado_id, id, nome_original, mime FROM chamado_anexos WHERE chamado_id IN (' . $placeholders
+        . ') ORDER BY chamado_id, enviado_em DESC, id DESC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($chamadoIds);
+    while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $cid = (int) ($r['chamado_id'] ?? 0);
+        if (!isset($out[$cid])) {
+            continue;
+        }
+        $out[$cid]['total']++;
+        $mime = strtolower((string) ($r['mime'] ?? ''));
+        $nome = (string) ($r['nome_original'] ?? '');
+        $ehImg = upload_extensao_imagem($nome)
+            || ($mime !== '' && strncmp($mime, 'image/', 8) === 0 && strpos($mime, 'svg') === false);
+        if ($ehImg) {
+            $out[$cid]['imagens'][] = [
+                'id'   => (int) ($r['id'] ?? 0),
+                'nome' => $nome,
+            ];
+        }
+    }
+
+    return $out;
 }
 
 function repo_chamado_anexo(int $id): ?array
@@ -5947,7 +6247,7 @@ function _repo_usuario_enriquecer(PDO $pdo, array $u): array
             }
         }
     } elseif ($perfil === 'admin') {
-        $empresa = 'LightOn';
+        $empresa = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
     }
     $u['empresa'] = $empresa;
     if (($u['perfil'] ?? '') === 'admin') {
