@@ -7,6 +7,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS notificacoes;
+DROP TABLE IF EXISTS usuario_password_resets;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS chamado_respostas;
 DROP TABLE IF EXISTS chamado_anexos;
@@ -115,6 +116,22 @@ INSERT INTO saas_modulos (grupo, modulo_key, label, habilitado, ordem) VALUES
 ('cliente', 'documentos', 'Documentos', 1, 40),
 ('cliente', 'suporte', 'Suporte', 1, 50),
 ('operador', 'chamados', 'Chamados', 1, 10);
+
+-- -----------------------------------------------------
+-- Recuperação de senha (token por e-mail)
+-- -----------------------------------------------------
+CREATE TABLE usuario_password_resets (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    usuario_id  INT UNSIGNED NOT NULL,
+    token_hash  CHAR(64) NOT NULL,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    used_at     DATETIME NULL DEFAULT NULL,
+    INDEX idx_upr_token (token_hash),
+    INDEX idx_upr_user (usuario_id),
+    INDEX idx_upr_expires (expires_at),
+    CONSTRAINT fk_upr_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------
 -- Auditoria (append-only)

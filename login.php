@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/audit_log.php';
 
 $pageTitle = 'Acessar o sistema';
 $erro = '';
+$msgSenhaOk = '';
 $emailPreenchido = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -45,6 +46,10 @@ if (isset($_GET['erro']) && $_GET['erro'] === 'perfil') {
     $erro = 'Você não tem permissão para acessar essa área.';
 }
 
+if (isset($_GET['senha']) && $_GET['senha'] === 'redefinida') {
+    $msgSenhaOk = 'Senha alterada com sucesso. Já pode entrar com a nova senha.';
+}
+
 $cssBustLogin = static function (string $file): int {
     $path = __DIR__ . '/assets/css/' . basename($file);
     return is_file($path) ? (int) filemtime($path) : 0;
@@ -72,6 +77,15 @@ $cssBustLogin = static function (string $file): int {
       padding: 10px 12px; border-radius: 10px;
       font-size: 13px; font-weight: 600;
       margin-bottom: 14px;
+    }
+    .alert-success {
+      background: rgba(34,197,94,0.10);
+      border: 1px solid rgba(34,197,94,0.28);
+      color: #166534;
+      padding: 10px 12px; border-radius: 10px;
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 14px;
+      line-height: 1.45;
     }
     .quick-login {
       display: grid;
@@ -127,6 +141,9 @@ $cssBustLogin = static function (string $file): int {
     <h2>Acessar sistema</h2>
     <p class="auth-sub">Entre com seu e-mail e senha para continuar.</p>
 
+    <?php if ($msgSenhaOk): ?>
+      <div class="alert-success"><?= htmlspecialchars($msgSenhaOk) ?></div>
+    <?php endif; ?>
     <?php if ($erro): ?>
       <div class="alert-error"><?= htmlspecialchars($erro) ?></div>
     <?php endif; ?>
@@ -149,7 +166,7 @@ $cssBustLogin = static function (string $file): int {
           <input type="checkbox" checked>
           <span>Manter conectado</span>
         </label>
-        <a href="#" style="color:var(--primary); font-weight:600; font-size:13px;">Esqueci minha senha</a>
+        <a href="esqueci_senha.php" style="color:var(--primary); font-weight:600; font-size:13px;">Esqueci minha senha</a>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block btn-lg">Entrar</button>

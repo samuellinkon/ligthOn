@@ -20,12 +20,42 @@ function mail_send(string $to, string $subject, string $htmlBody): array
     $s       = app_mail_settings();
     $subjectEncoded = '=?UTF-8?B?' . base64_encode($subject) . '?=';
 
-    $useSmtp = $s['smtp_enabled']
-        && $s['smtp_host'] !== ''
+    $smtpCredOk = $s['smtp_host'] !== ''
         && $s['smtp_user'] !== ''
         && $s['smtp_password'] !== '';
 
-    if ($useSmtp) {
+    if ($s['smtp_enabled'] && !$smtpCredOk) {
+        $faltas = [];
+        if ($s['smtp_host'] === '') {
+            $faltas[] = 'servidor SMTP';
+        }
+        if ($s['smtp_user'] === '') {
+            $faltas[] = 'utilizador SMTP';
+        }
+        if ($s['smtp_password'] === '') {
+            $faltas[] = 'senha SMTP (obrigatória na primeira vez: preencha em Configurações → E-mail e guarde)';
+        }
+        $msg = 'SMTP está ativado mas a configuração está incompleta: ' . implode(', ', $faltas)
+            . '. Sem isso o sistema tentaria mail()/sendmail — na Hostinger isso costuma falhar.';
+
+        return [
+            'ok'      => false,
+            'to'      => $to,
+            'subject' => $subject,
+            'motivo'  => $msg,
+        ];
+    }
+
+    if (!$smtpCredOk && ($s['smtp_host'] !== '' || $s['smtp_user'] !== '')) {
+        return [
+            'ok'      => false,
+            'to'      => $to,
+            'subject' => $subject,
+            'motivo'  => 'Há servidor ou utilizador SMTP guardados, mas falta a senha (ou não foi gravada). Em Admin → Configurações → E-mail e SMTP, preencha a senha da conta e clique em Salvar — na Hostinger não use mail()/sendmail.',
+        ];
+    }
+
+    if ($smtpCredOk) {
         return smtp_mail_send(
             $s['smtp_host'],
             $s['smtp_port'],
@@ -99,6 +129,38 @@ function mail_welcome(string $to, string $nome, string $empresa, string $email, 
         . '</div></body></html>';
 
     return mail_send($to, 'Seu acesso ao ' . $brand, $body);
+}
+
+/**
+ * E-mail com link para redefinir senha (token na URL).
+ */
+function mail_password_reset(string $to, string $nome, string $resetUrl): array
+{
+    $brand  = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
+    $brandH = htmlspecialchars($brand, ENT_QUOTES, 'UTF-8');
+    $rodape = htmlspecialchars(app_mail_settings()['from_name'], ENT_QUOTES, 'UTF-8');
+    $nomeH  = htmlspecialchars($nome, ENT_QUOTES, 'UTF-8');
+    $urlH   = htmlspecialchars($resetUrl, ENT_QUOTES, 'UTF-8');
+    $logo   = '#2563eb';
+
+    $body = '<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;">'
+        . '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);">'
+        . '<div style="background:linear-gradient(135deg,' . $logo . ' 0%,#1e40af 100%);color:#fff;padding:28px 32px;">'
+        . '<h1 style="margin:0 0 4px;font-size:22px;">Redefinir senha</h1>'
+        . '<p style="margin:0;opacity:.9;font-size:14px;">' . $brandH . '</p></div>'
+        . '<div style="padding:28px 32px;">'
+        . '<p>Olá, <strong>' . $nomeH . '</strong>,</p>'
+        . '<p>Recebemos um pedido para criar uma nova senha na sua conta. O link abaixo é válido por <strong>1 hora</strong>.</p>'
+        . '<p style="text-align:center;margin:28px 0;">'
+        . '<a href="' . $urlH . '" style="display:inline-block;background:' . $logo . ';color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;">Redefinir senha</a></p>'
+        . '<p style="font-size:13px;color:#64748b;">Se o botão não funcionar, copie e cole este endereço no navegador:<br>'
+        . '<span style="word-break:break-all;color:#334155;">' . $urlH . '</span></p>'
+        . '<p style="font-size:13px;color:#64748b;">Se não pediu esta alteração, ignore este e-mail — a sua senha permanece a mesma.</p>'
+        . '</div>'
+        . '<div style="background:#f8fafc;padding:16px 32px;font-size:12px;color:#64748b;text-align:center;border-top:1px solid #e2e8f0;">'
+        . $rodape . ' · mensagem automática.</div></div></body></html>';
+
+    return mail_send($to, $brand . ': redefinir a sua senha', $body);
 }
 
 /**

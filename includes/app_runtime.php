@@ -87,3 +87,22 @@ function app_mail_settings(): array
         'smtp_password'     => (string) ($c['smtp_password'] ?? ''),
     ];
 }
+
+/**
+ * URL pública do site (pasta do CRM), ex.: https://dominio.com/crm
+ * Usado em links de e-mail (recuperação de senha, etc.).
+ */
+function app_public_base_url(): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && (string) $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+    $scheme = $https ? 'https' : 'http';
+    $host    = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    $script  = (string) ($_SERVER['SCRIPT_NAME'] ?? '/');
+    $dir     = str_replace('\\', '/', dirname($script));
+    if ($dir === '/' || $dir === '.') {
+        $dir = '';
+    }
+
+    return rtrim($scheme . '://' . $host . $dir, '/');
+}

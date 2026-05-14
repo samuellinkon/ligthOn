@@ -150,9 +150,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ok = repo_config_set('mail_from', $mailFrom) && $ok;
     $ok = repo_config_set('mail_from_name', $mailName) && $ok;
 
-    $smtpOn = !empty($_POST['smtp_enabled']);
+    $cfgPre         = repo_config_all();
+    $smtpOn         = !empty($_POST['smtp_enabled']);
+    $smtpHostPost   = trim((string) ($_POST['smtp_host'] ?? ''));
+    $smtpUserPost   = trim((string) ($_POST['smtp_user'] ?? ''));
+    $smtpPassPost   = (string) ($_POST['smtp_password'] ?? '');
+    $smtpPassStored = trim((string) ($cfgPre['smtp_password'] ?? ''));
+    $smtpPassOk     = ($smtpPassPost !== '') || ($smtpPassStored !== '');
+    if ($smtpOn && ($smtpHostPost === '' || $smtpUserPost === '' || !$smtpPassOk)) {
+        flash_set(
+            'err',
+            'Com «Usar SMTP autenticado» marcado: preencha servidor, utilizador e senha da conta de e-mail (na primeira vez a senha é obrigatória) e guarde. Sem SMTP completo, o PHP usa mail()/sendmail e na Hostinger aparece erro tipo “Sendmail exited…”.'
+        );
+        header('Location: configuracoes.php?tab=geral&secao=email');
+        exit;
+    }
+
     $ok = repo_config_set('smtp_enabled', $smtpOn ? '1' : '0') && $ok;
-    $ok = repo_config_set('smtp_host', trim((string) ($_POST['smtp_host'] ?? ''))) && $ok;
+    $ok = repo_config_set('smtp_host', $smtpHostPost) && $ok;
 
     $port = (int) ($_POST['smtp_port'] ?? 587);
     if ($port < 1 || $port > 65535) {
@@ -165,11 +180,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $enc = 'tls';
     }
     $ok = repo_config_set('smtp_encryption', $enc) && $ok;
-    $ok = repo_config_set('smtp_user', trim((string) ($_POST['smtp_user'] ?? ''))) && $ok;
+    $ok = repo_config_set('smtp_user', $smtpUserPost) && $ok;
 
-    $novaSenhaSmtp = (string) ($_POST['smtp_password'] ?? '');
-    if ($novaSenhaSmtp !== '') {
-        $ok = repo_config_set('smtp_password', $novaSenhaSmtp) && $ok;
+    if ($smtpPassPost !== '') {
+        $ok = repo_config_set('smtp_password', $smtpPassPost) && $ok;
     }
 
     flash_set($ok ? 'ok' : 'err', $ok ? 'Configurações salvas.' : 'Não foi possível salvar algumas opções (verifique se a tabela app_config existe — rode a migração 008).');
@@ -378,6 +392,9 @@ include __DIR__ . '/../includes/head.php';
             <input type="checkbox" name="smtp_enabled" value="1" <?= (($cfg['smtp_enabled'] ?? '') === '1') ? 'checked' : '' ?>>
             <span>Usar SMTP autenticado em vez de <code>mail()</code></span>
           </label>
+          <small class="muted" style="display:block;margin-top:8px;line-height:1.5;">
+            Tem de ficar <strong>marcado</strong> ao gravar se quiser validar que nada fica a meio; o envio em si usa <strong>SMTP automaticamente</strong> quando servidor, utilizador e senha estão todos guardados na base (mesmo que um dia a caixa fique desmarcada por engano). Na <strong>primeira</strong> vez escreva a senha da caixa no hPanel e clique em Salvar. Sem senha gravada, o PHP usa <code>mail()</code> e na Hostinger costuma falhar (ex.: «Sendmail exited…»).
+          </small>
         </div>
         <div class="form-group">
           <label for="smtp_host">Servidor SMTP</label>
@@ -412,7 +429,7 @@ include __DIR__ . '/../includes/head.php';
           <label for="smtp_password">Senha SMTP</label>
           <input type="password" id="smtp_password" name="smtp_password" class="input" autocomplete="new-password"
                  placeholder="<?= !empty($cfg['smtp_password']) ? '•••••••• (deixe em branco para manter)' : 'Senha da conta de e-mail' ?>">
-          <small class="muted">Nunca reexibimos a senha. Preencha apenas para definir ou trocar.</small>
+          <small class="muted">Nunca reexibimos a senha. Na <strong>primeira</strong> configuração SMTP, tem de a escrever aqui e guardar. Depois pode deixar em branco para manter a já gravada.</small>
         </div>
       </div>
     </div>

@@ -6618,6 +6618,184 @@ function repo_admin_definir_senha_usuario(int $userId, string $senhaNova, string
     }
 }
 
+function repo_usuario_password_resets_table_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+
+        return false;
+    }
+    try {
+        $st   = $pdo->query("SHOW TABLES LIKE 'usuario_password_resets'");
+        $row  = $st ? $st->fetch(PDO::FETCH_NUM) : false;
+        $cache = $row !== false;
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+/**
+ * Cria token de recuperação e envia e-mail (se o utilizador existir).
+ *
+ * @return array{ok: bool, err: string, mailed: bool}
+ *   ok=false apenas para erro de validação ou serviço; mailed indica se e-mail foi enviado.
+ */
+function repo_password_reset_request(string $email, string $siteBaseUrl): array
+{
+    if (!db_ok()) {
+        return ['ok' => false, 'err' => 'Base de dados indisponível.', 'mailed' => false];
+    }
+    if (!repo_usuario_password_resets_table_exists()) {
+        return [
+            'ok'  => false,
+            'err' => 'Recuperação de senha: falta a tabela na base de dados. O administrador deve executar no MySQL o script database/migrations/042_usuario_password_resets.sql (phpMyAdmin → SQL → colar e executar).',
+            'mailed' => false,
+        ];
+    }
+    $email = trim($email);
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'err' => 'Indique um e-mail válido.', 'mailed' => false];
+    }
+
+    require_once __DIR__ . '/mailer.php';
+
+    $u = repo_user_by_email($email);
+    if (!$u) {
+        return ['ok' => true, 'err' => '', 'mailed' => false];
+    }
+
+    $pdo = db();
+    if (!$pdo) {
+        return ['ok' => false, 'err' => 'Base de dados indisponível.', 'mailed' => false];
+    }
+
+    $uid = (int) ($u['id'] ?? 0);
+    if ($uid <= 0) {
+        return ['ok' => true, 'err' => '', 'mailed' => false];
+    }
+
+    try {
+        $raw    = bin2hex(random_bytes(32));
+        $digest = hash('sha256', $raw, false);
+        $exp    = (new DateTimeImmutable('now'))->modify('+1 hour')->format('Y-m-d H:i:s');
+
+        $pdo->prepare('DELETE FROM usuario_password_resets WHERE usuario_id = ? AND used_at IS NULL')->execute([$uid]);
+        $ins = $pdo->prepare('INSERT INTO usuario_password_resets (usuario_id, token_hash, expires_at) VALUES (?,?,?)');
+        $ins->execute([$uid, $digest, $exp]);
+
+        $base = rtrim($siteBaseUrl, '/');
+        $url  = $base . '/redefinir_senha.php?token=' . rawurlencode($raw);
+        $nome = (string) ($u['nome'] ?? 'Utilizador');
+        $mr   = mail_password_reset((string) ($u['email'] ?? $email), $nome, $url);
+        if (empty($mr['ok'])) {
+            error_log('mail_password_reset falhou: ' . (string) ($mr['motivo'] ?? 'unknown'));
+
+            return ['ok' => true, 'err' => '', 'mailed' => false];
+        }
+
+        return ['ok' => true, 'err' => '', 'mailed' => true];
+    } catch (Throwable $e) {
+        error_log('repo_password_reset_request: ' . $e->getMessage());
+
+        return ['ok' => false, 'err' => 'Não foi possível processar o pedido. Tente mais tarde.', 'mailed' => false];
+    }
+}
+
+/**
+ * @return array{id:int,usuario_id:int,nome:string,email:string}|null
+ */
+function repo_password_reset_lookup(string $tokenPlain): ?array
+{
+    if (!db_ok() || !repo_usuario_password_resets_table_exists()) {
+        return null;
+    }
+    $tokenPlain = trim($tokenPlain);
+    if (strlen($tokenPlain) < 64) {
+        return null;
+    }
+    $digest = hash('sha256', $tokenPlain, false);
+    $pdo    = db();
+    if (!$pdo) {
+        return null;
+    }
+    try {
+        $st = $pdo->prepare('
+            SELECT r.id, r.usuario_id, r.expires_at, r.used_at, u.nome, u.email
+            FROM usuario_password_resets r
+            INNER JOIN usuarios u ON u.id = r.usuario_id
+            WHERE r.token_hash = ? LIMIT 1
+        ');
+        $st->execute([$digest]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        if (!empty($row['used_at'])) {
+            return null;
+        }
+        $exp = strtotime((string) $row['expires_at']);
+        if ($exp === false || $exp < time()) {
+            return null;
+        }
+
+        return [
+            'id'         => (int) $row['id'],
+            'usuario_id' => (int) $row['usuario_id'],
+            'nome'       => (string) $row['nome'],
+            'email'      => (string) $row['email'],
+        ];
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * @return array{ok: bool, err: string}
+ */
+function repo_password_reset_apply(string $tokenPlain, string $senhaNova, string $senhaNova2): array
+{
+    if ($senhaNova !== $senhaNova2) {
+        return ['ok' => false, 'err' => 'A nova senha e a confirmação não coincidem.'];
+    }
+    if (strlen($senhaNova) < 6) {
+        return ['ok' => false, 'err' => 'A senha deve ter pelo menos 6 caracteres.'];
+    }
+    $ctx = repo_password_reset_lookup($tokenPlain);
+    if (!$ctx) {
+        return ['ok' => false, 'err' => 'Link inválido ou expirado. Peça um novo e-mail de recuperação.'];
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return ['ok' => false, 'err' => 'Base de dados indisponível.'];
+    }
+    try {
+        $pdo->beginTransaction();
+        $hash = password_hash($senhaNova, PASSWORD_BCRYPT);
+        $st1   = $pdo->prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?');
+        $st1->execute([$hash, $ctx['usuario_id']]);
+        $st2 = $pdo->prepare('UPDATE usuario_password_resets SET used_at = NOW() WHERE id = ?');
+        $st2->execute([$ctx['id']]);
+        $pdo->prepare('DELETE FROM usuario_password_resets WHERE usuario_id = ? AND id <> ? AND used_at IS NULL')
+            ->execute([$ctx['usuario_id'], $ctx['id']]);
+        $pdo->commit();
+
+        return ['ok' => true, 'err' => ''];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'err' => 'Não foi possível atualizar a senha.'];
+    }
+}
+
 /* ================================================================== */
 /*  ANEXOS DO CLIENTE                                                 */
 /* ================================================================== */
