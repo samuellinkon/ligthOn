@@ -71,6 +71,7 @@ if (!preg_match('/^\d{4}-\d{2}$/', $medicaoMes)) {
 $periodoLimpar = isset($_GET['periodo_limpar']) && (string) $_GET['periodo_limpar'] === '1';
 $periodoDeRaw = trim((string) ($_GET['periodo_de'] ?? ''));
 $periodoAteRaw = trim((string) ($_GET['periodo_ate'] ?? ''));
+$periodoPresetGet = strtolower(trim((string) ($_GET['periodo_preset'] ?? '')));
 
 $periodoDe  = null;
 $periodoAte = null;
@@ -79,6 +80,9 @@ if ($periodoLimpar) {
 } elseif ($medicaoMes !== '') {
     $periodoDe  = $medicaoMes . '-01';
     $periodoAte = date('Y-m-t', strtotime($periodoDe));
+} elseif ($periodoPresetGet !== '' && ($presetRange = chamados_periodo_preset($periodoPresetGet)) !== null) {
+    $periodoDe  = $presetRange['de'];
+    $periodoAte = $presetRange['ate'];
 } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoDeRaw)
     && preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoAteRaw)
     && $periodoDeRaw <= $periodoAteRaw) {
@@ -107,9 +111,9 @@ if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST
             gestor_assert_escopo_cliente((int) ($chDel['cliente_id'] ?? 0), 'chamados.php');
         }
         if (repo_delete_chamado($delId)) {
-            flash_set('ok', 'Chamado #' . $delId . ' excluído.');
+            flash_set('ok', 'Chamado #' . $delId . ' marcado como inativo (exclusão lógica).');
         } else {
-            flash_set('err', 'Não foi possível excluir o chamado.');
+            flash_set('err', 'Não foi possível inativar o chamado.');
         }
     } else {
         flash_set('err', 'Exclusão requer banco de dados ativo.');
@@ -356,6 +360,9 @@ $admChPeriodoCtx = [
     'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
     'local_q'           => $localQ !== '' ? $localQ : null,
 ];
+$chamadosPeriodoPresetAtivo = (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR)
+    ? chamados_periodo_preset_ativo($periodoDe, $periodoAte, $periodoLimpar, $medicaoMes)
+    : null;
 $admChClearBuscaCtx = array_merge($admChPeriodoCtx, ['local_q' => null, 'tecnico_user_id' => null]);
 
 $chamadosListagemHref = static function (int $p, string $filtro, string $busca, ?array $periodoCtxOverride = null) use ($CRM_CHAMADOS_IS_OPERADOR, $admChPeriodoCtx): string {
@@ -682,6 +689,15 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
         : (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
     $pDeIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoDe : '';
     $pAtIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoAte : '';
+    $pDeItDet = $pDeIt;
+    $pAtItDet = $pAtIt;
+    if ($pDeIt !== '' && $pAtIt !== '' && preg_match('/^\d{4}-\d{2}$/', $refYmBm)) {
+        $primeiroMes = $refYmBm . '-01';
+        $ultimoMes   = date('Y-m-t', strtotime($primeiroMes));
+        if ($pDeIt === $primeiroMes && $pAtIt === $ultimoMes) {
+            $pAtItDet = medicao_bm_export_v2_periodo_ate($refYmBm);
+        }
+    }
 
     /** Linhas do boletim BM importadas (lista «mês atual» virtual) — alimentação da aba MEDIÇÃO */
     $bmLinhasBoletim = [];
@@ -694,11 +710,11 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
 
     /** Detalhamento CRM: período pela data em que o item foi registrado em chamado_itens.criado_em */
     $detalheLinhasBoletim = [];
-    if ($matrizItensId > 0 && $pDeIt !== '' && $pAtIt !== '') {
+    if ($matrizItensId > 0 && $pDeItDet !== '' && $pAtItDet !== '') {
         $detalheLinhasBoletim = repo_catalogo_chamados_itens_periodo_por_data_lancamento(
             $matrizItensId,
-            $pDeIt,
-            $pAtIt,
+            $pDeItDet,
+            $pAtItDet,
             'utilizado'
         );
     }
@@ -745,6 +761,8 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
             'matriz_label'            => ($medicaoMatrizNome !== '' ? $medicaoMatrizNome : ($matrizItensId > 0 ? 'Matriz #' . $matrizItensId : '—')),
             'periodo_de'              => $pDeIt,
             'periodo_ate'             => $pAtIt,
+            'periodo_crm_de'          => $pDeItDet,
+            'periodo_crm_ate'         => $pAtItDet,
             'ref_ym'                  => preg_match('/^\d{4}-\d{2}$/', $refYmBm) ? $refYmBm : '',
             'bm_linhas'               => $bmLinhasBoletim,
             'detalhe_itens_linhas'    => $detalheLinhasBoletim,
@@ -755,7 +773,7 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
                 'valor_utilizado'  => (float) ($kpMed['valor_itens_utilizados'] ?? 0),
                 'total_anexos'     => (int) ($kpMed['quantidade_anexos'] ?? 0),
             ],
-            'incluir_detalhamento_chamados' => ($pDeIt !== '' && $pAtIt !== ''),
+            'incluir_detalhamento_chamados' => ($pDeItDet !== '' && $pAtItDet !== ''),
             'arquivo_suffix'               => $exportFmt === 'xlsx_detalhes' ? 'com_detalhes_chamados' : '',
         ]
     );
@@ -974,7 +992,7 @@ $activePage = 'chamados';
 
 $topTitle    = $CRM_CHAMADOS_IS_CLIENTE ? 'Meus chamados' : 'Chamados';
 $topSubtitle = $CRM_CHAMADOS_IS_OPERADOR
-    ? 'Chamados em que é técnico principal ou faz parte da equipe do atendimento.'
+    ? ''
     : ($CRM_CHAMADOS_IS_CLIENTE ? 'Lista dos chamados da sua prefeitura.' : 'Lista filtrada pela data de abertura (por defeito: mês atual).');
 $topSearch   = $CRM_CHAMADOS_IS_OPERADOR
     ? 'Buscar por ID ou assunto...'
@@ -989,6 +1007,7 @@ $chPanelSidebar = $CRM_CHAMADOS_IS_CLIENTE
 
 if ($CRM_CHAMADOS_IS_OPERADOR) {
     $operadorPwa = true;
+    $topbarCompact = true;
 }
 
 include __DIR__ . '/head.php';
@@ -1000,6 +1019,13 @@ include __DIR__ . '/head.php';
 
 <section class="content<?= $CRM_CHAMADOS_IS_OPERADOR ? ' ch-op-page' : '' ?>">
   <style>
+    .chamados-periodo-quick__btn--active {
+      background: var(--primary, #534ab7);
+      border-color: var(--primary, #534ab7);
+      color: #fff;
+    }
+    .chamados-row--inativo { opacity: 0.82; background: rgba(248, 250, 252, 0.9); }
+    .chamados-row--inativo .td-title { text-decoration: line-through; text-decoration-color: rgba(100, 116, 139, 0.55); }
     .chamados-col-anexos { width: 52px; text-align: center; white-space: nowrap; }
     .td-ch-anexos { text-align: center; vertical-align: middle; }
     .chamados-anexos-trigger {
@@ -1146,6 +1172,7 @@ include __DIR__ . '/head.php';
     }
 <?php if ($CRM_CHAMADOS_IS_OPERADOR): ?>
     .ch-op-feed {
+      margin: 13px 0;
       padding: 0 12px 12px;
       display: flex;
       flex-direction: column;
@@ -1317,34 +1344,22 @@ include __DIR__ . '/head.php';
       <a href="<?= htmlspecialchars(oper_chamados_url(1, '', $q)) ?>" class="chip <?= $f === '' ? 'active' : '' ?>">Todos</a>
       <a href="<?= htmlspecialchars(oper_chamados_url(1, 'andamento', $q)) ?>" class="chip <?= $f === 'andamento' ? 'active' : '' ?>">Em andamento</a>
       <a href="<?= htmlspecialchars(oper_chamados_url(1, 'aguardando', $q)) ?>" class="chip <?= $f === 'aguardando' ? 'active' : '' ?>">Aguardando</a>
-      <a href="<?= htmlspecialchars(oper_chamados_url(1, 'resolvido', $q)) ?>" class="chip <?= $f === 'resolvido' ? 'active' : '' ?>">Resolvidos</a>
     </div>
     <?php else: ?>
     <div class="filters" style="padding:12px 20px;border-bottom:1px solid var(--border);display:grid;gap:12px;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <div class="chamados-periodo-quick" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <?php
-          $qsPeriodoLimpar = array_filter([
-              'periodo_limpar'    => '1',
-              'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
-              'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
-              'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
-              'local_q'           => $localQ !== '' ? $localQ : null,
-              'f'                 => $f !== '' ? $f : null,
-              'q'                 => $q !== '' ? $q : null,
-          ], static fn ($v) => $v !== null && $v !== '');
-          $qsMesAtual = array_filter([
-              'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
-              'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
-              'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
-              'local_q'           => $localQ !== '' ? $localQ : null,
-              'f'                 => $f !== '' ? $f : null,
-              'q'                 => $q !== '' ? $q : null,
-          ], static fn ($v) => $v !== null && $v !== '');
-          $urlPeriodoLimpar = 'chamados.php' . ($qsPeriodoLimpar !== [] ? '?' . http_build_query($qsPeriodoLimpar) : '');
-          $urlMesAtual      = 'chamados.php' . ($qsMesAtual !== [] ? '?' . http_build_query($qsMesAtual) : '');
+          $chPeriodoBtn = static function (string $preset, string $label) use ($admChPeriodoCtx, $f, $q, $chamadosPeriodoPresetAtivo): string {
+              $active = $chamadosPeriodoPresetAtivo === $preset;
+              $cls    = 'btn btn-secondary btn-sm' . ($active ? ' chamados-periodo-quick__btn--active' : '');
+              $href   = adm_chamados_periodo_quick_url(1, $f, $q, $admChPeriodoCtx, $preset === 'limpar' ? 'limpar' : $preset);
+
+              return '<a class="' . htmlspecialchars($cls) . '" href="' . htmlspecialchars($href) . '">' . htmlspecialchars($label) . '</a>';
+          };
+          echo $chPeriodoBtn('hoje', 'Dia atual');
+          echo $chPeriodoBtn('mes', 'Mês atual');
+          echo $chPeriodoBtn('limpar', 'Todo o período');
         ?>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($urlPeriodoLimpar) ?>">Todo o período</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($urlMesAtual) ?>">Mês atual</a>
       </div>
 
       <form method="get" action="chamados.php" style="display:flex;flex-wrap:nowrap;gap:12px;align-items:flex-end;width:100%;min-width:0;overflow-x:auto;">
@@ -1514,8 +1529,11 @@ include __DIR__ . '/head.php';
           <tr><td colspan="10" class="muted" style="padding:24px;text-align:center;">Nenhum chamado encontrado.</td></tr>
           <?php else: ?>
           <?php foreach ($lista as $c): ?>
-          <?php $isBm = !empty($c['medicao_bm']); ?>
-          <tr>
+          <?php
+            $isBm = !empty($c['medicao_bm']);
+            $chInativo = !$isBm && isset($c['ativo']) && (int) $c['ativo'] === 0;
+          ?>
+          <tr class="<?= $chInativo ? 'chamados-row--inativo' : '' ?>">
             <td class="td-id"><?= $isBm ? 'BM-' . (int) ($c['medicao_bm_linha_id'] ?? 0) : '#' . (int) $c['id'] ?></td>
             <td>
               <div class="td-title"><?= htmlspecialchars((string) ($c['titulo'] ?? '')) ?></div>
@@ -1528,7 +1546,12 @@ include __DIR__ . '/head.php';
             <td><span class="badge <?= status_class((string) ($c['prioridade'] ?? '')) ?>"><?= htmlspecialchars((string) ($c['prioridade'] ?? '')) ?></span></td>
             <td>
               <span class="badge <?= status_class((string) ($c['status'] ?? '')) ?>"><?= htmlspecialchars((string) ($c['status'] ?? '')) ?></span>
-              <?php if (!$isBm && !empty($c['finalizado_operador_em']) && empty($c['aprovado_gestor_em'])): ?>
+              <?php if ($chInativo): ?>
+                <span class="badge urgent" style="margin-left:4px;font-size:10px;" title="Exclusão lógica">Inativo</span>
+                <?php if (!empty($c['excluido_em'])): ?>
+                <small class="muted" style="display:block;margin-top:4px;">Inativado em <?= htmlspecialchars((string) $c['excluido_em']) ?><?= !empty($c['excluido_por_nome']) ? ' · ' . htmlspecialchars((string) $c['excluido_por_nome']) : '' ?></small>
+                <?php endif; ?>
+              <?php elseif (!$isBm && !empty($c['finalizado_operador_em']) && empty($c['aprovado_gestor_em'])): ?>
                 <small class="muted" style="display:block;margin-top:4px;">Aguardando aprovação</small>
               <?php endif; ?>
             </td>
@@ -1605,8 +1628,8 @@ include __DIR__ . '/head.php';
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               </a>
               <?php endif; ?>
-              <?php if (!$CRM_CHAMADOS_IS_CLIENTE): ?>
-              <form method="post" action="chamados.php" style="display:inline;" data-confirm="Excluir chamado #<?= (int) $c['id'] ?> e todo o histórico?" data-confirm-danger>
+              <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$chInativo): ?>
+              <form method="post" action="chamados.php" style="display:inline;" data-confirm="Inativar chamado #<?= (int) $c['id'] ?>? O registo permanece no sistema (exclusão lógica) e poderá ser consultado em «Excluídos / inativos»." data-confirm-danger>
                 <input type="hidden" name="acao" value="excluir">
                 <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
                 <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id_ctx" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
@@ -1615,7 +1638,7 @@ include __DIR__ . '/head.php';
                 <?php if ($localQ !== ''): ?><input type="hidden" name="local_q_ctx" value="<?= htmlspecialchars($localQ) ?>"><?php endif; ?>
                 <?php if ($f !== ''): ?><input type="hidden" name="f_ctx" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
                 <?php if ($periodoLimpar): ?><input type="hidden" name="periodo_limpar" value="1"><?php elseif ($medicaoMes !== ''): ?><input type="hidden" name="medicao_mes" value="<?= htmlspecialchars($medicaoMes) ?>"><?php else: ?><input type="hidden" name="periodo_de" value="<?= htmlspecialchars((string) $periodoDe) ?>"><input type="hidden" name="periodo_ate" value="<?= htmlspecialchars((string) $periodoAte) ?>"><?php endif; ?>
-                <button type="submit" class="action danger" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;">Excluir</button>
+                <button type="submit" class="action danger" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;" title="Exclusão lógica">Inativar</button>
               </form>
               <?php endif; ?>
               <?php endif; ?>

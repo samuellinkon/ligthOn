@@ -10,6 +10,10 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 require_once __DIR__ . '/medicao_export_bm_boletim_xlsx.php';
+
+/** Última coluna da grelha GIP institucional (17 colunas A–Q). */
+const BM_MED_GIP_LAST_COL = 'Q';
+
 require_once __DIR__ . '/chamados_medicao_tpl1.php';
 
 function bm_med_dt_br(?string $raw): string
@@ -56,7 +60,7 @@ function bm_med_data_dia_br(?string $raw): string
     return $t ? date('d/m/Y', $t) : trim($raw);
 }
 
-/** Cabeçalhos exactos do modelo GIP (colunas A–S). Coluna B: ID do chamado. */
+/** Cabeçalhos exactos do modelo GIP (colunas A–Q). Coluna B: ID do chamado. */
 function bm_med_headers_gip(): array
 {
     return [
@@ -77,8 +81,6 @@ function bm_med_headers_gip(): array
         'VALOR UNITÁRIO (R$)',
         'VALOR TOTAL (R$)',
         'Material Retirados/Incluído',
-        'Quantidade',
-        'Marca Luminária',
     ];
 }
 
@@ -185,8 +187,6 @@ function bm_med_linha_institucional_gip(
     $sheet->setCellValue('O' . $r, (float) ($ln['valor_unitario'] ?? 0));
     $sheet->setCellValue('P' . $r, (float) ($ln['subtotal'] ?? 0));
     $sheet->setCellValue('Q' . $r, bm_med_material_retirados_incluido_txt($ln));
-    $sheet->setCellValue('R' . $r, '');
-    $sheet->setCellValue('S' . $r, '');
 }
 
 /**
@@ -291,7 +291,7 @@ function bm_med_border(): array
 }
 
 /**
- * Capa institucional (4 linhas), estrutura próxima ao modelo 1.xlsx: título hero, grelha 2x2, faixa de serviço, espaçador.
+ * Capa institucional: título, subtítulo alinhado ao BM v2 (medição + CRM + fecho), grelha 2x2, faixa de serviço, espaçador.
  *
  * @return int Primeira linha do bloco contrato ($c0).
  */
@@ -304,19 +304,45 @@ function bm_med_capa_boletim_montar(
     string $emitido,
     string $brand,
     string $matrizLb,
-    string $refYm
+    string $refYm,
+    ?string $periodoCrmDe = null,
+    ?string $periodoCrmAte = null
 ): int {
     $mesTxt = ($refYm !== '' && function_exists('medicao_mes_label_pt'))
         ? medicao_mes_label_pt($refYm)
         : $periodoTxt;
 
+    $dCr = $periodoCrmDe !== null ? trim($periodoCrmDe) : '';
+    $aCr = $periodoCrmAte !== null ? trim($periodoCrmAte) : '';
+
     $r = 1;
     $sheet->mergeCells("A{$r}:{$lastLt}{$r}");
     $sheet->setCellValue("A{$r}", "BOLETIM DE MEDIÇÃO  ·  Nº {$nrBol}");
-    $sheet->getStyle("A{$r}:{$lastLt}{$r}")->applyFromArray($st['title_main']);
+    $titleHero = $st['title_main'];
+    $titleHero['fill'] = medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BRAND_PRIMARY);
+    $sheet->getStyle("A{$r}:{$lastLt}{$r}")->applyFromArray($titleHero);
     $sheet->getStyle("A{$r}:{$lastLt}{$r}")->getAlignment()
         ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(false);
     $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
+
+    ++$r;
+    $subLinha1 = 'Medição ' . $mesTxt . ' — ' . ($matrizLb !== '' ? $matrizLb : 'Contratante');
+    $subTexto  = $subLinha1;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dCr) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $aCr) && $dCr <= $aCr) {
+        $iniPt = date('d/m/Y', strtotime($dCr));
+        $fimPt = date('d/m/Y', strtotime($aCr));
+        $subTexto .= "\n" . 'Data inicial solicitada (CRM): ' . $iniPt . '  ·  Até o fecho do BM: ' . $fimPt;
+    }
+    $sheet->mergeCells("A{$r}:{$lastLt}{$r}");
+    $sheet->setCellValue("A{$r}", $subTexto);
+    $sheet->getStyle("A{$r}:{$lastLt}{$r}")->applyFromArray($st['title_sub_flat']);
+    $sheet->getStyle("A{$r}:{$lastLt}{$r}")->getAlignment()
+        ->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true)->setIndent(1);
+    $subAltura = 36.0;
+    if (strpos($subTexto, "\n") !== false) {
+        $subAltura = 44.0;
+    }
+    $sheet->getRowDimension($r)->setRowHeight($subAltura);
 
     ++$r;
     $sheet->mergeCells("A{$r}:D{$r}");
@@ -326,7 +352,10 @@ function bm_med_capa_boletim_montar(
     $sheet->mergeCells("I{$r}:L{$r}");
     $sheet->setCellValue("I{$r}", "Contrato\n—");
     $sheet->mergeCells("M{$r}:{$lastLt}{$r}");
-    $sheet->setCellValue("M{$r}", "Período / emitido\n" . $periodoTxt . "\n" . $emitido);
+    $sheet->setCellValue(
+        "M{$r}",
+        "Referência / emissão\n" . $periodoTxt . "\n\nGerado em\n" . $emitido
+    );
     $sheet->getStyle("A{$r}:D{$r}")->applyFromArray($st['capa_grid_cell']);
     $sheet->getStyle("E{$r}:H{$r}")->applyFromArray($st['capa_grid_cell']);
     $sheet->getStyle("I{$r}:L{$r}")->applyFromArray($st['capa_grid_cell']);
@@ -602,7 +631,7 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
                     'wrapText'   => false,
                 ],
             ];
-            foreach (['A', 'B', 'E', 'F', 'H', 'I', 'J', 'K', 'N', 'Q', 'R', 'S'] as $col) {
+            foreach (['A', 'B', 'E', 'F', 'H', 'I', 'J', 'K', 'N', 'Q'] as $col) {
                 $sheet->getStyle($col . $rIni . ':' . $col . $rFim)->applyFromArray($txtLeft);
             }
             foreach (['G', 'L'] as $col) {
@@ -612,8 +641,7 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
             foreach (['C', 'D'] as $col) {
                 $sheet->getStyle($col . $rIni . ':' . $col . $rFim)->applyFromArray($st['numeric']);
             }
-            foreach (['M', 'R'] as $col) {
-                $sheet->getStyle($col . $rIni . ':' . $col . $rFim)->applyFromArray([
+            $sheet->getStyle('M' . $rIni . ':M' . $rFim)->applyFromArray([
                     'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
                     'alignment' => [
                         'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -621,7 +649,6 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
                         'wrapText'   => false,
                     ],
                 ]);
-            }
             $sheet->getStyle('O' . $rIni . ':P' . $rFim)->applyFromArray($st['money']);
             foreach ($brs as $br) {
                 $sheet->getStyle('C' . $br)->getNumberFormat()->setFormatCode('#,##0.0000000');
@@ -761,7 +788,7 @@ function chamados_medicao_export_xlsx_send(
 }
 
 /**
- * Monta o workbook do boletim institucional (modelo GIP): capa A–S + tabela A–S por lançamentos consolidados.
+ * Monta o workbook do boletim institucional (modelo GIP): capa A–Q + tabela A–Q por lançamentos consolidados.
  *
  * @param array<string,mixed> $ctx
  *
@@ -773,7 +800,7 @@ function bm_med_workbook_build(array $ctx): array
         require_once __DIR__ . '/config.php';
     }
 
-    $lastLetter = 'S';
+    $lastLetter = BM_MED_GIP_LAST_COL;
     $st         = medicao_bm_boletim_style_arrays_tipografia();
     $hdrs       = bm_med_headers_gip();
 
@@ -797,7 +824,19 @@ function bm_med_workbook_build(array $ctx): array
     $emitido = date('d/m/Y H:i');
     $brand   = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
 
-    $c0 = bm_med_capa_boletim_montar($sheet, $lastLetter, $st, $nrBol, $periodoTxt, $emitido, $brand, $matrizLb, $refYm);
+    $c0 = bm_med_capa_boletim_montar(
+        $sheet,
+        $lastLetter,
+        $st,
+        $nrBol,
+        $periodoTxt,
+        $emitido,
+        $brand,
+        $matrizLb,
+        $refYm,
+        trim((string) ($ctx['periodo_crm_de'] ?? '')) !== '' ? trim((string) $ctx['periodo_crm_de']) : null,
+        trim((string) ($ctx['periodo_crm_ate'] ?? '')) !== '' ? trim((string) $ctx['periodo_crm_ate']) : null
+    );
 
     $thRow = $c0;
     $ci    = 1;
@@ -813,7 +852,7 @@ function bm_med_workbook_build(array $ctx): array
 
     if ($detGrp === []) {
         $gipEmptyMsgRow = $rx;
-        $sheet->mergeCells('A' . $rx . ':S' . $rx);
+        $sheet->mergeCells('A' . $rx . ':' . BM_MED_GIP_LAST_COL . $rx);
         $sheet->setCellValue(
             'A' . $rx,
             'Nenhum lançamento «utilizado» no período (filtro pela data em chamado_itens.criado_em; defina período nos filtros da lista de chamados).'
@@ -850,7 +889,7 @@ function bm_med_workbook_build(array $ctx): array
         ->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER)->setIndent(1);
 
     $foot = $tRowTot + 1;
-    $sheet->mergeCells('A' . $foot . ':S' . $foot);
+    $sheet->mergeCells('A' . $foot . ':' . BM_MED_GIP_LAST_COL . $foot);
     $sheet->setCellValue(
         'A' . $foot,
         'Documento gerado pelo sistema ' . $brand . ' · Boletim de medição (modelo GIP) · Gerado por: ' . $usuario
@@ -858,21 +897,21 @@ function bm_med_workbook_build(array $ctx): array
     $sheet->getStyle('A' . $foot)->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_CENTER);
 
     if ($dataFirst !== null && $dataLast !== null && $dataLast >= $dataFirst) {
-        $sheet->setAutoFilter('A' . $thRow . ':S' . $dataLast);
+        $sheet->setAutoFilter('A' . $thRow . ':' . BM_MED_GIP_LAST_COL . $dataLast);
     }
 
     foreach (
         [
             'A' => 14, 'B' => 10, 'C' => 16, 'D' => 16, 'E' => 20, 'F' => 18, 'G' => 42,
             'H' => 18, 'I' => 22, 'J' => 18, 'K' => 16, 'L' => 48, 'M' => 10, 'N' => 8,
-            'O' => 18, 'P' => 18, 'Q' => 24, 'R' => 12, 'S' => 22,
+            'O' => 18, 'P' => 18, 'Q' => 28,
         ] as $Lt => $w
     ) {
         $sheet->getColumnDimension((string) $Lt)->setWidth((float) $w);
     }
 
     foreach ($bodyRows as $br) {
-        $sheet->getStyle('A' . $br . ':S' . $br)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getStyle('A' . $br . ':' . BM_MED_GIP_LAST_COL . $br)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
         $vG = $sheet->getCell('G' . $br)->getValue();
         $vL = $sheet->getCell('L' . $br)->getValue();
         $lenG = is_string($vG) ? mb_strlen($vG) : 0;
@@ -889,7 +928,7 @@ function bm_med_workbook_build(array $ctx): array
         'gip_empty_msg_row'  => $gipEmptyMsgRow,
         'gip_tot_row'        => $tRowTot,
         'footer_row'         => $foot,
-        'footer_last_col'    => 'S',
+        'footer_last_col'    => BM_MED_GIP_LAST_COL,
     ];
     bm_med_planilha_aplicar_estilos_marca_dados($sheet, $gipStyleCtx);
 

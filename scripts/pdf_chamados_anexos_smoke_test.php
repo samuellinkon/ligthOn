@@ -11,16 +11,47 @@ require_once $root . '/includes/config.php';
 require_once $root . '/includes/chamados_periodo_export_pdf.php';
 require_once $root . '/includes/chamados_periodo_pdf_dompdf.php';
 
+$resumo = [
+    'total'            => 42,
+    'por_status'       => [
+        'Aberto'        => 5,
+        'Em andamento'  => 8,
+        'Aguardando'    => 2,
+        'Resolvido'     => 20,
+        'Fechado'       => 6,
+        'Cancelado'     => 1,
+    ],
+    'por_prioridade'   => ['Baixa' => 10, 'Normal' => 30, 'Média' => 1, 'Alta' => 1],
+    'com_anexo'        => 15,
+    'urgentes_abertos' => 3,
+];
+
+$items = [
+    [
+        'chamado' => [
+            'id'                => 1015,
+            'data'              => '2026-05-11 15:40',
+            'status'            => 'Em andamento',
+            'prioridade'        => 'Normal',
+            'endereco_completo' => 'Rua Exemplo, 100 — Bairro',
+            'tecnico_nome'      => 'Equipa campo A',
+            'titulo'            => 'Poste sem iluminação',
+            'cliente'           => 'Cliente smoke',
+        ],
+        'anexos' => [],
+    ],
+];
+
 $html = chamados_periodo_anexos_export_html(
-    [],
-    'Smoke test',
-    0,
-    0,
+    $items,
+    '01/05/2026 — 31/05/2026',
+    42,
+    1,
     false,
     false,
     false,
-    [],
-    '',
+    $resumo,
+    'Prefeitura Municipal (smoke)',
     []
 );
 if ($html === '') {

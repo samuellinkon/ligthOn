@@ -337,12 +337,23 @@ a.pag-btn {
 
 /* ---------- Medição — listagem mensal (coluna Ações: ícones) ---------- */
 
-/* Ocupa toda a largura útil do card; colunas repartem o espaço (evita “vazio” à direita). */
-.table-wrap:has(.medicao-meses-table) {
+.medicao-page .panel-head {
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 14px 20px;
+}
+
+.medicao-page .panel-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Ocupa toda a largura do card (sem reduzir o bloco). */
+.medicao-page .table-wrap:has(.medicao-meses-table) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .medicao-meses-table {
@@ -359,41 +370,78 @@ a.pag-btn {
 
 .medicao-meses-table th:nth-child(1),
 .medicao-meses-table td:nth-child(1) {
-  width: 18%;
+  width: 14%;
 }
 
 .medicao-meses-table th:nth-child(2),
 .medicao-meses-table td:nth-child(2) {
-  width: 10%;
+  width: 8%;
 }
 
 .medicao-meses-table th:nth-child(3),
 .medicao-meses-table td:nth-child(3),
 .medicao-meses-table th:nth-child(4),
 .medicao-meses-table td:nth-child(4) {
-  width: 15%;
+  width: 11%;
 }
 
 .medicao-meses-table th:nth-child(5),
 .medicao-meses-table td:nth-child(5) {
-  width: 16%;
+  width: 12%;
+}
+
+.medicao-meses-table th.medicao-bm-col,
+.medicao-meses-table td.medicao-bm-cell {
+  width: 30%;
+  min-width: 220px;
 }
 
 .medicao-meses-table th.td-actions,
 .medicao-meses-table td.td-actions {
-  width: 26%;
+  width: 19%;
   padding-left: 10px;
   padding-right: 12px;
 }
 
 .medicao-meses-table tbody td {
-  height: 72px;
+  min-height: 72px;
+  height: auto;
   vertical-align: middle;
+}
+
+.medicao-meses-table td.medicao-bm-cell {
+  vertical-align: top;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  white-space: normal;
+}
+
+.medicao-bm-inline-form {
+  margin: 0;
+}
+
+.medicao-bm-inline-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.medicao-meses-table .medicao-bm-date {
+  max-width: 148px;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.medicao-meses-table th,
+.medicao-meses-table td {
+  text-align: left;
 }
 
 .medicao-meses-table th.td-actions,
 .medicao-meses-table td.td-actions {
-  text-align: right;
+  text-align: left;
 }
 
 .medicao-meses-table td.td-actions {
@@ -421,6 +469,21 @@ a.pag-btn {
   text-decoration: none;
   font-size: 16px;
   transition: 0.16s ease;
+}
+
+.medicao-meses-table button.action-icon {
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+
+.medicao-meses-table button.action-icon:focus-visible {
+  outline: 2px solid #5b4df1;
+  outline-offset: 2px;
 }
 
 .medicao-meses-table .action-icon:hover {
@@ -469,4 +532,121 @@ a.pag-btn {
 .medicao-meses-table .action-icon:hover::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+.catalogo-estoque--baixo {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+tr.catalogo-row--estoque-baixo td {
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.catalogo-estoque--negativo {
+  color: #b45309;
+  font-weight: 700;
+}
+
+/* Catálogo — cabeçalho estilo Excel (ordenação + filtro por coluna) */
+.catalogo-excel-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.catalogo-excel-table thead th {
+  vertical-align: bottom;
+  padding: 0;
+  background: var(--surface-2, #f8fafc);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.catalogo-excel-table__head-sort th {
+  border-bottom: none;
+}
+
+.catalogo-excel-table__head-filters th {
+  padding: 6px 8px 10px;
+  font-weight: 500;
+}
+
+.catalogo-excel-sort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  text-align: left;
+}
+
+.catalogo-excel-sort.text-right,
+th.text-right .catalogo-excel-sort {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.catalogo-excel-sort:hover {
+  background: rgba(83, 74, 183, 0.06);
+  color: var(--text, #0f172a);
+}
+
+.catalogo-excel-sort.is-sorted-asc,
+.catalogo-excel-sort.is-sorted-desc {
+  color: #534ab7;
+}
+
+.catalogo-excel-sort__icon {
+  font-size: 11px;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.catalogo-excel-filter {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.catalogo-excel-filter:focus {
+  outline: 2px solid rgba(83, 74, 183, 0.25);
+  border-color: #7f77dd;
+}
+
+select.catalogo-excel-filter {
+  cursor: pointer;
+}
+
+.catalogo-excel-filter-actions {
+  text-align: right;
+}
+
+.btn-catalogo-excel-clear {
+  padding: 5px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+}
+
+.btn-catalogo-excel-clear:hover {
+  border-color: #cbd5e1;
+  color: var(--text, #0f172a);
 }

@@ -682,6 +682,10 @@ input.crm-file-input-native.input {
   padding-top: 6px;
 }
 
+.composer .composer-bar--send-only {
+  justify-content: flex-end;
+}
+
 .composer .composer-tools {
   display: flex;
   gap: 8px;

@@ -49,6 +49,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash_set('err', 'Banco indisponível.');
         header('Location: chamado_detalhe.php?id=' . $id); exit;
     }
+    $__chInativoPost = repo_chamado($id);
+    if ($__chInativoPost && isset($__chInativoPost['ativo']) && (int) $__chInativoPost['ativo'] === 0) {
+        flash_set('err', 'Chamado inativo — não é possível alterar este registo.');
+        header('Location: chamado_detalhe.php?id=' . $id);
+        exit;
+    }
     try {
         $acao             = (string) ($_POST['acao'] ?? '');
         $silentAutosave   = isset($_POST['silent_autosave']) && (string) $_POST['silent_autosave'] === '1';
@@ -416,7 +422,13 @@ if (db_ok()) {
             header('Location: chamados.php');
             exit;
         }
+        if (isset($chamado['ativo']) && (int) $chamado['ativo'] === 0) {
+            flash_set('err', 'Este chamado foi inativado e não está mais disponível no portal.');
+            header('Location: chamados.php');
+            exit;
+        }
     }
+    $chamadoInativo = isset($chamado['ativo']) && (int) $chamado['ativo'] === 0;
     $respostas = repo_chamado_respostas_do_ticket($id, $CRM_CHAMADO_PORTAL);
     try {
         $empresaChamadoId      = repo_cliente_catalogo_dono_id((int) $chamado['cliente_id']);
@@ -435,6 +447,12 @@ if (db_ok()) {
         static fn (array $m): bool => (($m['movimento'] ?? '') === 'devolvido')
     ));
     $pontosOsForm = repo_pontos_iluminacao_options((int) ($chamado['cliente_id'] ?? 0));
+
+    $chamadoHistorico = [];
+    if (!$CRM_CHAMADO_PORTAL) {
+        require_once __DIR__ . '/../includes/chamado_historico.php';
+        $chamadoHistorico = repo_chamado_historico_list($id, $chamado);
+    }
 
     $pidPonto = (int) ($chamado['ponto_iluminacao_id'] ?? 0);
     if ($pidPonto > 0) {
@@ -466,6 +484,8 @@ if (db_ok()) {
     $pontosOsForm = [];
     $chamadoMateriaisUtil = [];
     $chamadoMateriaisDev  = [];
+    $chamadoHistorico = [];
+    $chamadoInativo = false;
 }
 
 $cliente   = find_by_id($MOCK_CLIENTES, $chamado['cliente_id']);
@@ -791,7 +811,135 @@ include __DIR__ . '/../includes/head.php';
       line-height: 1.4;
     }
 
+    .chamado-historico-card .panel-body {
+      padding: 14px 20px 22px;
+    }
+
+    .chamado-historico-empty p {
+      margin: 0 0 6px;
+      font-size: 14px;
+    }
+
+    .chamado-historico-timeline {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .chamado-historico-item {
+      position: relative;
+      display: flex;
+      gap: 14px;
+      padding: 0 0 18px 2px;
+    }
+
+    .chamado-historico-item:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 9px;
+      top: 20px;
+      bottom: 0;
+      width: 2px;
+      background: var(--border-soft, #e8e8f0);
+    }
+
+    .chamado-historico-item__dot {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      margin-top: 2px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px var(--border-soft, #e0e0ea);
+      background: #94a3b8;
+    }
+
+    .chamado-historico-item--success .chamado-historico-item__dot { background: #16a34a; }
+    .chamado-historico-item--warning .chamado-historico-item__dot { background: #d97706; }
+    .chamado-historico-item--danger .chamado-historico-item__dot { background: #dc2626; }
+    .chamado-historico-item--info .chamado-historico-item__dot { background: #534ab7; }
+    .chamado-historico-item--muted .chamado-historico-item__dot { background: #94a3b8; }
+
+    .chamado-historico-item__body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chamado-historico-item__head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px 12px;
+    }
+
+    .chamado-historico-item__title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .chamado-historico-item__time {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .chamado-historico-item__detail {
+      margin: 6px 0 0;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text-secondary, #475569);
+      word-break: break-word;
+    }
+
+    .chamado-historico-item__actor {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .chamado-historico-item__actor-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .chamado-historico-item__actor-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .chamado-historico-item__badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      background: rgba(83, 74, 183, 0.1);
+      color: #534ab7;
+    }
+
   </style>
+
+  <?php if (!empty($chamadoInativo)): ?>
+  <div class="panel-note chamado-inativo-banner" role="status" style="margin:0 0 16px;border-color:rgba(220,38,38,.35);background:rgba(254,226,226,.45);">
+    <strong>Chamado inativo (exclusão lógica)</strong>
+    <p style="margin:6px 0 0;font-size:14px;line-height:1.45;">
+      Este registo foi inativado<?= !empty($chamado['excluido_em']) ? ' em ' . htmlspecialchars((string) $chamado['excluido_em']) : '' ?><?= !empty($chamado['excluido_por_nome']) ? ' por ' . htmlspecialchars((string) $chamado['excluido_por_nome']) : '' ?>.
+      O histórico permanece consultável; alterações e novas ações estão bloqueadas.
+      <a href="chamados.php">Voltar à listagem de chamados</a>
+    </p>
+  </div>
+  <?php endif; ?>
 
   <div class="ticket-header chamado-header-toolbar">
     <div class="chamado-header-toolbar__body">
@@ -1137,6 +1285,18 @@ include __DIR__ . '/../includes/head.php';
       <?php endif; ?>
       <?php endif; ?>
 
+      <?php if (!$CRM_CHAMADO_PORTAL): ?>
+      <div class="card chamado-historico-card">
+        <div class="panel-head">
+          <h4>Histórico</h4>
+          <span class="panel-sub"><?= count($chamadoHistorico) ?> evento(s) · criação, edições, mensagens, fotos, itens e aprovações</span>
+        </div>
+        <div class="panel-body">
+          <?php include __DIR__ . '/../includes/chamado_historico_timeline.php'; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <!-- CONVERSA -->
       <div class="card">
         <div class="panel-head">
@@ -1149,7 +1309,7 @@ include __DIR__ . '/../includes/head.php';
             <div class="empty-state" style="padding:20px;">
               <div class="empty-icon">💬</div>
               <p>Nenhuma resposta ainda.</p>
-              <small><?= $CRM_CHAMADO_PORTAL ? 'Use o campo abaixo para enviar uma mensagem ao suporte.' : 'Use o campo abaixo para responder ao cliente ou registrar uma nota interna.' ?></small>
+              <small><?= $CRM_CHAMADO_PORTAL ? 'Use o campo abaixo para enviar uma mensagem ao suporte.' : 'Use o campo abaixo para responder ao portal da prefeitura.' ?></small>
             </div>
           <?php else: foreach ($respostas as $r): ?>
             <div class="msg <?= ($CRM_CHAMADO_PORTAL ? (($r['tipo'] ?? '') === 'cliente') : (($r['tipo'] ?? '') === 'admin')) ? 'me' : '' ?> <?= !empty($r['interna']) ? 'msg-interna' : '' ?>">
@@ -1187,28 +1347,10 @@ include __DIR__ . '/../includes/head.php';
         <!-- COMPOSER -->
         <form class="composer" method="post" enctype="multipart/form-data" id="composer-form">
           <input type="hidden" name="acao" value="responder">
-          <input type="hidden" name="interna" id="composer-interna" value="">
           <textarea class="textarea" id="composer-text" name="resposta"
                     placeholder="<?= $CRM_CHAMADO_PORTAL ? 'Escreva uma mensagem para o suporte…' : 'Escreva uma resposta para o portal da prefeitura…' ?>"></textarea>
 
-          <!-- Lista de arquivos selecionados (preview antes de enviar) -->
-          <div class="composer-files" id="composer-files" hidden>
-            <strong>Arquivos selecionados:</strong>
-            <ul id="composer-files-list"></ul>
-          </div>
-
-          <input type="file" id="composer-file-input" name="anexos[]" multiple hidden
-                 accept=".pdf,.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar,.7z">
-
-          <div class="composer-bar">
-            <div class="composer-tools">
-              <button type="button" class="tool" id="btn-anexo">+ Anexo</button>
-              <?php if (!$CRM_CHAMADO_PORTAL): ?>
-              <button type="button" class="tool" id="btn-interna" title="Só admins verão esta mensagem">
-                <span class="dot"></span> Interna
-              </button>
-              <?php endif; ?>
-            </div>
+          <div class="composer-bar composer-bar--send-only">
             <button type="submit" class="btn btn-primary" id="btn-enviar"><?= $CRM_CHAMADO_PORTAL ? 'Enviar' : 'Enviar resposta' ?></button>
           </div>
         </form>

@@ -22,10 +22,11 @@
   // ------------------------------------------------------------
   // + ANEXO
   // ------------------------------------------------------------
-  if (btnAnexo) {
+  if (btnAnexo && fileInput) {
     btnAnexo.addEventListener('click', () => fileInput.click());
   }
 
+  if (fileInput) {
   fileInput.addEventListener('change', () => {
     filesList.innerHTML = '';
     if (!fileInput.files || fileInput.files.length === 0) {
@@ -39,6 +40,7 @@
       filesList.appendChild(li);
     }
   });
+  }
 
   function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
@@ -119,7 +121,7 @@
   // ------------------------------------------------------------
   form.addEventListener('submit', (e) => {
     const texto = (textarea.value || '').trim();
-    const temArq = fileInput.files && fileInput.files.length > 0;
+    const temArq = fileInput && fileInput.files && fileInput.files.length > 0;
     if (!texto && !temArq) {
       e.preventDefault();
       if (typeof window.appAlert === 'function') {

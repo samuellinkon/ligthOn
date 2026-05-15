@@ -68,9 +68,9 @@ if (!empty($_GET['exportar_modelo'])) {
     echo "\xEF\xBB\xBF";
     $out = fopen('php://output', 'w');
     if ($out !== false) {
-        fputcsv($out, ['tipo', 'nome', 'codigo', 'unidade', 'valor_unitario', 'descricao'], ';');
-        fputcsv($out, ['produto', 'Exemplo produto', 'SKU-001', 'UN', '59,90', 'Substitua pelos seus dados'], ';');
-        fputcsv($out, ['servico', 'Exemplo serviço', 'SERV-001', 'UN', '120,00', ''], ';');
+        fputcsv($out, ['tipo', 'nome', 'codigo', 'unidade', 'valor_unitario', 'estoque_saldo', 'descricao'], ';');
+        fputcsv($out, ['produto', 'Exemplo produto', 'SKU-001', 'UN', '59,90', '25', 'Substitua pelos seus dados'], ';');
+        fputcsv($out, ['servico', 'Exemplo serviço', 'SERV-001', 'UN', '120,00', '0', ''], ';');
         fclose($out);
     }
     exit;

@@ -1,6 +1,6 @@
 <?php
 /**
- * Export Boletim BM (portal cliente) — XLSX no layout assets/templates/bm_boletim_padrao.xlsx.
+ * Export Boletim BM v2 — portal cliente (mesmo relatório físico + valores).
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/medicao_helpers.php';
 $me = require_auth('cliente');
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_cliente('medicao');
+require_once __DIR__ . '/../includes/repository.php';
 require_once __DIR__ . '/../includes/audit_log.php';
 
 if (!db_ok()) {
@@ -24,7 +25,7 @@ if (!preg_match('/^\d{4}-\d{2}$/', $mesRaw)) {
     exit;
 }
 
-$cid = (int) ($me['cliente_id'] ?? 0);
+$cid       = (int) ($me['cliente_id'] ?? 0);
 $clienteId = $cid > 0 ? repo_cliente_matriz_raiz_id($cid) : 0;
 
 if ($clienteId <= 0) {
@@ -40,14 +41,34 @@ if (!$clienteMatriz) {
     exit;
 }
 
-$dataDe  = $mesRaw . '-01';
-$dataAte = date('Y-m-t', strtotime($dataDe));
-$rel     = repo_medicao_chamados_relatorio($clienteId, $dataDe, $dataAte);
+$primeiroMesDia   = $mesRaw . '-01';
+$periodoAteMes    = medicao_bm_export_v2_periodo_ate($mesRaw);
+$fazerDownload    = (($_GET['export'] ?? '') === '1');
+$periodoParam     = trim((string) ($_GET['periodo_de'] ?? ''));
+
+if (!$fazerDownload) {
+    header('Location: medicao.php');
+    exit;
+}
+
+$periodoDe = preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoParam) ? $periodoParam : $primeiroMesDia;
+
+if ($periodoDe > $periodoAteMes) {
+    flash_set(
+        'err',
+        'A data inicial não pode ser posterior ao fecho do boletim (' . date('d/m/Y', strtotime($periodoAteMes)) . ').'
+    );
+    header('Location: medicao.php');
+    exit;
+}
 
 audit_log_registar('medicao.exportar_boletim_bm', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
-    'ref_ym' => $mesRaw,
-    'portal' => 1,
+    'ref_ym'       => $mesRaw,
+    'portal'       => 1,
+    'periodo_de'   => $periodoDe,
+    'periodo_ate'  => $periodoAteMes,
+    'exportadora'  => 'v2_consolidado',
 ]);
 
 require_once __DIR__ . '/../includes/medicao_export_bm_boletim_xlsx.php';
-medicao_export_bm_boletim_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $rel['totais']);
+medicao_export_bm_boletim_v2_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $periodoDe, $periodoAteMes);

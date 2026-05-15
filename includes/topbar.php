@@ -16,6 +16,12 @@ if (!isset($topActions))  $topActions  = [];
 if (!isset($topbarHideTitle)) {
     $topbarHideTitle = false;
 }
+if (!isset($topbarActionsFirst)) {
+    $topbarActionsFirst = false;
+}
+if (!isset($topbarCompact)) {
+    $topbarCompact = false;
+}
 
 $painelNotifOk = false;
 $notifUnreadInitial = 0;
@@ -51,7 +57,7 @@ if (function_exists('db_ok') && db_ok()) {
     }
 }
 ?>
-<header class="topbar">
+<header class="topbar<?= $topbarActionsFirst ? ' topbar--actions-first' : '' ?><?= $topbarCompact ? ' topbar--compact' : '' ?>">
   <div class="topbar-start">
     <button class="hamburger" aria-label="Abrir menu"><span></span></button>
     <?php if (!$topbarHideTitle): ?>

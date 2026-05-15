@@ -57,7 +57,7 @@ include __DIR__ . '/../includes/head.php';
 <main class="main">
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
-<section class="content">
+<section class="content medicao-page">
 
   <div class="card">
     <div class="panel-head">
@@ -76,21 +76,26 @@ include __DIR__ . '/../includes/head.php';
               <th class="text-right">Materiais</th>
               <th class="text-right">Serv. itens</th>
               <th class="text-right">Total</th>
+              <th class="medicao-bm-col">Boletim BM</th>
               <th class="td-actions">Ações</th>
             </tr>
           </thead>
           <tbody>
             <?php if (empty($mesesLista)): ?>
               <tr>
-                <td colspan="6" class="muted" style="padding:28px;text-align:center;">
+                <td colspan="7" class="muted" style="padding:28px;text-align:center;">
                   Nenhum mês com chamados nem importação BM — quando houver medições ou importação, os meses aparecem aqui.
                 </td>
               </tr>
             <?php else: foreach ($mesesLista as $row):
               $ym = (string) ($row['ym'] ?? '');
+              $bmPrimeiroDia   = $ym . '-01';
+              $bmPeriodoAte    = medicao_bm_export_v2_periodo_ate($ym);
+              $bmPeriodoAteFmt = date('d/m/Y', strtotime($bmPeriodoAte));
+              $bmIdYm          = htmlspecialchars(preg_replace('/\W/', '_', $ym), ENT_QUOTES, 'UTF-8');
+              $bmFormId        = 'bm-export-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', $ym);
               $hrefVerMedicao = 'medicao_ver.php?' . http_build_query(['mes' => $ym]);
               $hrefChamados = 'chamados.php?' . http_build_query(['medicao_mes' => $ym]);
-              $hrefBoletimBm = 'medicao_export_boletim_bm.php?' . http_build_query(['mes' => $ym]);
               $chExportCtx = [
                   'medicao_mes'       => $ym,
                   'periodo_de'        => '',
@@ -107,17 +112,30 @@ include __DIR__ . '/../includes/head.php';
                   $hrefPdfAnexos .= (strpos($hrefPdfAnexos, '?') !== false ? '&' : '?') . 'pdf_debug=1';
               }
               ?>
-              <tr>
+              <tr id="bm-<?= htmlspecialchars(str_replace(['\\', '/'], '-', $ym), ENT_QUOTES, 'UTF-8') ?>">
                 <td class="td-strong"><?= htmlspecialchars(medicao_mes_label_pt($ym)) ?></td>
                 <td class="text-right"><?= (int) ($row['n_chamados'] ?? 0) ?></td>
                 <td class="text-right td-mute">R$ <?= number_format((float) ($row['valor_materiais'] ?? 0), 2, ',', '.') ?></td>
                 <td class="text-right td-mute">R$ <?= number_format((float) ($row['valor_servicos'] ?? 0), 2, ',', '.') ?></td>
                 <td class="text-right"><strong>R$ <?= number_format((float) ($row['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>
+                <td class="medicao-bm-cell">
+                  <form id="<?= htmlspecialchars($bmFormId, ENT_QUOTES, 'UTF-8') ?>" method="get" action="medicao_export_boletim_bm.php" class="medicao-bm-inline-form">
+                    <input type="hidden" name="mes" value="<?= htmlspecialchars($ym) ?>">
+                    <input type="hidden" name="export" value="1">
+                    <div class="medicao-bm-inline-form__row">
+                      <label class="sr-only" for="bm_periodo_<?= $bmIdYm ?>">Início do período medido no CRM (opcional)</label>
+                      <input id="bm_periodo_<?= $bmIdYm ?>" type="date" name="periodo_de"
+                             class="input medicao-bm-date"
+                             value="<?= htmlspecialchars($bmPrimeiroDia) ?>"
+                             title="Opcional: vazio = dia 1 de <?= htmlspecialchars($ym) ?>. Não posterior ao fecho (<?= htmlspecialchars($bmPeriodoAteFmt) ?>).">
+                    </div>
+                  </form>
+                </td>
                 <td class="td-actions">
                   <div class="actions-inline">
                     <a class="action-icon primary" href="<?= htmlspecialchars($hrefVerMedicao) ?>" title="Ver medição" aria-label="Ver medição">📊</a>
                     <a class="action-icon" href="<?= htmlspecialchars($hrefChamados) ?>" title="Chamados" aria-label="Chamados">💬</a>
-                    <a class="action-icon excel" href="<?= htmlspecialchars($hrefBoletimBm) ?>" title="Excel — boletim BM" aria-label="Excel — boletim BM">📄</a>
+                    <button type="submit" form="<?= htmlspecialchars($bmFormId, ENT_QUOTES, 'UTF-8') ?>" class="action-icon excel" title="Excel — boletim BM" aria-label="Excel — boletim BM">📄</button>
                     <a class="action-icon excel" href="<?= htmlspecialchars($hrefXlsxDet) ?>" title="Excel — com detalhes" aria-label="Excel — com detalhes">📋</a>
                     <a class="action-icon pdf" href="<?= htmlspecialchars($hrefPdfAnexos) ?>" title="PDF com anexos" aria-label="PDF com anexos">📎</a>
                   </div>
@@ -128,8 +146,7 @@ include __DIR__ . '/../includes/head.php';
         </table>
       </div>
       <p class="muted" style="margin:16px 20px 20px;font-size:13px;line-height:1.45;">
-        O ícone <strong>Excel — boletim BM</strong> gera a planilha no layout do boletim de medição (modelo BM), com as quantidades do catálogo lançadas nos chamados do mês.
-        Os ícones <strong>Excel — com detalhes</strong> e <strong>PDF com anexos</strong> usam a exportação da listagem em Chamados.
+        Em <strong>Boletim BM</strong> escolha a data inicial (opcional) e use o ícone <strong>Excel — boletim BM</strong> (📄). O ícone <strong>Excel — com detalhes</strong> (📋) e o PDF usam Chamados.
       </p>
     </div>
   </div>

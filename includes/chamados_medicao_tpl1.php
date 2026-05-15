@@ -28,7 +28,7 @@ function bm_med_tpl1_find_gip_header_row(Worksheet $sheet): ?int
 {
     $maxR = min(120, max(5, (int) $sheet->getHighestRow()));
     $hi   = Coordinate::columnIndexFromString($sheet->getHighestColumn());
-    $maxC = min(19, max(2, $hi));
+    $maxC = min(Coordinate::columnIndexFromString(BM_MED_GIP_LAST_COL), max(2, $hi));
     for ($r = 1; $r <= $maxR; ++$r) {
         $a = strtoupper(bm_med_tpl1_celula_texto_plano($sheet->getCell('A' . $r)->getValue()));
         $b = strtoupper(bm_med_tpl1_celula_texto_plano($sheet->getCell('B' . $r)->getValue()));
@@ -97,10 +97,13 @@ function bm_med_tpl1_overlay_surface(Worksheet $dst, string $tplPath): void
     $srcWb = $reader->load($tplPath);
     $src    = $srcWb->getActiveSheet();
 
-    $maxCol = max(
-        Coordinate::columnIndexFromString($src->getHighestColumn()),
-        Coordinate::columnIndexFromString($dst->getHighestColumn()),
-        19
+    $gipLastIdx = Coordinate::columnIndexFromString(BM_MED_GIP_LAST_COL);
+    $maxCol = min(
+        max(
+            Coordinate::columnIndexFromString($src->getHighestColumn()),
+            Coordinate::columnIndexFromString($dst->getHighestColumn()),
+        ),
+        $gipLastIdx
     );
     for ($ci = 1; $ci <= $maxCol; ++$ci) {
         $col = Coordinate::stringFromColumnIndex($ci);
@@ -155,13 +158,13 @@ function bm_med_tpl1_apply_sample_body_row_style_from_template(Worksheet $dst, s
         if ($sample > (int) $src->getHighestRow()) {
             return;
         }
-        $bodyStyle = $src->getStyle('A' . $sample . ':S' . $sample);
+        $bodyStyle = $src->getStyle('A' . $sample . ':' . BM_MED_GIP_LAST_COL . $sample);
         foreach ($bodyRowNums as $br) {
             $r = (int) $br;
             if ($r <= 0) {
                 continue;
             }
-            $dst->duplicateStyle($bodyStyle, 'A' . $r . ':S' . $r, true);
+            $dst->duplicateStyle($bodyStyle, 'A' . $r . ':' . BM_MED_GIP_LAST_COL . $r, true);
         }
     } catch (\Throwable) {
         /* mantém estilos só PHP */

@@ -145,7 +145,6 @@ include __DIR__ . '/../includes/head.php';
             <th>Usuário</th>
             <th>E-mail</th>
             <th>Perfil</th>
-            <th>Prefeitura</th>
             <th>Cadastro</th>
             <th class="text-right">Ações</th>
           </tr>
@@ -153,7 +152,7 @@ include __DIR__ . '/../includes/head.php';
         <tbody>
           <?php if (!$lista): ?>
           <tr>
-            <td colspan="6" class="td-mute">Nenhum usuário encontrado.</td>
+            <td colspan="5" class="td-mute">Nenhum usuário encontrado.</td>
           </tr>
           <?php else: ?>
           <?php foreach ($lista as $u): ?>
@@ -177,15 +176,6 @@ include __DIR__ . '/../includes/head.php';
                 <span class="badge waiting">Operador</span>
               <?php else: ?>
                 <span class="badge progress">Portal</span>
-              <?php endif; ?>
-            </td>
-            <td class="td-mute">
-              <?php if (in_array(($u['perfil'] ?? ''), ['cliente', 'operador', 'gestor'], true) && !empty($u['cliente_empresa'])): ?>
-                <?= htmlspecialchars((string) $u['cliente_empresa']) ?>
-              <?php elseif (in_array(($u['perfil'] ?? ''), ['cliente', 'operador', 'gestor'], true)): ?>
-                <em class="muted">Sem vínculo</em>
-              <?php else: ?>
-                —
               <?php endif; ?>
             </td>
             <td class="td-mute"><small><?= htmlspecialchars((string) ($u['criado_em'] ?? '')) ?></small></td>

@@ -210,3 +210,33 @@ function medicao_bm_needle_periodo_planilha(string $refYm): ?string
 
     return $s . '/' . $y;
 }
+
+/**
+ * Data final efectiva ao exportar o boletim BM v2 dentro do mesmo mês civil (`AAAA-MM`): hoje até o fim do mês, ou sempre o último dia em meses passados.
+ */
+function medicao_bm_export_v2_periodo_ate(string $refYm): string
+{
+    $primeiro = $refYm . '-01';
+    $ts       = strtotime($primeiro);
+    if ($ts === false) {
+        return $refYm . '-01';
+    }
+    $last = date('Y-m-t', $ts);
+
+    return date('Y-m') === $refYm ? min(date('Y-m-d'), $last) : $last;
+}
+
+/**
+ * Data inicial mínima permitida no boletim BM v2 (início de período livre):
+ * primeiro dia do mês civil 5 meses antes do mês de referência (janela de até 6 meses até o fecho do BM).
+ */
+function medicao_bm_export_v2_periodo_de_min(string $refYm): string
+{
+    $primeiro = $refYm . '-01';
+    $ts       = strtotime($primeiro . ' -5 months');
+    if ($ts === false) {
+        return $primeiro;
+    }
+
+    return date('Y-m-01', $ts);
+}

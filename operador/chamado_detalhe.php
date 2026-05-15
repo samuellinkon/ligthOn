@@ -2,9 +2,11 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/upload.php';
+require_once __DIR__ . '/../includes/chamado_geo.php';
 $user = require_auth('operador');
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_operador('chamados');
+require_once __DIR__ . '/../includes/op_chamado_materiais_ui.php';
 
 $pageTitle   = 'Chamado';
 $basePath    = '../';
@@ -42,6 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         }
 
         $end = trim((string) ($_POST['endereco_completo'] ?? ''));
+        if ($end === '' && trim((string) ($ch['endereco_completo'] ?? '')) !== '') {
+            $end = trim((string) $ch['endereco_completo']);
+        }
         $endForRepo = $end !== '' ? $end : null;
         $latCh = isset($ch['latitude']) && $ch['latitude'] !== null && $ch['latitude'] !== '' ? (float) $ch['latitude'] : null;
         $lngCh = isset($ch['longitude']) && $ch['longitude'] !== null && $ch['longitude'] !== '' ? (float) $ch['longitude'] : null;
@@ -146,18 +151,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         $mov    = (string) ($_POST['movimento'] ?? 'utilizado');
         $obs    = trim((string) ($_POST['observacao'] ?? ''));
         $r      = repo_chamado_item_adicionar($id, $itemId, $qtd, $mov, $obs !== '' ? $obs : null);
+        if (op_chamado_detalhe_is_ajax()) {
+            op_chamado_mat_json_for_chamado($id, $r['ok'], $r['ok'] ? '' : $r['err']);
+        }
         flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item lançado.' : $r['err']);
     } elseif ($acao === 'chamado_item_qtd') {
         $lid = (int) ($_POST['linha_id'] ?? 0);
         $qtd = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
-        if ($lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_quantidade($lid, $id, $qtd)) {
+        $okQ = $lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_quantidade($lid, $id, $qtd);
+        if (op_chamado_detalhe_is_ajax()) {
+            op_chamado_mat_json_for_chamado($id, $okQ, $okQ ? '' : 'Não foi possível atualizar.');
+        }
+        if ($okQ) {
             flash_set('ok', 'Quantidade atualizada.');
         } else {
             flash_set('err', 'Não foi possível atualizar.');
         }
     } elseif ($acao === 'chamado_item_del') {
         $lid = (int) ($_POST['linha_id'] ?? 0);
-        if ($lid > 0 && repo_chamado_item_remover($lid, $id)) {
+        $okD = $lid > 0 && repo_chamado_item_remover($lid, $id);
+        if (op_chamado_detalhe_is_ajax()) {
+            op_chamado_mat_json_for_chamado($id, $okD, $okD ? '' : 'Não foi possível remover.');
+        }
+        if ($okD) {
             flash_set('ok', 'Linha removida.');
         } else {
             flash_set('err', 'Não foi possível remover.');
@@ -179,6 +195,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         }
     } elseif ($acao === 'fotos') {
         $endF = trim((string) ($_POST['endereco_completo'] ?? ''));
+        if ($endF === '' && trim((string) ($ch['endereco_completo'] ?? '')) !== '') {
+            $endF = trim((string) $ch['endereco_completo']);
+        }
         $endFRepo = $endF !== '' ? $endF : null;
         $latF = isset($ch['latitude']) && $ch['latitude'] !== null && $ch['latitude'] !== '' ? (float) $ch['latitude'] : null;
         $lngF = isset($ch['longitude']) && $ch['longitude'] !== null && $ch['longitude'] !== '' ? (float) $ch['longitude'] : null;
@@ -262,12 +281,23 @@ foreach ($anexos as $a) {
 $opCatalogoItensJs = [];
 foreach ($servicos as $ci) {
     $iid   = (int) ($ci['id'] ?? 0);
-    $tipo  = (string) ($ci['tipo'] ?? '');
+    $tipo  = strtolower(trim((string) ($ci['tipo'] ?? '')));
     $nome  = (string) ($ci['nome'] ?? '');
-    $cod   = (string) ($ci['codigo'] ?? '');
-    $label = '#' . $iid . ' - ' . $tipo . ' · ' . $nome;
-    $hay   = mb_strtolower($tipo . ' ' . $nome . ' ' . $cod . ' #' . $iid, 'UTF-8');
-    $opCatalogoItensJs[] = ['id' => $iid, 'label' => $label, 'hay' => $hay];
+    $cod   = trim((string) ($ci['codigo'] ?? ''));
+    $un    = trim((string) ($ci['unidade'] ?? 'UN')) ?: 'UN';
+    $cat   = $tipo === 'produto' ? 'Produto' : ($tipo === 'servico' ? 'Serviço' : ucfirst($tipo));
+    $hay   = mb_strtolower($nome . ' ' . $cod . ' ' . $cat . ' ' . $tipo . ' ' . $un . ' #' . $iid, 'UTF-8');
+    $opCatalogoItensJs[] = [
+        'id'        => $iid,
+        'nome'      => $nome,
+        'label'     => $nome,
+        'tipo'      => $tipo,
+        'categoria' => $cat,
+        'codigo'    => $cod,
+        'unidade'   => $un,
+        'estoque'   => array_key_exists('estoque_saldo', $ci) ? (float) $ci['estoque_saldo'] : null,
+        'hay'       => $hay,
+    ];
 }
 
 $topTitle    = 'Chamado #' . $chamado['id'];
@@ -275,9 +305,13 @@ $topSubtitle = (string) ($chamado['titulo'] ?? '');
 $topSearch   = '';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 
-$loadLeaflet = isset($chamado['latitude'], $chamado['longitude'])
+$enderecoChamado = trim((string) ($chamado['endereco_completo'] ?? ''));
+$chamadoTemCoords = isset($chamado['latitude'], $chamado['longitude'])
     && $chamado['latitude'] !== null
     && $chamado['longitude'] !== null;
+$enderecoOsGeo    = chamado_geo_endereco_os($chamado);
+$geocodeAttempts  = $chamadoTemCoords ? [] : chamado_geocode_attempts($chamado);
+$loadLeaflet      = $chamadoTemCoords || $enderecoChamado !== '' || $enderecoOsGeo !== '';
 
 include __DIR__ . '/../includes/head.php';
 $topbarHideTitle = true;
@@ -305,7 +339,8 @@ $topbarHideTitle = true;
     .op-ref-row{display:flex;align-items:flex-start;gap:10px}
     .op-ref-plain{flex:1;min-width:0;font-size:15px;line-height:1.55;color:var(--text,#334155);padding:12px 14px;border-radius:12px;background:var(--surface-raised,#f1f5f9);border:1px solid var(--border,#e2e8f0);white-space:pre-wrap;word-break:break-word;min-height:48px;box-sizing:border-box}
     .op-ref-copy-btn{flex-shrink:0;align-self:flex-start;white-space:nowrap}
-    .op-ref-editor{margin-top:10px}
+    .op-ref-map{margin-top:12px}
+    .op-ref-nav{margin-top:10px;margin-bottom:0}
     .op-atend-actions{display:flex;flex-direction:column;gap:10px}
     .op-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .op-actions .btn{width:100%;justify-content:center}
@@ -336,14 +371,37 @@ $topbarHideTitle = true;
     .op-fotos-section:has(.op-photo-preview.active) .op-photo-empty{display:none!important}
     .op-map{height:260px;border-radius:16px;overflow:hidden;background:#f1f5f9;border:1px solid var(--border)}
     .op-item-combo{position:relative;width:100%}
-    .op-item-combo__dd{position:absolute;left:0;right:0;top:calc(100% + 4px);max-height:min(280px,50vh);overflow-y:auto;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 36px rgba(15,23,42,.12);z-index:60;display:none}
+    .op-item-combo__dd{position:absolute;left:0;right:0;top:calc(100% + 4px);max-height:min(320px,50vh);overflow-y:auto;background:#faf8f5;border:1px solid #e8e4df;border-radius:14px;box-shadow:0 12px 36px rgba(15,23,42,.12);z-index:60;display:none;padding:6px}
     .op-item-combo.is-open .op-item-combo__dd{display:block}
-    .op-item-combo__opt{display:block;width:100%;padding:10px 12px;margin:0;border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;font-size:14px;line-height:1.35;cursor:pointer;color:inherit;font-family:inherit}
+    .op-item-combo__opt{display:block;width:100%;padding:12px 14px;margin:0;border:0;border-bottom:1px solid #ebe6e0;background:#fff;text-align:left;cursor:pointer;color:inherit;font-family:inherit;border-radius:10px}
     .op-item-combo__opt:last-child{border-bottom:0}
     .op-item-combo__opt:hover,.op-item-combo__opt.is-active{background:#eff6ff}
+    .op-item-combo__opt-main{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px}
+    .op-item-combo__opt-name{font-size:14px;font-weight:700;color:var(--text,#0f172a);line-height:1.3;flex:1;min-width:0}
+    .op-item-combo__opt-meta{font-size:12px;color:var(--muted,#64748b);line-height:1.35}
+    .op-item-combo__stock{flex-shrink:0;font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534;white-space:nowrap}
+    .op-item-combo__stock--low{background:#ffedd5;color:#c2410c}
     .op-item-combo__empty{padding:12px;font-size:13px;color:var(--muted)}
-    .chamado-materiais-op-add{margin-bottom:16px;padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--surface-raised,#f8fafc)}
+    .op-mat-panel{margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:#faf8f5}
+    .chamado-materiais-op-add{margin-bottom:16px;padding:0;border:0;background:transparent}
+    .op-mat-stack{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+    .op-mat-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:14px;background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.04)}
+    .op-mat-row__icon{flex-shrink:0;width:36px;height:36px;border-radius:10px;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center}
+    .op-mat-row__body{flex:1;min-width:0}
+    .op-mat-row__name{display:block;font-size:14px;font-weight:700;line-height:1.3;margin:0}
+    .op-mat-row__obs{display:block;font-size:12px;color:var(--muted);margin-top:4px;line-height:1.35}
+    .op-mat-row__actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+    .op-mat-row__qtd{border:1px solid var(--border);background:#f8fafc;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;color:var(--text);cursor:pointer;font-family:inherit}
+    .op-mat-row__qtd--readonly{cursor:default;border-color:transparent;background:transparent}
+    .op-mat-row__del{border:0;background:transparent;color:#dc2626;padding:8px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+    .op-mat-row__del:hover{background:#fef2f2}
+    .op-mat-footnote{display:flex;align-items:flex-start;gap:8px;margin:10px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+    .op-mat-footnote svg{flex-shrink:0;margin-top:1px;opacity:.75}
+    .op-mat-empty{margin-top:12px}
     .op-mobile-shell .chamado-materiais-card .panel-body{padding:18px 18px 22px}
+    .op-mobile-shell .chamado-materiais-card__head{flex-direction:column;align-items:stretch}
+    .op-mobile-shell .chamado-materiais-card__stats{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:10px;justify-content:stretch}
+    .op-mobile-shell .chamado-materiais-card__pill{min-width:0;text-align:center;box-sizing:border-box}
     .op-mat-add-form{gap:12px!important}
     .op-mat-search{min-height:50px;font-size:16px;border-radius:14px}
     .op-mat-add-row{display:flex;gap:10px;align-items:stretch}
@@ -362,14 +420,13 @@ $topbarHideTitle = true;
     .chamado-materiais-card__body > section.chamado-materiais-block:last-child{margin-bottom:0}
     .chamado-materiais-block--dev{margin-top:0;padding-top:22px;border-top:2px solid #e2e8f0}
     .chamado-materiais-block--dev .chamado-materiais-op-add{background:#f8fafc}
-    .op-local-card .op-card-body{display:flex;flex-direction:column;gap:12px}
-    .op-local-text{margin:0;color:var(--muted);line-height:1.6;font-size:15px}
+    .op-local-in-atend{padding-bottom:4px;border-bottom:1px solid var(--border);margin-bottom:4px}
+    .op-local-in-atend .op-local-label{margin-top:-2px}
     .op-ticket-desc{margin-top:12px;padding-top:14px;border-top:1px solid var(--border)}
     .op-ticket-desc__title{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
     .op-ticket-desc__body{margin:0;font-size:15px;line-height:1.65;color:var(--text,#334155)}
     .op-thread-empty{padding:24px 16px;text-align:center;margin:0}
     .op-local-nav{margin-bottom:0}
-    #chamado-map-mini{margin-top:12px}
     .op-thread-reply-form{border-top:1px solid var(--border);padding:16px 18px}
     .op-thread-card .op-thread-wrap{padding:12px 14px 8px}
     .op-mobile-shell .op-thread-card .thread .msg{margin-bottom:14px}
@@ -456,26 +513,51 @@ $topbarHideTitle = true;
           <?php endif; ?>
 
           <?php
-            $refLocal = trim((string) ($chamado['endereco_completo'] ?? ''));
+            $refLocal = $enderecoChamado;
+            $latMap = $chamadoTemCoords ? (float) $chamado['latitude'] : null;
+            $lngMap = $chamadoTemCoords ? (float) $chamado['longitude'] : null;
+            $navEndereco = $enderecoOsGeo !== ''
+                ? $enderecoOsGeo
+                : ($refLocal !== '' ? (chamado_geo_limpar_texto($refLocal) ?: $refLocal) : '');
+            $coordUrlAtend = $chamadoTemCoords
+                ? rawurlencode(number_format($latMap, 7, '.', '') . ',' . number_format($lngMap, 7, '.', ''))
+                : rawurlencode($navEndereco);
+            $mostrarMapaAtend = $loadLeaflet;
           ?>
-          <div class="form-group op-form-group">
-            <?php if (!$jaFechado): ?>
-              <label for="endereco_completo" id="lbl-endereco-ref">Referência no local (opcional)</label>
-            <?php else: ?>
-              <span class="op-ref-field-label" id="lbl-endereco-ref">Referência no local (opcional)</span>
-            <?php endif; ?>
+          <div class="form-group op-form-group op-local-in-atend">
+            <span class="op-ref-field-label" id="lbl-endereco-ref">Local do chamado</span>
+            <p class="op-local-label muted" style="margin:0 0 8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Endereço / referência (cadastro)</p>
             <div class="op-ref-row">
               <div class="op-ref-plain" id="endereco_completo_display" role="region" aria-labelledby="lbl-endereco-ref"><?php
                 if ($refLocal === '') {
-                    echo '<span class="muted">Sem referência guardada.</span>';
+                    echo '<span class="muted">Sem endereço no cadastro.</span>';
                 } else {
-                    echo htmlspecialchars($refLocal);
+                    echo nl2br(htmlspecialchars($refLocal));
                 }
               ?></div>
-              <button type="button" class="btn btn-secondary op-ref-copy-btn" id="op-endereco-copy"<?= $jaFechado ? ' data-copy="' . htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') . '"' : '' ?><?= $refLocal === '' ? ' disabled' : '' ?>>Copiar</button>
+              <button type="button" class="btn btn-secondary op-ref-copy-btn" id="op-endereco-copy" data-copy="<?= htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') ?>"<?= $refLocal === '' ? ' disabled' : '' ?>>Copiar</button>
             </div>
             <?php if (!$jaFechado): ?>
-              <textarea class="textarea op-ref-editor" id="endereco_completo" name="endereco_completo" rows="2" placeholder="Ex.: Rua X, próximo ao mercado"><?= htmlspecialchars($refLocal) ?></textarea>
+              <input type="hidden" name="endereco_completo" value="<?= htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') ?>">
+            <?php endif; ?>
+            <?php if ($chamadoTemCoords): ?>
+              <p class="muted op-local-coords" style="font-size:12px;margin:10px 0 0;line-height:1.5;">
+                Coordenadas: <strong><?= htmlspecialchars(number_format((float) $chamado['latitude'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $chamado['longitude'], 6, '.', '')) ?></strong>
+              </p>
+            <?php endif; ?>
+            <?php if ($mostrarMapaAtend): ?>
+              <div class="op-actions op-ref-nav">
+                <a class="btn btn-primary op-btn-tall" target="_blank" rel="noopener"
+                   href="https://www.google.com/maps/search/?api=1&amp;query=<?= $coordUrlAtend ?>">Google Maps</a>
+                <?php if ($chamadoTemCoords): ?>
+                <a class="btn btn-secondary op-btn-tall" target="_blank" rel="noopener"
+                   href="https://waze.com/ul?ll=<?= $coordUrlAtend ?>&amp;navigate=yes">Waze</a>
+                <?php endif; ?>
+              </div>
+              <?php if (!$chamadoTemCoords && $refLocal !== ''): ?>
+                <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço no mapa…</p>
+              <?php endif; ?>
+              <div id="chamado-map-atendimento" class="op-map op-ref-map" aria-label="Mapa do endereço do chamado"></div>
             <?php endif; ?>
           </div>
           <?php if ($jaFechado): ?>
@@ -488,7 +570,7 @@ $topbarHideTitle = true;
               <button type="button" class="btn btn-secondary op-btn-tall" id="op-btn-gal">Galeria</button>
             </div>
             <?php if (!$jaFechado): ?>
-              <small class="muted" style="margin:0;font-size:12px;line-height:1.45;text-align:center;">Grava a referência no local e envia o chamado ao gestor para aprovação. É necessária pelo menos uma foto no chamado.</small>
+              <small class="muted" style="margin:0;font-size:12px;line-height:1.45;text-align:center;">Envie o chamado ao gestor para aprovação. É necessária pelo menos uma foto no chamado.</small>
             <?php endif; ?>
           </div>
 
@@ -536,11 +618,11 @@ $topbarHideTitle = true;
           <div class="chamado-materiais-card__stats" aria-label="Resumo rápido">
             <div class="chamado-materiais-card__pill">
               <span>Utilizados</span>
-              <strong><?= count($itensUsadosOp) ?></strong>
+              <strong data-op-mat-count="utilizados"><?= count($itensUsadosOp) ?></strong>
             </div>
             <div class="chamado-materiais-card__pill">
               <span>Recolhidos</span>
-              <strong><?= count($itensDevolvidosOp) ?></strong>
+              <strong data-op-mat-count="recolhidos"><?= count($itensDevolvidosOp) ?></strong>
             </div>
           </div>
         </div>
@@ -549,8 +631,9 @@ $topbarHideTitle = true;
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-op-mat-uso-title" class="chamado-materiais-block__title">Itens utilizados</h5>
             </div>
-            <div class="chamado-materiais-op-add">
-              <form method="post" class="flex-col op-mat-add-form" data-op-item-form>
+            <?php if (!$jaFechado): ?>
+            <div class="chamado-materiais-op-add op-mat-panel">
+              <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="utilizado">
                 <input type="hidden" name="acao" value="chamado_item_add">
                 <input type="hidden" name="movimento" value="utilizado">
                 <input type="hidden" name="item_id" data-op-item-id value="">
@@ -570,86 +653,24 @@ $topbarHideTitle = true;
                 </div>
                 <button type="submit" class="btn btn-primary op-mat-submit" <?= empty($servicos) ? 'disabled' : '' ?>>Adicionar utilizado</button>
               </form>
+              <p class="op-mat-footnote op-mat-footnote--stock">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                Estoque baixo em destaque previne erros
+              </p>
             </div>
-            <?php if (empty($itensUsadosOp)): ?>
-              <div class="chamado-materiais-empty">
-                <p>Nenhum item utilizado lançado ainda.</p>
-                <small>Adicione produtos ou serviços aplicados neste atendimento.</small>
-              </div>
-            <?php else: ?>
-              <div class="op-mat-table-only">
-                <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
-                  <table class="chamado-materiais-table chamado-materiais-table--uso">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Tipo</th>
-                        <th class="text-right">Qtd</th>
-                        <th class="text-right">Valor</th>
-                        <th class="text-right td-actions">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <?php foreach ($itensUsadosOp as $lm): ?>
-                      <?php
-                        $qU = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                        $nomeU = (string) ($lm['item_nome'] ?? '');
-                        $codU = trim((string) ($lm['item_codigo'] ?? ''));
-                      ?>
-                      <tr>
-                        <td>
-                          <strong><?= htmlspecialchars($nomeU) ?></strong>
-                          <?php if ($codU !== ''): ?>
-                            <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codU) ?></div>
-                          <?php endif; ?>
-                          <?php if (!empty($lm['observacao'])): ?>
-                            <div class="td-mute" style="font-size:12px;margin-top:4px;"><?= htmlspecialchars((string) $lm['observacao']) ?></div>
-                          <?php endif; ?>
-                        </td>
-                        <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
-                        <td class="text-right"><?= $qU ?></td>
-                        <td class="text-right td-mute">R$ <?= number_format((float) ($lm['subtotal'] ?? 0), 2, ',', '.') ?></td>
-                        <td class="text-right td-actions">
-                          <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
-                            <input type="hidden" name="acao" value="chamado_item_del">
-                            <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                            <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                          </form>
-                        </td>
-                      </tr>
-                      <?php endforeach; ?>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="op-mat-cards-only" aria-label="Itens utilizados">
-                <?php foreach ($itensUsadosOp as $lm): ?>
-                  <?php
-                    $qUc = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                    $nomeUc = (string) ($lm['item_nome'] ?? '');
-                    $codUc = trim((string) ($lm['item_codigo'] ?? ''));
-                  ?>
-                  <article class="op-mat-card">
-                    <h3 class="op-mat-card__title"><?= htmlspecialchars($nomeUc) ?></h3>
-                    <div class="op-mat-card__meta">
-                      <?php if ($codUc !== ''): ?><span>Cód. <?= htmlspecialchars($codUc) ?></span><?php endif; ?>
-                      <span><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></span>
-                      <span>Qtd <strong><?= $qUc ?></strong></span>
-                      <span>Valor <strong>R$ <?= number_format((float) ($lm['subtotal'] ?? 0), 2, ',', '.') ?></strong></span>
-                    </div>
-                    <?php if (!empty($lm['observacao'])): ?>
-                      <p class="op-mat-card__obs"><?= htmlspecialchars((string) $lm['observacao']) ?></p>
-                    <?php endif; ?>
-                    <div class="op-mat-card__foot">
-                      <form method="post" data-confirm="Remover esta linha?" data-confirm-danger>
-                        <input type="hidden" name="acao" value="chamado_item_del">
-                        <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                        <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                      </form>
-                    </div>
-                  </article>
-                <?php endforeach; ?>
-              </div>
+            <?php endif; ?>
+            <div class="chamado-materiais-empty op-mat-empty" data-op-mat-empty="utilizado" <?= empty($itensUsadosOp) ? '' : 'hidden' ?>>
+              <p>Nenhum item utilizado lançado ainda.</p>
+              <small>Adicione produtos ou serviços aplicados neste atendimento.</small>
+            </div>
+            <ul class="op-mat-stack" data-op-mat-stack="utilizado" aria-label="Itens utilizados adicionados">
+              <?= op_chamado_mat_stack_list_html($itensUsadosOp, $jaFechado) ?>
+            </ul>
+            <?php if (!$jaFechado && !empty($itensUsadosOp)): ?>
+            <p class="op-mat-footnote op-mat-footnote--edit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              Clique na quantidade para editar
+            </p>
             <?php endif; ?>
           </section>
 
@@ -657,12 +678,13 @@ $topbarHideTitle = true;
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-op-mat-dev-title" class="chamado-materiais-block__title">Devolvidos / recolhidos</h5>
             </div>
-            <div class="chamado-materiais-op-add">
-              <form method="post" class="flex-col op-mat-add-form" data-op-item-form>
+            <?php if (!$jaFechado): ?>
+            <div class="chamado-materiais-op-add op-mat-panel">
+              <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="devolvido" data-catalog-filter="produto">
                 <input type="hidden" name="acao" value="chamado_item_add">
                 <input type="hidden" name="movimento" value="devolvido">
                 <input type="hidden" name="item_id" data-op-item-id value="">
-                <div class="op-item-combo" data-op-item-combo data-filter-empty="Nenhum item corresponde à busca.">
+                <div class="op-item-combo" data-op-item-combo data-filter-empty="Nenhum produto corresponde à busca.">
                   <input type="text" data-op-item-search class="input op-mat-search" role="combobox" aria-expanded="false"
                          aria-autocomplete="list" autocomplete="off"
                          placeholder="Buscar produto no catálogo"
@@ -670,7 +692,7 @@ $topbarHideTitle = true;
                   <div class="op-item-combo__dd" data-op-item-dd role="listbox" hidden></div>
                 </div>
                 <?php if (empty($servicos)): ?>
-                  <small class="muted">Nenhum produto ou serviço ativo no catálogo desta empresa.</small>
+                  <small class="muted">Nenhum produto ativo no catálogo desta empresa.</small>
                 <?php endif; ?>
                 <div class="op-mat-add-row">
                   <input type="text" name="quantidade" class="input op-mat-qtd" value="1" inputmode="decimal" placeholder="Qtd" aria-label="Quantidade">
@@ -679,119 +701,24 @@ $topbarHideTitle = true;
                 <button type="submit" class="btn btn-secondary op-mat-submit" <?= empty($servicos) ? 'disabled' : '' ?>>Adicionar recolhido</button>
               </form>
             </div>
-            <?php if (empty($itensDevolvidosOp)): ?>
-              <div class="chamado-materiais-empty chamado-materiais-empty--muted">
-                <p>Nenhum item recolhido lançado ainda.</p>
-                <small>Registre materiais retirados, devolvidos ou recolhidos no atendimento.</small>
-              </div>
-            <?php else: ?>
-              <div class="op-mat-table-only">
-                <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
-                  <table class="chamado-materiais-table chamado-materiais-table--dev">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Tipo</th>
-                        <th class="text-right">Qtd</th>
-                        <th class="text-right td-actions">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <?php foreach ($itensDevolvidosOp as $lm): ?>
-                      <?php
-                        $qD = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                        $nomeD = (string) ($lm['item_nome'] ?? '');
-                        $codD = trim((string) ($lm['item_codigo'] ?? ''));
-                      ?>
-                      <tr>
-                        <td>
-                          <strong><?= htmlspecialchars($nomeD) ?></strong>
-                          <?php if ($codD !== ''): ?>
-                            <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codD) ?></div>
-                          <?php endif; ?>
-                          <?php if (!empty($lm['observacao'])): ?>
-                            <div class="td-mute" style="font-size:12px;margin-top:4px;"><?= htmlspecialchars((string) $lm['observacao']) ?></div>
-                          <?php endif; ?>
-                        </td>
-                        <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
-                        <td class="text-right"><?= $qD ?></td>
-                        <td class="text-right td-actions">
-                          <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
-                            <input type="hidden" name="acao" value="chamado_item_del">
-                            <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                            <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                          </form>
-                        </td>
-                      </tr>
-                      <?php endforeach; ?>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="op-mat-cards-only" aria-label="Itens recolhidos">
-                <?php foreach ($itensDevolvidosOp as $lm): ?>
-                  <?php
-                    $qDc = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                    $nomeDc = (string) ($lm['item_nome'] ?? '');
-                    $codDc = trim((string) ($lm['item_codigo'] ?? ''));
-                  ?>
-                  <article class="op-mat-card">
-                    <h3 class="op-mat-card__title"><?= htmlspecialchars($nomeDc) ?></h3>
-                    <div class="op-mat-card__meta">
-                      <?php if ($codDc !== ''): ?><span>Cód. <?= htmlspecialchars($codDc) ?></span><?php endif; ?>
-                      <span><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></span>
-                      <span>Qtd <strong><?= $qDc ?></strong></span>
-                    </div>
-                    <?php if (!empty($lm['observacao'])): ?>
-                      <p class="op-mat-card__obs"><?= htmlspecialchars((string) $lm['observacao']) ?></p>
-                    <?php endif; ?>
-                    <div class="op-mat-card__foot">
-                      <form method="post" data-confirm="Remover esta linha?" data-confirm-danger>
-                        <input type="hidden" name="acao" value="chamado_item_del">
-                        <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                        <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                      </form>
-                    </div>
-                  </article>
-                <?php endforeach; ?>
-              </div>
+            <?php endif; ?>
+            <div class="chamado-materiais-empty chamado-materiais-empty--muted op-mat-empty" data-op-mat-empty="devolvido" <?= empty($itensDevolvidosOp) ? '' : 'hidden' ?>>
+              <p>Nenhum item recolhido lançado ainda.</p>
+              <small>Registre materiais retirados, devolvidos ou recolhidos no atendimento.</small>
+            </div>
+            <ul class="op-mat-stack" data-op-mat-stack="devolvido" aria-label="Itens recolhidos adicionados">
+              <?= op_chamado_mat_stack_list_html($itensDevolvidosOp, $jaFechado) ?>
+            </ul>
+            <?php if (!$jaFechado && !empty($itensDevolvidosOp)): ?>
+            <p class="op-mat-footnote op-mat-footnote--edit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              Clique na quantidade para editar · atualiza sem recarregar a página
+            </p>
             <?php endif; ?>
           </section>
         </div>
       </div>
 
-      <div class="op-card op-local-card">
-        <div class="op-card-head">
-          <h4>Local do chamado</h4>
-        </div>
-        <div class="op-card-body">
-          <p class="op-local-label muted" style="margin:0 0 4px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Endereço / referência (cadastro)</p>
-          <?php if (!empty($chamado['endereco_completo'])): ?>
-            <p class="op-local-text"><?= nl2br(htmlspecialchars((string) $chamado['endereco_completo'])) ?></p>
-          <?php else: ?>
-            <p class="op-local-text muted">Sem endereço neste cadastro. Use a <strong>referência no local</strong> no card Atendimento.</p>
-          <?php endif; ?>
-          <?php if ($loadLeaflet): ?>
-            <p class="muted" style="font-size:12px;margin:0;line-height:1.5;">
-              Coordenadas: <strong><?= htmlspecialchars(number_format((float) $chamado['latitude'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $chamado['longitude'], 6, '.', '')) ?></strong>
-            </p>
-            <div class="op-actions op-local-nav">
-              <?php
-                $latUrl = number_format((float) $chamado['latitude'], 7, '.', '');
-                $lngUrl = number_format((float) $chamado['longitude'], 7, '.', '');
-                $coordUrl = rawurlencode($latUrl . ',' . $lngUrl);
-              ?>
-              <a class="btn btn-primary op-btn-tall" target="_blank" rel="noopener"
-                 href="https://www.google.com/maps/search/?api=1&amp;query=<?= $coordUrl ?>">Google Maps</a>
-              <a class="btn btn-secondary op-btn-tall" target="_blank" rel="noopener"
-                 href="https://waze.com/ul?ll=<?= $coordUrl ?>&amp;navigate=yes">Waze</a>
-            </div>
-            <div id="chamado-map-mini" class="op-map" aria-label="Mapa do local do chamado"></div>
-          <?php else: ?>
-            <p class="muted" style="margin:0;font-size:13px;line-height:1.5;">Sem coordenadas no cadastro. Complemente com referência no card Atendimento.</p>
-          <?php endif; ?>
-        </div>
-      </div>
 
       <div class="op-card op-thread-card">
         <div class="op-card-head">
@@ -866,173 +793,15 @@ $topbarHideTitle = true;
 
 </section>
 
+<script src="<?= $basePath ?>assets/js/op-chamado-materiais.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/op-chamado-materiais.js') ?>"></script>
 <script>
 (function () {
-  var CATALOGO = <?= json_encode($opCatalogoItensJs, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS) ?>;
-
-  function norm(s) {
-    return (s || '').trim().toLowerCase();
-  }
-
-  function filterRows(q) {
-    var n = norm(q);
-    if (!n) return CATALOGO.slice();
-    return CATALOGO.filter(function (row) {
-      return row.hay.indexOf(n) !== -1;
+  if (window.OpChamadoMateriais) {
+    OpChamadoMateriais.init({
+      catalog: <?= json_encode($opCatalogoItensJs, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS) ?>,
+      readonly: <?= $jaFechado ? 'true' : 'false' ?>
     });
   }
-
-  function initItemPicker(form) {
-    var itemSearch = form.querySelector('[data-op-item-search]');
-    var itemId = form.querySelector('[data-op-item-id]');
-    var combo = form.querySelector('[data-op-item-combo]');
-    var dd = form.querySelector('[data-op-item-dd]');
-    var selectedLabel = '';
-    var activeIndex = 0;
-    var visibleRows = [];
-
-    function renderList(rows, activeIdx) {
-      if (!dd) return;
-      dd.innerHTML = '';
-      if (!rows.length) {
-        var empty = document.createElement('div');
-        empty.className = 'op-item-combo__empty';
-        empty.textContent = combo
-          ? (combo.getAttribute('data-filter-empty') || 'Nada encontrado.')
-          : 'Nada encontrado.';
-        dd.appendChild(empty);
-        return;
-      }
-      rows.forEach(function (row, idx) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'op-item-combo__opt' + (idx === activeIdx ? ' is-active' : '');
-        btn.setAttribute('role', 'option');
-        btn.setAttribute('data-id', String(row.id));
-        btn.setAttribute('data-label', row.label);
-        btn.textContent = row.label;
-        btn.addEventListener('mousedown', function (e) {
-          e.preventDefault();
-          pick(row.id, row.label);
-        });
-        dd.appendChild(btn);
-      });
-    }
-
-    function setOpen(open) {
-      if (!combo || !itemSearch) return;
-      combo.classList.toggle('is-open', open);
-      itemSearch.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (dd) dd.hidden = !open;
-    }
-
-    function openDropdown() {
-      if (!itemSearch || itemSearch.disabled) return;
-      visibleRows = filterRows(itemSearch.value);
-      activeIndex = 0;
-      renderList(visibleRows, activeIndex);
-      setOpen(true);
-    }
-
-    function closeDropdown() {
-      setOpen(false);
-    }
-
-    function pick(id, label) {
-      if (!itemSearch || !itemId) return;
-      itemId.value = String(id);
-      selectedLabel = label;
-      itemSearch.value = label;
-      closeDropdown();
-    }
-
-    function syncIdFromInput() {
-      if (!itemSearch || !itemId) return;
-      var v = itemSearch.value.trim();
-      if (v === '') {
-        itemId.value = '';
-        selectedLabel = '';
-        return;
-      }
-      if (v === selectedLabel) return;
-      var m = v.match(/^#(\d+)\s+-\s+/);
-      itemId.value = m ? m[1] : '';
-    }
-
-    function scrollActiveIntoView() {
-      var el = dd.querySelector('.op-item-combo__opt.is-active');
-      if (el && typeof el.scrollIntoView === 'function') {
-        el.scrollIntoView({ block: 'nearest' });
-      }
-    }
-
-    if (itemSearch && itemId && combo && dd && CATALOGO.length) {
-      itemSearch.addEventListener('focus', openDropdown);
-      itemSearch.addEventListener('click', openDropdown);
-      itemSearch.addEventListener('input', function () {
-        syncIdFromInput();
-        openDropdown();
-      });
-      itemSearch.addEventListener('keydown', function (e) {
-        if (!combo.classList.contains('is-open')) {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            openDropdown();
-          }
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          closeDropdown();
-          return;
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          if (visibleRows.length) activeIndex = (activeIndex + 1) % visibleRows.length;
-          renderList(visibleRows, activeIndex);
-          scrollActiveIntoView();
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          if (visibleRows.length) activeIndex = (activeIndex - 1 + visibleRows.length) % visibleRows.length;
-          renderList(visibleRows, activeIndex);
-          scrollActiveIntoView();
-          return;
-        }
-        if (e.key === 'Enter' && visibleRows.length && document.activeElement === itemSearch) {
-          var row = visibleRows[activeIndex];
-          if (row) {
-            e.preventDefault();
-            pick(row.id, row.label);
-          }
-        }
-      });
-      itemSearch.addEventListener('blur', function () {
-        window.setTimeout(function () {
-          if (document.activeElement && combo.contains(document.activeElement)) return;
-          closeDropdown();
-        }, 180);
-      });
-      document.addEventListener('click', function (e) {
-        if (!combo.contains(e.target)) closeDropdown();
-      });
-      form.addEventListener('submit', function (ev) {
-        syncIdFromInput();
-        if (itemSearch.value.trim() !== '' && !itemId.value) {
-          ev.preventDefault();
-          openDropdown();
-          itemSearch.focus();
-          if (typeof window.appAlert === 'function') {
-            window.appAlert('Selecione um produto ou serviço da lista.', 'Itens do chamado');
-          }
-        }
-      });
-    }
-  }
-
-  var itemForms = Array.prototype.slice.call(document.querySelectorAll('form[data-op-item-form]'));
-  itemForms.forEach(initItemPicker);
 
   var opForm = document.getElementById('op-os-form');
   var master = document.getElementById('op-imagens-master');
@@ -1220,32 +989,10 @@ $topbarHideTitle = true;
 <script>
 (function () {
   var btn = document.getElementById('op-endereco-copy');
-  var ta = document.getElementById('endereco_completo');
-  var disp = document.getElementById('endereco_completo_display');
   if (!btn) return;
 
-  function refText() {
-    if (ta) return ta.value || '';
-    return btn.getAttribute('data-copy') || '';
-  }
-
-  function syncPreviewFromTa() {
-    if (!ta || !disp) return;
-    var v = ta.value;
-    if (!v.trim()) {
-      disp.innerHTML = '<span class="muted">Sem referência guardada.</span>';
-    } else {
-      disp.textContent = v;
-    }
-    btn.disabled = !v.trim();
-  }
-
-  if (ta && disp) {
-    ta.addEventListener('input', syncPreviewFromTa);
-  }
-
   btn.addEventListener('click', function () {
-    var t = refText();
+    var t = btn.getAttribute('data-copy') || '';
     if (!t.trim()) return;
     var label = btn.textContent;
     function flashOk() {
@@ -1279,14 +1026,116 @@ $topbarHideTitle = true;
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
 (function () {
-  var el = document.getElementById('chamado-map-mini');
+  var el = document.getElementById('chamado-map-atendimento');
   if (!el || typeof L === 'undefined') return;
-  var lat = <?= json_encode((float) $chamado['latitude']) ?>;
-  var lng = <?= json_encode((float) $chamado['longitude']) ?>;
-  var map = L.map('chamado-map-mini', { scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
-  L.marker([lat, lng]).addTo(map);
-  map.setView([lat, lng], 15);
+  var lat = <?= $chamadoTemCoords ? json_encode((float) $chamado['latitude']) : 'null' ?>;
+  var lng = <?= $chamadoTemCoords ? json_encode((float) $chamado['longitude']) : 'null' ?>;
+  var attempts = <?= json_encode($geocodeAttempts, JSON_UNESCAPED_UNICODE) ?>;
+  var hint = document.getElementById('chamado-map-geocode-hint');
+  var map;
+  var nomEmail = 'crm-prefeitura-nominatim%40invalid.local';
+  var nomOpts = {
+    method: 'GET',
+    headers: { 'Accept-Language': 'pt-BR,pt;q=0.9' },
+    mode: 'cors',
+    credentials: 'omit'
+  };
+
+  function showMap(la, lo) {
+    if (map) return;
+    map = L.map('chamado-map-atendimento', { scrollWheelZoom: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
+    L.marker([la, lo]).addTo(map);
+    map.setView([la, lo], 15);
+    window.setTimeout(function () { map.invalidateSize(); }, 120);
+    if (hint) hint.remove();
+  }
+
+  function nominatimStructured(street, city, state) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
+      + '&street=' + encodeURIComponent(street)
+      + '&city=' + encodeURIComponent(city)
+      + '&state=' + encodeURIComponent(state)
+      + '&country=' + encodeURIComponent('Brasil');
+    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
+  }
+
+  function nominatimQ(q) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
+      + '&q=' + encodeURIComponent(q);
+    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
+  }
+
+  function photonQ(q) {
+    var url = 'https://photon.komoot.io/api/?limit=1&lang=pt&q=' + encodeURIComponent(q);
+    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : null; });
+  }
+
+  function hitFromNominatim(hits) {
+    if (!hits || !hits[0]) return null;
+    var la = parseFloat(hits[0].lat);
+    var lo = parseFloat(hits[0].lon);
+    return isFinite(la) && isFinite(lo) ? { lat: la, lon: lo } : null;
+  }
+
+  function hitFromPhoton(data) {
+    if (!data || !data.features || !data.features[0] || !data.features[0].geometry) return null;
+    var c = data.features[0].geometry.coordinates;
+    if (!c || c.length < 2) return null;
+    return { lat: c[1], lon: c[0] };
+  }
+
+  function tryAttempts(i) {
+    if (i >= attempts.length) {
+      var lastQ = attempts.length ? (attempts[attempts.length - 1].q || '') : '';
+      if (!lastQ) {
+        if (hint) {
+          hint.textContent = 'Sem endereço para localizar no mapa.';
+          hint.style.color = 'var(--danger,#b91c1c)';
+        }
+        return Promise.resolve(null);
+      }
+      return photonQ(lastQ).then(function (data) {
+        return hitFromPhoton(data);
+      });
+    }
+    var a = attempts[i];
+    var p = (a.type === 'structured')
+      ? nominatimStructured(a.street, a.city, a.state)
+      : nominatimQ(a.q || '');
+    return p.then(function (hits) {
+      var h = hitFromNominatim(hits);
+      if (h) return h;
+      return tryAttempts(i + 1);
+    });
+  }
+
+  if (lat != null && lng != null) {
+    showMap(lat, lng);
+    return;
+  }
+  if (!attempts.length) {
+    if (hint) hint.remove();
+    return;
+  }
+
+  tryAttempts(0)
+    .then(function (hit) {
+      if (hit) {
+        showMap(hit.lat, hit.lon);
+        return;
+      }
+      if (hint) {
+        hint.textContent = 'Não foi possível localizar automaticamente. Use o botão Google Maps acima.';
+        hint.style.color = 'var(--muted,#64748b)';
+      }
+    })
+    .catch(function () {
+      if (hint) {
+        hint.textContent = 'Mapa indisponível (verifique a ligação).';
+        hint.style.color = 'var(--danger,#b91c1c)';
+      }
+    });
 })();
 </script>
 <?php endif; ?>

@@ -282,6 +282,35 @@ button { font-family: inherit; }
   flex-shrink: 0;
 }
 
+/* Operador (e outras telas com $topbarActionsFirst): ações à esquerda, título à direita */
+.topbar.topbar--actions-first .topbar-start {
+  order: 2;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.topbar.topbar--actions-first .top-actions {
+  order: 1;
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+
+.topbar.topbar--actions-first .top-actions-trail {
+  margin-left: 0;
+}
+
+/* Operador: menu + título à esquerda, ações à direita, uma linha só */
+.topbar.topbar--compact .top-actions {
+  flex: 0 0 auto;
+}
+
+.topbar.topbar--compact .topbar-title h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .topbar-minha-conta {
   display: inline-flex;
   align-items: center;

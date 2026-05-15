@@ -9,6 +9,7 @@ declare(strict_types=1);
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\RichText\RichText;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -20,6 +21,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 require_once __DIR__ . '/medicao_helpers.php';
+require_once __DIR__ . '/repository.php';
 
 /** Fonte: Aptos (Office moderno); usar «Calibri» se necessário compatibilidade antiga. */
 const MEDICAO_BM_XLSX_FONT = 'Aptos';
@@ -892,4 +894,461 @@ function medicao_bm_boletim_numero_sequencia(int $clienteMatrizId, string $refYm
     } catch (Throwable $e) {
         return 1;
     }
+}
+
+/** Normaliza código de item para união BM / CRM (maiúsculas, trim). */
+function medicao_bm_boletim_v2_norm_cod(?string $cod): string
+{
+    return strtoupper(trim((string) $cod));
+}
+
+/**
+ * Ordem das linhas: ordem das importações do mês; em seguida as chaves só em BMs ou CRM ordenadas ASCII.
+ *
+ * @param list<array<string,mixed>> $impLinhas
+ * @param list<array<string,mixed>> $crmRows já com campo `_bm_key`
+ * @param array<string,mixed> $priorBmNorm chave = código uppercase
+ *
+ * @return list<string>
+ */
+function medicao_bm_boletim_v2_listar_keys_ordenadas(
+    array $impLinhas,
+    array $crmRows,
+    array $priorBmNorm
+): array {
+    $ordered = [];
+    $seen    = [];
+
+    foreach ($impLinhas as $il) {
+        $raw = isset($il['item_codigo']) ? (string) $il['item_codigo'] : '';
+        $n   = medicao_bm_boletim_v2_norm_cod($raw);
+        $k   = ($n !== '') ? $n : ('MIL:' . (int) ($il['linha_id'] ?? 0));
+        if ($k === 'MIL:0') {
+            continue;
+        }
+        if (isset($seen[$k])) {
+            continue;
+        }
+        $seen[$k]   = true;
+        $ordered[] = $k;
+    }
+
+    $restSet = [];
+    foreach (array_keys($priorBmNorm) as $k) {
+        if ($k !== '' && !isset($seen[$k])) {
+            $restSet[$k] = true;
+        }
+    }
+    foreach ($crmRows as $r) {
+        $nk = (string) ($r['_bm_key'] ?? '');
+        if ($nk !== '' && !isset($seen[$nk])) {
+            $restSet[$nk] = true;
+        }
+    }
+    $rest = array_keys($restSet);
+    sort($rest, SORT_NATURAL);
+    foreach ($rest as $k) {
+        $seen[$k]   = true;
+        $ordered[] = $k;
+    }
+
+    return $ordered;
+}
+
+/**
+ * `@return array{rows:list<array<string,mixed>>, valor_medido_total:float}`
+ */
+function medicao_bm_boletim_v2_compor_linhas(
+    int $matrizId,
+    string $refYm,
+    string $periodoDe,
+    string $periodoAte
+): array {
+    $crmRows = repo_medicao_bm_utilizado_por_item_periodo_lancamento($matrizId, $periodoDe, $periodoAte);
+    foreach ($crmRows as &$cr) {
+        $nc            = medicao_bm_boletim_v2_norm_cod((string) ($cr['item_codigo'] ?? ''));
+        $idItem        = (int) ($cr['item_id'] ?? 0);
+        $cr['_bm_key'] = ($nc !== '') ? $nc : ('ID:' . $idItem);
+    }
+    unset($cr);
+
+    $crmPorKey = [];
+    foreach ($crmRows as $cr) {
+        $crmPorKey[(string) $cr['_bm_key']] = $cr;
+    }
+
+    $priorBmRaw = repo_medicao_bm_imports_totals_before_ym($matrizId, $refYm);
+    $priorBm    = [];
+    foreach ($priorBmRaw as $c => $vals) {
+        $n       = medicao_bm_boletim_v2_norm_cod((string) $c);
+        if ($n !== '') {
+            $priorBm[$n] = $vals;
+        }
+    }
+
+    $impPkg        = repo_medicao_import_fetch($matrizId, $refYm);
+    $impLinhas     = is_array($impPkg['linhas'] ?? null) ? $impPkg['linhas'] : [];
+    $catPorCodRaw  = repo_medicao_bm_catalogo_por_codigo_matriz($matrizId);
+    $catPorCodNorm = [];
+    foreach ($catPorCodRaw as $cod => $row) {
+        $u = medicao_bm_boletim_v2_norm_cod((string) $cod);
+        if ($u !== '') {
+            $catPorCodNorm[$u] = $row;
+        }
+    }
+
+    $orderedKeys = medicao_bm_boletim_v2_listar_keys_ordenadas($impLinhas, $crmRows, $priorBm);
+
+    if ($orderedKeys === []) {
+        return ['rows' => [], 'valor_medido_total' => 0.0];
+    }
+
+    $periodoPhp = strtotime($periodoDe . ' 12:00:00');
+    $dataExcel  = $periodoPhp !== false ? ExcelDate::PHPToExcel($periodoPhp) : null;
+
+    $valorMedidoSomaTotal = 0.0;
+
+    /** @var array<int, mixed> */
+    $importPorCodNorm = [];
+    foreach ($impLinhas as $il) {
+        $n = medicao_bm_boletim_v2_norm_cod((string) ($il['item_codigo'] ?? ''));
+        if ($n !== '' && !isset($importPorCodNorm[$n])) {
+            $importPorCodNorm[$n] = $il;
+        }
+    }
+
+    $rows = [];
+
+    foreach ($orderedKeys as $k) {
+        $codNorm = '';
+        if (strpos($k, 'MIL:') === 0 || strpos($k, 'ID:') === 0) {
+            $codNorm = '';
+        } else {
+            $codNorm = $k;
+        }
+
+        $il      = (($codNorm !== '') && isset($importPorCodNorm[$codNorm])) ? $importPorCodNorm[$codNorm] : null;
+        $crmLine = isset($crmPorKey[$k]) ? $crmPorKey[$k] : null;
+
+        $codigoExibir = '';
+        if ($crmLine !== null && trim((string) ($crmLine['item_codigo'] ?? '')) !== '') {
+            $codigoExibir = (string) $crmLine['item_codigo'];
+        } elseif ($il !== null && trim((string) ($il['item_codigo'] ?? '')) !== '') {
+            $codigoExibir = (string) $il['item_codigo'];
+        } elseif ($codNorm !== '') {
+            $codigoExibir = $codNorm;
+        } elseif ($k !== '') {
+            $codigoExibir = $k;
+        }
+
+        $nome = '';
+        if ($il !== null && trim((string) ($il['descricao'] ?? '')) !== '') {
+            $nome = (string) $il['descricao'];
+        } elseif ($crmLine !== null) {
+            $nome = (string) ($crmLine['item_nome'] ?? '');
+        }
+        $unidade = 'UN';
+        if ($crmLine !== null && trim((string) ($crmLine['unidade'] ?? '')) !== '') {
+            $unidade = (string) $crmLine['unidade'];
+        } elseif ($il !== null && trim((string) ($il['unidade'] ?? '')) !== '') {
+            $unidade = (string) $il['unidade'];
+        }
+
+        $catLinha = null;
+        if ($codNorm !== '' && isset($catPorCodNorm[$codNorm])) {
+            $catLinha = $catPorCodNorm[$codNorm];
+        }
+
+        $itemCatalogoRow = null;
+        if (strpos($k, 'ID:') === 0) {
+            $idGuess = (int) substr($k, strlen('ID:'));
+            if ($idGuess > 0) {
+                $itemCatalogoRow = repo_cliente_item_por_id($idGuess, $matrizId);
+            }
+        }
+        if ($itemCatalogoRow === null && ($catLinha === null || (int) ($catLinha['item_id'] ?? 0) <= 0) && $crmLine !== null) {
+            $itemCatalogoRow = repo_cliente_item_por_id((int) ($crmLine['item_id'] ?? 0), $matrizId);
+        }
+
+        $estoqueSaldo = 0.0;
+        $vu           = 0.0;
+        if ($catLinha !== null) {
+            $estoqueSaldo = (float) ($catLinha['estoque_saldo'] ?? 0);
+            $vu           = (float) ($catLinha['valor_unitario'] ?? 0);
+            if (trim($nome) === '' && trim((string) ($catLinha['item_nome'] ?? '')) !== '') {
+                $nome = (string) $catLinha['item_nome'];
+            }
+            if ($unidade === 'UN' && trim((string) ($catLinha['unidade'] ?? '')) !== '') {
+                $unidade = (string) $catLinha['unidade'];
+            }
+        }
+        if ($itemCatalogoRow !== null) {
+            $estoqueSaldo = (float) ($itemCatalogoRow['estoque_saldo'] ?? 0);
+            $vu           = (float) ($itemCatalogoRow['valor_unitario'] ?? 0);
+            if (trim($nome) === '' && trim((string) ($itemCatalogoRow['nome'] ?? '')) !== '') {
+                $nome = (string) $itemCatalogoRow['nome'];
+            }
+            if ($unidade === 'UN' && trim((string) ($itemCatalogoRow['unidade'] ?? '')) !== '') {
+                $unidade = (string) $itemCatalogoRow['unidade'];
+            }
+        }
+        if ($crmLine !== null && $vu == 0.0) {
+            $vu = (float) ($crmLine['valor_unitario'] ?? 0);
+        }
+        if (($estoqueSaldo == 0.0 && $crmLine !== null && repo_cliente_itens_estoque_saldo_column_exists())) {
+            $estoqueSaldo = (float) ($crmLine['estoque_saldo'] ?? 0);
+        }
+
+        $bmPQ = ($codNorm !== '') && isset($priorBm[$codNorm]) ? (float) ($priorBm[$codNorm]['qtd'] ?? 0) : 0.0;
+        $bmPV = ($codNorm !== '') && isset($priorBm[$codNorm]) ? (float) ($priorBm[$codNorm]['valor'] ?? 0) : 0.0;
+
+        $mq = ($crmLine !== null) ? (float) ($crmLine['quantidade'] ?? 0) : 0.0;
+        $mv = ($crmLine !== null) ? (float) ($crmLine['valor_subtotal'] ?? 0) : 0.0;
+
+        $valorMedidoSomaTotal += $mv;
+
+        $acumq = $mq + $bmPQ;
+        $vqBase = ($estoqueSaldo * $vu);
+        /* Acumulado financeiro: medido período + acumulados em BMs passados — evita usar qtd_medida*BMs que pode divergir dos valores gravados nos imports */
+        $acumV = $mv + $bmPV;
+        /* Saldo físico a executar: saldo atual no catálogo menos consumo físico já acumulado */
+        $saldoQx = $estoqueSaldo - $acumq;
+        /* Saldo financeiro: valor nominal em catálogo (saldo*qtd) menos acumulado em R$ */
+        $saldoVx = ($vqBase) - ($acumV);
+
+        $devFinRatio = null;
+        if (abs((float) $vqBase) > 1e-12) {
+            $devFinRatio = $acumV / $vqBase;
+        }
+
+        $rows[] = [
+            '_key'              => $k,
+            '_codigo_display'   => $codigoExibir,
+            '_nome'             => $nome,
+            '_unidade'          => $unidade,
+            '_estoque_saldo'    => $estoqueSaldo,
+            '_data_ini_excel'   => $dataExcel,
+            '_soma_bm_q'        => $bmPQ,
+            '_medido_q'         => $mq,
+            '_acum_q'           => $acumq,
+            '_saldo_exec_q'     => $saldoQx,
+            '_val_acum_ant'     => $bmPV,
+            '_val_med_periodo'  => $mv,
+            '_val_acum'         => $acumV,
+            '_saldo_exec_v'     => $saldoVx,
+            '_dev_fin_ratio'    => $devFinRatio,
+        ];
+    }
+
+    return [
+        'rows'                 => $rows,
+        'valor_medido_total'   => $valorMedidoSomaTotal,
+    ];
+}
+
+function medicao_export_bm_boletim_v2_xlsx_send(
+    int $clienteMatrizId,
+    string $refYm,
+    array $clienteMatriz,
+    string $periodoDe,
+    string $periodoAte
+): void {
+    if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Parâmetros inválidos.';
+        exit;
+    }
+    $mesIni = strtotime($refYm . '-01 12:00:00');
+    $ultDiaRef = $mesIni !== false ? date('Y-m-t', $mesIni) : ($refYm . '-28');
+    if ($mesIni === false
+        || $periodoDe > $periodoAte
+        || $periodoAte < ($refYm . '-01')
+        || $periodoAte > $ultDiaRef
+    ) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Datas do período inválidas para o mês de referência.';
+        exit;
+    }
+
+    $comp = medicao_bm_boletim_v2_compor_linhas($clienteMatrizId, $refYm, $periodoDe, $periodoAte);
+    $linhasRows = $comp['rows'];
+
+    $spreadsheet = new Spreadsheet();
+    $sheet       = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Boletim BM');
+
+    $lastColLetter = 'N';
+    $st            = medicao_bm_boletim_style_arrays_tipografia();
+    $seq           = medicao_bm_boletim_numero_sequencia($clienteMatrizId, $refYm);
+
+    $sheet->mergeCells('A1:' . $lastColLetter . '1');
+    $sheet->setCellValue('A1', 'BOLETIM DE MEDIÇÃO Nº ' . $seq);
+    $sheet->mergeCells('A2:' . $lastColLetter . '2');
+    $empresa = trim((string) ($clienteMatriz['empresa'] ?? ''));
+    $rotuloM = medicao_mes_label_pt($refYm);
+    $iniPt   = date('d/m/Y', strtotime($periodoDe));
+    $fimPt   = date('d/m/Y', strtotime($periodoAte));
+    $sheet->setCellValue(
+        'A2',
+        ('Medição ' . $rotuloM . ' — ' . ($empresa !== '' ? $empresa : 'Contratante'))
+        . "\n"
+        . 'Data inicial solicitada (CRM): ' . $iniPt . '  ·  Até o fecho do BM: ' . $fimPt
+    );
+    $sheet->getStyle('A2:' . $lastColLetter . '2')->getAlignment()->setWrapText(true);
+    $sheet->mergeCells('A3:B3');
+    $sheet->setCellValue('A3', 'Valor medido no período (CRM, R$):');
+    $sheet->setCellValue('C3', (float) ($comp['valor_medido_total'] ?? 0));
+    $sheet->getStyle('C3')->getNumberFormat()->setFormatCode('"R$" #,##0.00');
+    $sheet->getStyle('C3')->applyFromArray([
+        'font'         => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TOTAL, MEDICAO_BM_BRAND_PRIMARY),
+        'alignment'    => [
+            'vertical' => Alignment::VERTICAL_CENTER,
+            'horizontal' => Alignment::HORIZONTAL_RIGHT,
+        ],
+        'fill' => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
+    ]);
+
+    $sheet->mergeCells('A4:' . $lastColLetter . '4');
+    $sheet->setCellValue(
+        'A4',
+        'Exportação: CRM de ' . $iniPt . ' (início solicitado) até ' . $fimPt . ' (fecho efetivo do boletim BM para ' . $rotuloM . ').'
+    );
+    $sheet->getStyle('A4:' . $lastColLetter . '4')->getAlignment()->setWrapText(true);
+
+    $headerRow = 5;
+    $headers   = [
+        'Item',
+        'Descrição',
+        'Un',
+        'Saldo (qtd total)',
+        'Data início período',
+        'Soma dos BMS (anteriores)',
+        'Medido no período',
+        'Acumulado',
+        'Saldo a executar',
+        'Acumulado período anterior (R$)',
+        'Medido no período (R$)',
+        'Acumulado (R$)',
+        'Saldo a executar (R$)',
+        'Desvio %',
+    ];
+
+    $colIni = Coordinate::columnIndexFromString('A');
+    foreach ($headers as $i => $label) {
+        $L = Coordinate::stringFromColumnIndex($colIni + $i);
+        $sheet->setCellValue($L . $headerRow, $label);
+    }
+    $sheet->getStyle('A' . $headerRow . ':' . $lastColLetter . $headerRow)->applyFromArray($st['header_table']);
+    $sheet->getRowDimension($headerRow)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
+    $sheet->getStyle('A' . $headerRow . ':' . $lastColLetter . $headerRow)->getAlignment()->setWrapText(true);
+
+    foreach (
+        [
+            'A' => 12,
+            'B' => 55,
+            'C' => 16,
+            'D' => 18,
+            'E' => 18,
+            'F' => 24,
+            'G' => 20,
+            'H' => 18,
+            'I' => 22,
+            'J' => 30,
+            'K' => 24,
+            'L' => 20,
+            'M' => 26,
+            'N' => 12,
+        ] as $colLet => $w
+    ) {
+        $sheet->getColumnDimension($colLet)->setAutoSize(false);
+        $sheet->getColumnDimension($colLet)->setWidth((float) $w);
+    }
+
+    $r0 = $headerRow + 1;
+    if ($linhasRows === []) {
+        $sheet->mergeCells('A' . $r0 . ':' . $lastColLetter . $r0);
+        $sheet->setCellValue('A' . $r0, 'Nenhum item para esta combinação (importação BM vazia e sem materiais utilizados no período).');
+        $lastDataRow = $r0;
+    } else {
+        foreach ($linhasRows as $i => $row) {
+            $r = $r0 + $i;
+            $sheet->setCellValue('A' . $r, (string) $row['_codigo_display']);
+            $sheet->setCellValue('B' . $r, (string) $row['_nome']);
+            $sheet->setCellValue('C' . $r, (string) $row['_unidade']);
+            $sheet->setCellValue('D' . $r, (float) $row['_estoque_saldo']);
+            if ($row['_data_ini_excel'] !== null && is_numeric($row['_data_ini_excel'])) {
+                $sheet->setCellValue('E' . $r, $row['_data_ini_excel']);
+                $sheet->getStyle('E' . $r)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_DATE_DDMMYYYY);
+            }
+            $sheet->setCellValue('F' . $r, (float) $row['_soma_bm_q']);
+            $sheet->setCellValue('G' . $r, (float) $row['_medido_q']);
+            $sheet->setCellValue('H' . $r, (float) $row['_acum_q']);
+            $sheet->setCellValue('I' . $r, (float) $row['_saldo_exec_q']);
+
+            $sheet->setCellValue('J' . $r, (float) $row['_val_acum_ant']);
+            $sheet->setCellValue('K' . $r, (float) $row['_val_med_periodo']);
+            $sheet->setCellValue('L' . $r, (float) $row['_val_acum']);
+            $sheet->setCellValue('M' . $r, (float) $row['_saldo_exec_v']);
+            $ratio = isset($row['_dev_fin_ratio']) ? $row['_dev_fin_ratio'] : null;
+            if ($ratio !== null) {
+                $sheet->setCellValue('N' . $r, $ratio);
+                $sheet->getStyle('N' . $r)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_PERCENTAGE_00);
+            } else {
+                $sheet->setCellValue('N' . $r, '');
+            }
+
+        }
+
+        $lastDataRow = $r0 + count($linhasRows) - 1;
+
+        $fmtQty = '#,##0.000###';
+        /* D e F–I: quantidades; E fica só data (evita serial Excel como «3,416667»). */
+        $sheet->getStyle('D' . $r0 . ':D' . $lastDataRow)->getNumberFormat()->setFormatCode($fmtQty);
+        $sheet->getStyle('F' . $r0 . ':I' . $lastDataRow)->getNumberFormat()->setFormatCode($fmtQty);
+        $sheet->getStyle('E' . $r0 . ':E' . $lastDataRow)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_DATE_DDMMYYYY);
+        $moneyFmt = '"R$" #,##0.00';
+        $sheet->getStyle('J' . $r0 . ':M' . $lastDataRow)->getNumberFormat()->setFormatCode($moneyFmt);
+
+        for ($r = $r0; $r <= $lastDataRow; $r++) {
+            $bg                   = (($r - $r0) % 2 === 0) ? MEDICAO_BM_WHITE : MEDICAO_BM_BG_ALT;
+            $rowStd               = $st['body_row'];
+            $rowStd['fill']       = medicao_bm_boletim_style_fill_solid($bg);
+            $sheet->getStyle('A' . $r . ':' . $lastColLetter . $r)->applyFromArray($rowStd);
+            $sheet->getStyle('B' . $r)->applyFromArray($st['body_desc']);
+            $sheet->getStyle('D' . $r . ':' . 'I' . $r)->applyFromArray($st['numeric']);
+            $sheet->getStyle('J' . $r . ':' . 'M' . $r)->applyFromArray($st['money']);
+            $sheet->getStyle('N' . $r)->applyFromArray($st['numeric']);
+        }
+        $sheet->getStyle('A' . $r0 . ':' . $lastColLetter . $lastDataRow)->applyFromArray($st['body_block_border']);
+    }
+
+    $defFont = $spreadsheet->getDefaultStyle()->getFont();
+    $defFont->setName(MEDICAO_BM_XLSX_FONT)->setSize(MEDICAO_BM_XLSX_SIZE_BASE);
+
+    $titleV2Purple = $st['title_main'];
+    $titleV2Purple['fill'] = medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BRAND_PRIMARY);
+    $sheet->getStyle('A1:' . $lastColLetter . '1')->applyFromArray($titleV2Purple);
+    $sheet->getStyle('A2:' . $lastColLetter . '2')->applyFromArray($st['title_sub_flat']);
+    $sheet->getStyle('A4:' . $lastColLetter . '4')->applyFromArray($st['title_sub_flat']);
+    $sheet->getRowDimension(1)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
+    $sheet->getRowDimension(2)->setRowHeight(40.0);
+    $sheet->getRowDimension(3)->setRowHeight(MEDICAO_BM_XLSX_ROW_SUB_META);
+    $sheet->getRowDimension(4)->setRowHeight(30.0);
+
+    $ultimaLinha = max(1, (int) $sheet->getHighestRow());
+    $sheet->getStyle('A1:' . $lastColLetter . $ultimaLinha)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+
+    $stampAte = date('d.m.Y', strtotime($periodoAte));
+    $tag      = medicao_bm_boletim_mes_arquivo($refYm);
+    $suffixDe = preg_replace('/[^A-Za-z0-9_-]+/', '_', $periodoDe);
+    $fn       = 'BM_' . $seq . '__' . $tag . '_' . trim($suffixDe, '_') . '_v' . $stampAte . '.xlsx';
+
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment; filename="' . $fn . '"');
+    header('Cache-Control: max-age=0');
+
+    (new Xlsx($spreadsheet))->save('php://output');
+    exit;
 }

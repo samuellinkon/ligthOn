@@ -75,6 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $val   = (float) str_replace(',', '.', (string) ($_POST['valor_unitario'] ?? '0'));
         $desc  = trim((string) ($_POST['descricao'] ?? ''));
         $ativo = !empty($_POST['ativo']) ? 1 : 0;
+        $est   = (float) str_replace(',', '.', (string) ($_POST['estoque_saldo'] ?? '0'));
         $r = repo_cliente_item_salvar(
             $clienteId,
             $id,
@@ -84,7 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $unid,
             $val,
             $desc !== '' ? $desc : null,
-            $ativo
+            $ativo,
+            $est
         );
         flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item salvo no catálogo.' : $r['err']);
     } elseif ($acao === 'item_excluir') {

@@ -110,7 +110,7 @@ $hrefBoletim = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef]);
 $hrefExport  = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef, 'export' => 'planilha']);
 $hrefExportRelatorioXlsx = 'medicao_ver.php?' . http_build_query(['mes' => $mesRef, 'export' => 'relatorio_xlsx']);
 $hrefChamados = 'chamados.php?' . http_build_query(['medicao_mes' => $mesRef]);
-$hrefBoletimBmXlsx = 'medicao_export_boletim_bm.php?' . http_build_query(['mes' => $mesRef]);
+$hrefBoletimBmXlsx = 'medicao.php#bm-' . $mesRef;
 $chExportCtxVer = [
     'medicao_mes'       => $mesRef,
     'periodo_de'        => '',
@@ -195,7 +195,7 @@ include __DIR__ . '/../includes/head.php';
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExport) ?>">Exportar CSV (boletim)</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExportRelatorioXlsx) ?>">Exportar XLSX (relatório detalhado)</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefChamados) ?>">Chamados</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefBoletimBmXlsx) ?>">Excel — boletim BM</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefBoletimBmXlsx) ?>" title="Na listagem de medições, use a coluna Boletim BM">Excel — boletim BM</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefXlsxDetalhesCh) ?>">Excel — chamados (detalhes)</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefPdfAnexosCh) ?>" target="_blank" rel="noopener">PDF — chamados (anexos)</a>
       </div>
