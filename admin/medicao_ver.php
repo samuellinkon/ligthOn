@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/chamados_list_urls.php';
 
 $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
@@ -27,9 +28,19 @@ if (!preg_match('/^\d{4}-\d{2}$/', $mesRaw)) {
     header('Location: medicao.php');
     exit;
 }
-$mesRef  = $mesRaw;
-$dataDe  = $mesRef . '-01';
-$dataAte = date('Y-m-t', strtotime($dataDe));
+$mesRef = $mesRaw;
+$periodoResolvido = medicao_resolve_periodo_filtro(
+    $mesRef,
+    trim((string) ($_GET['periodo_de'] ?? '')),
+    trim((string) ($_GET['periodo_ate'] ?? ''))
+);
+if (!$periodoResolvido['ok']) {
+    flash_set('err', $periodoResolvido['err']);
+    header('Location: medicao.php');
+    exit;
+}
+$dataDe  = $periodoResolvido['de'];
+$dataAte = $periodoResolvido['ate'];
 
 $escopoEmpresa = gestao_scope_cliente_id($me);
 if ($escopoEmpresa !== null) {
@@ -82,11 +93,17 @@ if (($_GET['export'] ?? '') === 'relatorio_xlsx') {
             $sheet,
             (string) ($clienteMatriz['empresa'] ?? ''),
             medicao_mes_label_pt($mesRef),
-            (int) $clienteId
+            (int) $clienteId,
+            $dataDe,
+            $dataAte
         );
     } catch (Throwable $e) {
         flash_set('err', 'Falha ao exportar XLSX: ' . $e->getMessage());
-        header('Location: medicao_ver.php?' . http_build_query(['mes' => $mesRef]));
+        header('Location: medicao_ver.php?' . http_build_query([
+            'mes'         => $mesRef,
+            'periodo_de'  => $dataDe,
+            'periodo_ate' => $dataAte,
+        ]));
     }
     exit;
 }
@@ -110,13 +127,40 @@ foreach ($impLinhas as $il) {
     }
 }
 
-$periodoTxt = date('d/m/Y', strtotime($dataDe)) . ' a ' . date('d/m/Y', strtotime($dataAte));
+$periodoTxt = $periodoResolvido['label_curto'];
 $mesLabel   = medicao_mes_label_pt($mesRef);
 
-$hrefBoletim = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef]);
-$hrefExport  = 'medicao_mes.php?' . http_build_query(['mes' => $mesRef, 'export' => 'planilha']);
-$hrefExportRelatorioXlsx = 'medicao_ver.php?' . http_build_query(['mes' => $mesRef, 'export' => 'relatorio_xlsx']);
-$hrefChamados = 'chamados.php?' . http_build_query(['medicao_mes' => $mesRef]);
+$bmPrimeiroDia   = $mesRef . '-01';
+$bmPeriodoAteMax = medicao_bm_export_v2_periodo_ate($mesRef);
+$bmPeriodoDeMin  = medicao_bm_export_v2_periodo_de_min($mesRef);
+$bmPeriodoAteFmt = date('d/m/Y', strtotime($bmPeriodoAteMax));
+$bmIdYm          = htmlspecialchars(preg_replace('/\W/', '_', $mesRef), ENT_QUOTES, 'UTF-8');
+$bmFormId        = 'bm-export-ver';
+$bmDateTitle     = 'Mês ' . $mesRef . ' · início mín. ' . date('d/m/Y', strtotime($bmPeriodoDeMin))
+    . ' · fecho até ' . $bmPeriodoAteFmt;
+
+$chExportCtx = [
+    'medicao_mes'     => $mesRef,
+    'periodo_de'      => $dataDe,
+    'periodo_ate'     => $dataAte,
+    'periodo_limpar'  => false,
+    'cliente_id'      => $clienteId > 0 ? $clienteId : null,
+    'envolvido_user'  => null,
+    'tecnico_user_id' => null,
+    'local_q'         => null,
+];
+$hrefChamados = 'chamados.php?' . http_build_query(array_filter([
+    'medicao_mes' => $mesRef,
+    'periodo_de'  => $dataDe,
+    'periodo_ate' => $dataAte,
+    'cliente_id'  => $clienteId > 0 ? $clienteId : null,
+], static fn ($v) => $v !== null && $v !== ''));
+$hrefXlsxDet = adm_chamados_export_url('xlsx_detalhes', '', '', $chExportCtx);
+$hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', '', '', $chExportCtx);
+if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
+    $hrefPdfAnexos .= (strpos($hrefPdfAnexos, '?') !== false ? '&' : '?') . 'pdf_debug=1';
+}
+
 $ymParts = explode('-', $mesRef);
 $hrefImportar = 'medicao_importar.php?' . http_build_query([
     'ref_ano' => (int) ($ymParts[0] ?? date('Y')),
@@ -137,13 +181,6 @@ $topAction   = ['label' => 'Medições mensais', 'href' => 'medicao.php', 'icon'
 include __DIR__ . '/../includes/head.php';
 ?>
 <style>
-  .medicao-view-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-
   .medicao-view-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -178,7 +215,7 @@ include __DIR__ . '/../includes/head.php';
 
 <section class="content">
   <div class="card medicao-view-section">
-    <div class="panel-head">
+    <div class="panel-head medicao-ver-panel-head">
       <div>
         <h4>Resumo da medição</h4>
         <span class="panel-sub">
@@ -186,12 +223,26 @@ include __DIR__ . '/../includes/head.php';
           <?= $listagemSoBm ? ' · dados exibidos a partir da importação BM' : '' ?>
         </span>
       </div>
-      <div class="medicao-view-actions">
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefBoletim) ?>">Boletim</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExport) ?>">Exportar CSV (boletim)</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefExportRelatorioXlsx) ?>">Exportar XLSX (relatório detalhado)</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefChamados) ?>">Chamados</a>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($hrefImportar) ?>">Importar BM</a>
+      <div class="medicao-export-toolbar medicao-export-toolbar--ver medicao-mes-row"
+           id="medicao-ver-toolbar"
+           data-medicao-mes="<?= htmlspecialchars($mesRef, ENT_QUOTES, 'UTF-8') ?>"
+           data-periodo-de="<?= htmlspecialchars($dataDe, ENT_QUOTES, 'UTF-8') ?>"
+           data-periodo-ate="<?= htmlspecialchars($dataAte, ENT_QUOTES, 'UTF-8') ?>">
+        <form id="<?= htmlspecialchars($bmFormId, ENT_QUOTES, 'UTF-8') ?>" method="get" action="medicao_export_boletim_bm.php" class="medicao-bm-export-form-hidden" hidden aria-hidden="true">
+          <input type="hidden" name="mes" value="<?= htmlspecialchars($mesRef, ENT_QUOTES, 'UTF-8') ?>">
+          <input type="hidden" name="export" value="1">
+          <input type="hidden" name="periodo_de" value="<?= htmlspecialchars($dataDe, ENT_QUOTES, 'UTF-8') ?>">
+          <input type="hidden" name="periodo_ate" value="<?= htmlspecialchars($dataAte, ENT_QUOTES, 'UTF-8') ?>">
+          <?php if ($escopoEmpresa === null && $clienteId > 0): ?>
+            <input type="hidden" name="cliente_id" value="<?= (int) $clienteId ?>">
+          <?php endif; ?>
+        </form>
+        <?php
+        $bmMes = $mesRef;
+        $bmMostrarClienteHidden = false;
+        $bmExportComLabels = true;
+        require __DIR__ . '/../includes/partials/medicao_bm_export_acoes.php';
+        ?>
       </div>
     </div>
     <div class="panel-body">
@@ -402,5 +453,77 @@ include __DIR__ . '/../includes/head.php';
 
 </main>
 </div>
+
+<script>
+(function () {
+  var clienteId = <?= (int) $clienteId ?>;
+  var toolbar = document.getElementById('medicao-ver-toolbar');
+  if (!toolbar) return;
+
+  function periodoFromToolbar() {
+    var q = {};
+    var de = toolbar.getAttribute('data-periodo-de') || '';
+    var ate = toolbar.getAttribute('data-periodo-ate') || '';
+    if (de) {
+      q.periodo_de = de;
+    }
+    if (ate) {
+      q.periodo_ate = ate;
+    }
+    return q;
+  }
+
+  function appendQuery(baseHref, extra) {
+    var url;
+    try {
+      url = new URL(baseHref, window.location.href);
+    } catch (e) {
+      return baseHref;
+    }
+    Object.keys(extra).forEach(function (k) {
+      if (extra[k] !== undefined && extra[k] !== null && extra[k] !== '') {
+        url.searchParams.set(k, extra[k]);
+      }
+    });
+    return url.pathname + url.search;
+  }
+
+  function hrefForLink(kind) {
+    var mes = toolbar.getAttribute('data-medicao-mes') || '';
+    var p = periodoFromToolbar();
+    if (kind === 'chamados') {
+      var qc = Object.assign({ medicao_mes: mes }, p);
+      if (clienteId > 0) {
+        qc.cliente_id = String(clienteId);
+      }
+      return appendQuery('chamados.php', qc);
+    }
+    if (kind === 'xlsx_detalhes' || kind === 'pdf_anexos') {
+      var qe = Object.assign({ medicao_mes: mes, export: kind }, p);
+      if (clienteId > 0) {
+        qe.cliente_id = String(clienteId);
+      }
+      return appendQuery('chamados.php', qe);
+    }
+    return null;
+  }
+
+  toolbar.querySelectorAll('.js-medicao-periodo-link').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      var kind = a.getAttribute('data-link-kind') || '';
+      var href = hrefForLink(kind);
+      if (!href) {
+        return;
+      }
+      ev.preventDefault();
+      if (kind === 'pdf_anexos') {
+        window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      window.location.href = href;
+    });
+  });
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

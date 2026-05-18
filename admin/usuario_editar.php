@@ -66,6 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $senhaNova   = (string) ($_POST['senha_nova'] ?? '');
     $senhaNova2  = (string) ($_POST['senha_nova2'] ?? '');
 
+    $ativoOpt = null;
+    if (function_exists('repo_usuarios_ativo_column_exists') && repo_usuarios_ativo_column_exists()) {
+        if (($me['perfil'] ?? '') === 'admin' || $escopoUe !== null) {
+            $ativoOpt = isset($_POST['conta_ativa']) ? 1 : 0;
+        }
+    }
+
     $r = repo_update_usuario_admin(
         $userId,
         $nome,
@@ -75,7 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         null,
         $escopoUe,
         (int) ($me['id'] ?? 0),
-        $empresaIdPost > 0 ? $empresaIdPost : null
+        $empresaIdPost > 0 ? $empresaIdPost : null,
+        $ativoOpt
     );
     if (!$r['ok']) {
         flash_set('err', $r['err']);

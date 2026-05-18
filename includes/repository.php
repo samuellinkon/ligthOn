@@ -139,7 +139,7 @@ function repo_clientes(): array
             (SELECT COUNT(*) FROM chamados ch WHERE ch.cliente_id = c.id" . _repo_chamados_sql_apenas_ativos('ch') . ") AS chamados,
             (SELECT COUNT(*) FROM chamados ch
               WHERE ch.cliente_id = c.id
-                AND ch.status IN ('Aberto','Em andamento','Aguardando')" . _repo_chamados_sql_apenas_ativos('ch') . ") AS pendentes
+                AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')" . _repo_chamados_sql_apenas_ativos('ch') . ") AS pendentes
         FROM clientes c
         ORDER BY c.id
     ";
@@ -346,6 +346,35 @@ function _repo_parse_latlng_pair(?string $latStr, ?string $lngStr): array
     return [$la, $lo];
 }
 
+function repo_chamado_tem_coordenadas_validas(array $ch): bool
+{
+    [$la, $lo] = _repo_parse_latlng_pair(
+        isset($ch['latitude']) ? (string) $ch['latitude'] : null,
+        isset($ch['longitude']) ? (string) $ch['longitude'] : null
+    );
+
+    return $la !== null && $lo !== null;
+}
+
+/**
+ * @return array{ok: bool, err: string}
+ */
+function repo_validar_chamado_resolvido(int $id): array
+{
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return ['ok' => false, 'err' => 'Chamado não encontrado.'];
+    }
+    if (!repo_chamado_tem_coordenadas_validas($ch)) {
+        return [
+            'ok'  => false,
+            'err' => 'Cadastre latitude e longitude válidas no chamado antes de finalizá-lo.',
+        ];
+    }
+
+    return ['ok' => true, 'err' => ''];
+}
+
 function _repo_chamado_row_normalizar_geo(array &$r): void
 {
     if (array_key_exists('latitude', $r)) {
@@ -524,7 +553,7 @@ function repo_pontos_iluminacao_list(int $clienteId, bool $escopoEmpresa = false
                 pi.*,
                 c.empresa AS cliente_empresa,
                 COUNT(ch.id) AS chamados_total,
-                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando') THEN 1 ELSE 0 END) AS chamados_abertos
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
             FROM pontos_iluminacao pi
             JOIN clientes c ON c.id = pi.cliente_id
             LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
@@ -2256,7 +2285,7 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
         $where[] = 'ch.status IN (\'Aberto\',\'Em andamento\')';
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
-        $params[] = 'Aguardando';
+        $params[] = 'Aguardando Aprovação';
     } elseif ($filtro === 'resolvido') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
     }
@@ -2452,7 +2481,7 @@ function repo_chamados_portal_list(
         $where[] = 'ch.status IN (\'Aberto\',\'Em andamento\')';
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
-        $params[] = 'Aguardando';
+        $params[] = 'Aguardando Aprovação';
     } elseif ($filtro === 'resolvido') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
     }
@@ -2482,7 +2511,7 @@ function repo_chamados_portal_list(
             $orderBy = 'ch.aberto_em ASC, ch.id ASC';
             break;
         case 'status':
-            $orderBy = "FIELD(ch.status, 'Aberto', 'Em andamento', 'Aguardando', 'Cancelado', 'Resolvido', 'Fechado'), ch.aberto_em DESC, ch.id DESC";
+            $orderBy = "FIELD(ch.status, 'Aberto', 'Em andamento', 'Aguardando Aprovação', 'Cancelado', 'Resolvido', 'Fechado'), ch.aberto_em DESC, ch.id DESC";
             break;
         case 'prioridade':
             $orderBy = "FIELD(ch.prioridade, 'Urgente', 'Alta', 'Normal', 'Baixa'), ch.aberto_em DESC, ch.id DESC";
@@ -2597,7 +2626,7 @@ function _repo_chamados_admin_sql_where(
         $params[] = 'Em andamento';
     } elseif ($filtro === 'aguardando') {
         $where[]  = 'ch.status = ?';
-        $params[] = 'Aguardando';
+        $params[] = 'Aguardando Aprovação';
     } elseif ($filtro === 'resolvidos') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\')';
     } elseif ($filtro === 'cancelados') {
@@ -3416,7 +3445,7 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
           AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
           AND ch.status <> \'Cancelado\'
           AND ci.movimento = ?
-        ORDER BY ch.id ASC, ci.id ASC
+        ORDER BY ch.aberto_em DESC, ch.id DESC, ci.id ASC
     ';
     $st = $pdo->prepare($sql);
     $st->execute([$empresaRaizId, $empresaRaizId, $dataDe, $dataAte, $mov]);
@@ -4107,6 +4136,33 @@ function repo_medicao_import_fetch(int $clienteMatrizId, string $refYm): array
 }
 
 /**
+ * Soma de valor_medido_periodo em todas as importações BM da matriz (histórico completo).
+ */
+function repo_medicao_bm_valor_acumulado(int $clienteMatrizId): float
+{
+    if ($clienteMatrizId <= 0) {
+        return 0.0;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return 0.0;
+    }
+    try {
+        $st = $pdo->prepare('
+            SELECT COALESCE(SUM(mil.valor_medido_periodo), 0)
+            FROM medicao_import_linhas mil
+            INNER JOIN medicao_imports mi ON mi.id = mil.import_id
+            WHERE mi.cliente_matriz_id = ?
+        ');
+        $st->execute([$clienteMatrizId]);
+
+        return (float) $st->fetchColumn();
+    } catch (Throwable $e) {
+        return 0.0;
+    }
+}
+
+/**
  * Lista linhas importadas da BM para exibição como chamados virtuais no histórico geral.
  *
  * @return list<array<string,mixed>>
@@ -4712,20 +4768,37 @@ function repo_create_usuario(array $d): ?int
     } else {
         $eid = null;
     }
-    $stmt = $pdo->prepare('
-        INSERT INTO usuarios (nome, email, senha_hash, perfil, modulo_perfil, cliente_id, empresa_id, iniciais)
-        VALUES (?,?,?,?,?,?,?,?)
-    ');
-    $stmt->execute([
-        $d['nome']       ?? '',
-        trim($d['email'] ?? ''),
-        $hash,
-        $perfil,
-        $mpf,
-        $cid,
-        $eid,
-        $d['iniciais']   ?? null,
-    ]);
+    if (repo_usuarios_ativo_column_exists()) {
+        $stmt = $pdo->prepare('
+            INSERT INTO usuarios (nome, email, senha_hash, perfil, modulo_perfil, cliente_id, empresa_id, iniciais, ativo)
+            VALUES (?,?,?,?,?,?,?,?,1)
+        ');
+        $stmt->execute([
+            $d['nome']       ?? '',
+            trim($d['email'] ?? ''),
+            $hash,
+            $perfil,
+            $mpf,
+            $cid,
+            $eid,
+            $d['iniciais']   ?? null,
+        ]);
+    } else {
+        $stmt = $pdo->prepare('
+            INSERT INTO usuarios (nome, email, senha_hash, perfil, modulo_perfil, cliente_id, empresa_id, iniciais)
+            VALUES (?,?,?,?,?,?,?,?)
+        ');
+        $stmt->execute([
+            $d['nome']       ?? '',
+            trim($d['email'] ?? ''),
+            $hash,
+            $perfil,
+            $mpf,
+            $cid,
+            $eid,
+            $d['iniciais']   ?? null,
+        ]);
+    }
     return (int) $pdo->lastInsertId();
 }
 
@@ -4958,6 +5031,34 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
     return $ok;
 }
 
+function repo_update_chamado_prioridade(int $id, string $prioridade): bool
+{
+    static $allowed = ['Baixa', 'Normal', 'Alta', 'Urgente'];
+    if (!in_array($prioridade, $allowed, true)) {
+        return false;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return false;
+    }
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return false;
+    }
+    $clienteId = (int) ($ch['cliente_id'] ?? 0);
+    $antesPrio  = (string) ($ch['prioridade'] ?? '');
+    $stmt       = $pdo->prepare('UPDATE chamados SET prioridade = ? WHERE id = ?');
+    $ok         = $stmt->execute([$prioridade, $id]);
+    if ($ok && $antesPrio !== $prioridade) {
+        audit_log_registar('chamado.alterar_prioridade', 'chamado', $id, $clienteId > 0 ? $clienteId : null, [
+            'antes'  => $antesPrio,
+            'depois' => $prioridade,
+        ]);
+    }
+
+    return $ok;
+}
+
 function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?float $latitude, ?float $longitude): bool
 {
     $pdo = db();
@@ -5000,17 +5101,29 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
     return $ok;
 }
 
-function repo_update_chamado_status(int $id, string $status): bool
+function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null): bool
 {
-    static $allowed = ['Aberto', 'Em andamento', 'Aguardando', 'Resolvido', 'Fechado', 'Cancelado'];
+    static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Fechado', 'Cancelado'];
     if (!in_array($status, $allowed, true)) {
         return false;
+    }
+    if ($status === 'Cancelado') {
+        $p = strtolower(trim((string) $perfilActor));
+        if (!in_array($p, ['gestor', 'admin', 'super_admin', 'cliente'], true)) {
+            return false;
+        }
     }
     $pdo = db();
     if (!$pdo) {
         return false;
     }
     $antes = repo_chamado($id);
+    if (!$antes) {
+        return false;
+    }
+    if ($status === 'Resolvido' && !repo_chamado_tem_coordenadas_validas($antes)) {
+        return false;
+    }
     $stmt  = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
     $ok    = $stmt->execute([$status, $id]);
     if ($ok && $antes) {
@@ -5277,7 +5390,21 @@ function repo_cliente_item_salvar(
     if ($nome === '') {
         return ['ok' => false, 'err' => 'Informe o nome.', 'id' => null];
     }
-    $ativo = $ativo ? 1 : 0;
+    if ($codigo !== null && $codigo !== '') {
+        $dupSql = 'SELECT id FROM cliente_itens WHERE (cliente_id = ? OR empresa_id = ?) AND codigo = ?';
+        $dupParams = [$clienteId, $clienteId, $codigo];
+        if ($id !== null && $id > 0) {
+            $dupSql .= ' AND id <> ?';
+            $dupParams[] = $id;
+        }
+        $dupSql .= ' LIMIT 1';
+        $dupSt = $pdo->prepare($dupSql);
+        $dupSt->execute($dupParams);
+        if ($dupSt->fetchColumn()) {
+            return ['ok' => false, 'err' => 'Já existe um item com este código (ID) no catálogo.', 'id' => null];
+        }
+    }
+    $ativo = 1;
     $temEstoque = repo_cliente_itens_estoque_saldo_column_exists();
     try {
         if ($id !== null && $id > 0) {
@@ -5847,9 +5974,17 @@ function repo_chamado_atribuir_tecnicos(int $chamadoId, array $tecnicoUserIds, i
     $responsavel = !empty($nomes) ? implode(', ', $nomes) : null;
     $statusSql = $principalId !== null ? ", status = IF(status = 'Aberto', 'Em andamento', status)" : '';
 
+    $idsNovos = $ids;
     try {
         $pdo->beginTransaction();
         if (repo_chamado_tecnicos_table_exists()) {
+            $oldIds = [];
+            $stOld = $pdo->prepare('SELECT usuario_id FROM chamado_tecnicos WHERE chamado_id = ?');
+            $stOld->execute([$chamadoId]);
+            foreach ($stOld->fetchAll(PDO::FETCH_COLUMN) ?: [] as $oid) {
+                $oldIds[] = (int) $oid;
+            }
+            $idsNovos = array_values(array_diff($ids, $oldIds));
             $stDel = $pdo->prepare('DELETE FROM chamado_tecnicos WHERE chamado_id = ?');
             $stDel->execute([$chamadoId]);
             if (!empty($ids)) {
@@ -5862,12 +5997,7 @@ function repo_chamado_atribuir_tecnicos(int $chamadoId, array $tecnicoUserIds, i
         $st = $pdo->prepare("
             UPDATE chamados
             SET tecnico_user_id = ?,
-                responsavel = ?,
-                finalizado_operador_em = NULL,
-                finalizado_operador_user_id = NULL,
-                aprovado_gestor_em = NULL,
-                aprovado_gestor_user_id = NULL,
-                checklist_realizado = NULL
+                responsavel = ?
                 $statusSql
             WHERE id = ?
         ");
@@ -5882,6 +6012,10 @@ function repo_chamado_atribuir_tecnicos(int $chamadoId, array $tecnicoUserIds, i
             'responsavel' => (string) ($responsavel ?? ''),
             'tecnico_ids' => $ids,
         ]);
+        if ($idsNovos !== []) {
+            require_once __DIR__ . '/notificacoes.php';
+            notificar_tecnicos_chamado_atribuido($chamadoId, $idsNovos, 0);
+        }
 
         return ['ok' => true, 'err' => ''];
     } catch (Throwable $e) {
@@ -5908,6 +6042,36 @@ function repo_chamado_atribuir_tecnico(int $chamadoId, ?int $tecnicoUserId, int 
  *
  * @return array{ok: bool, err: string}
  */
+function repo_chamado_salvar_checklist_gestor(int $chamadoId, int $gestorUserId, string $gestorNome, string $checklist): array
+{
+    $pdo = db();
+    if (!$pdo || $chamadoId <= 0 || $gestorUserId <= 0) {
+        return ['ok' => false, 'err' => 'Dados inválidos.'];
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return ['ok' => false, 'err' => 'Chamado não encontrado.'];
+    }
+    $checklistVal = trim($checklist) !== '' ? trim($checklist) : null;
+    try {
+        $st = $pdo->prepare('UPDATE chamados SET checklist_realizado = ? WHERE id = ?');
+        $st->execute([$checklistVal, $chamadoId]);
+        $cidAp = (int) ($ch['cliente_id'] ?? 0);
+        audit_log_registar(
+            'chamado.gestor.checklist',
+            'chamado',
+            $chamadoId,
+            $cidAp > 0 ? $cidAp : null,
+            ['gestor_user_id' => $gestorUserId],
+            ['id' => $gestorUserId, 'nome' => $gestorNome !== '' ? $gestorNome : 'Gestor', 'perfil' => 'gestor']
+        );
+
+        return ['ok' => true, 'err' => ''];
+    } catch (Throwable $e) {
+        return ['ok' => false, 'err' => $e->getMessage()];
+    }
+}
+
 function repo_chamado_aprovar_gestor(int $chamadoId, int $gestorUserId, string $gestorNome, string $checklist): array
 {
     $pdo = db();
@@ -5918,37 +6082,43 @@ function repo_chamado_aprovar_gestor(int $chamadoId, int $gestorUserId, string $
     if (!$ch) {
         return ['ok' => false, 'err' => 'Chamado não encontrado.'];
     }
-    if (empty($ch['finalizado_operador_em'])) {
-        return ['ok' => false, 'err' => 'O técnico precisa finalizar o atendimento antes da aprovação.'];
-    }
+    $checklistVal = trim($checklist) !== '' ? trim($checklist) : null;
+    $jaAprovado   = !empty($ch['aprovado_gestor_em']);
     try {
         $pdo->beginTransaction();
-        $st = $pdo->prepare("
-            UPDATE chamados
-            SET status = 'Resolvido',
-                aprovado_gestor_em = NOW(),
-                aprovado_gestor_user_id = ?,
-                checklist_realizado = ?
-            WHERE id = ?
-        ");
-        $st->execute([$gestorUserId, trim($checklist) !== '' ? trim($checklist) : null, $chamadoId]);
-        repo_create_chamado_resposta(
-            $chamadoId,
-            $gestorNome !== '' ? $gestorNome : 'Gestor',
-            'admin',
-            'Atendimento aprovado pelo gestor.',
-            false,
-            $gestorUserId
-        );
+        if ($jaAprovado) {
+            $st = $pdo->prepare('UPDATE chamados SET checklist_realizado = ? WHERE id = ?');
+            $st->execute([$checklistVal, $chamadoId]);
+        } else {
+            $st = $pdo->prepare("
+                UPDATE chamados
+                SET status = 'Resolvido',
+                    aprovado_gestor_em = NOW(),
+                    aprovado_gestor_user_id = ?,
+                    checklist_realizado = ?
+                WHERE id = ?
+            ");
+            $st->execute([$gestorUserId, $checklistVal, $chamadoId]);
+            repo_create_chamado_resposta(
+                $chamadoId,
+                $gestorNome !== '' ? $gestorNome : 'Gestor',
+                'admin',
+                'Atendimento aprovado pelo gestor.',
+                false,
+                $gestorUserId
+            );
+        }
         $pdo->commit();
 
         $cidAp = (int) ($ch['cliente_id'] ?? 0);
         audit_log_registar(
-            'chamado.gestor.aprovar',
+            $jaAprovado ? 'chamado.gestor.checklist' : 'chamado.gestor.aprovar',
             'chamado',
             $chamadoId,
             $cidAp > 0 ? $cidAp : null,
-            ['status_novo' => 'Resolvido', 'gestor_user_id' => $gestorUserId],
+            $jaAprovado
+                ? ['gestor_user_id' => $gestorUserId]
+                : ['status_novo' => 'Resolvido', 'gestor_user_id' => $gestorUserId],
             ['id' => $gestorUserId, 'nome' => $gestorNome !== '' ? $gestorNome : 'Gestor', 'perfil' => 'gestor']
         );
 
@@ -5982,14 +6152,20 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
     if (in_array($stAtual, ['Resolvido', 'Fechado'], true)) {
         return ['ok' => true, 'err' => ''];
     }
-    if (!empty($ch['finalizado_operador_em'])) {
+    if (!repo_chamado_tem_coordenadas_validas($ch)) {
+        return [
+            'ok'  => false,
+            'err' => 'Cadastre latitude e longitude válidas no chamado antes de finalizar o atendimento.',
+        ];
+    }
+    if (!empty($ch['finalizado_operador_em']) && !in_array($stAtual, ['Aberto', 'Em andamento'], true)) {
         return ['ok' => true, 'err' => ''];
     }
     try {
         $pdo->beginTransaction();
         $st = $pdo->prepare('
             UPDATE chamados
-            SET status = \'Aguardando\',
+            SET status = \'Aguardando Aprovação\',
                 finalizado_operador_em = NOW(),
                 finalizado_operador_user_id = ?,
                 aprovado_gestor_em = NULL,
@@ -6001,7 +6177,7 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
             $chamadoId,
             $nomeAutor !== '' ? $nomeAutor : 'Operador',
             'operador',
-            'Atendimento finalizado pelo técnico e enviado para aprovação do gestor.',
+            'Atendimento finalizado pelo técnico. Aguardando aprovação do gestor.',
             false,
             $operadorUserId
         );
@@ -6009,7 +6185,7 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
         $cidOp = (int) ($ch['cliente_id'] ?? 0);
         audit_log_registar('chamado.operador.enviar_os', 'chamado', $chamadoId, $cidOp > 0 ? $cidOp : null, [
             'operador_user_id' => $operadorUserId,
-            'status_novo'      => 'Aguardando',
+            'status_novo'      => 'Aguardando Aprovação',
         ]);
 
         return ['ok' => true, 'err' => ''];
@@ -6897,6 +7073,54 @@ function _repo_usuario_enriquecer(PDO $pdo, array $u): array
     return $u;
 }
 
+/**
+ * Coluna `usuarios.ativo` (conta pode fazer login). Migração 046.
+ */
+function repo_usuarios_ativo_column_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+        return false;
+    }
+    try {
+        $st = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'ativo'");
+        $cache = (bool) ($st && $st->fetch(PDO::FETCH_ASSOC));
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+    return $cache;
+}
+
+/**
+ * Senha correta mas conta inativa — para mensagem específica no login.
+ */
+function repo_usuario_credenciais_corretas_mas_inativa(string $email, string $senha): bool
+{
+    if (!repo_usuarios_ativo_column_exists()) {
+        return false;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return false;
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT senha_hash, COALESCE(ativo, 1) AS ativo FROM usuarios WHERE email = ? LIMIT 1');
+        $stmt->execute([trim($email)]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || (int) ($row['ativo'] ?? 1) !== 0) {
+            return false;
+        }
+        return password_verify($senha, (string) ($row['senha_hash'] ?? ''));
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 function repo_user_by_email(string $email): ?array
 {
     $pdo = db();
@@ -6904,7 +7128,12 @@ function repo_user_by_email(string $email): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE email = ? LIMIT 1');
+    $sql = 'SELECT * FROM usuarios WHERE email = ?';
+    if (repo_usuarios_ativo_column_exists()) {
+        $sql .= ' AND COALESCE(ativo, 1) = 1';
+    }
+    $sql .= ' LIMIT 1';
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([trim($email)]);
     $u = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$u) {
@@ -7053,8 +7282,12 @@ function repo_usuarios_list_for_admin(string $perfilFil, string $q, int $page, i
     $total = (int) $st->fetchColumn();
 
     $offset = ($page - 1) * $perPage;
+    $sqlAtivo = repo_usuarios_ativo_column_exists()
+        ? 'COALESCE(u.ativo, 1) AS ativo'
+        : '1 AS ativo';
     $sql = "
         SELECT u.id, u.nome, u.email, u.perfil, u.modulo_perfil, u.cliente_id, u.empresa_id, u.iniciais,
+               $sqlAtivo,
                DATE_FORMAT(u.criado_em, '%Y-%m-%d %H:%i') AS criado_em,
                COALESCE(NULLIF(c.empresa, ''), ce.empresa) AS cliente_empresa
         FROM usuarios u
@@ -7070,10 +7303,49 @@ function repo_usuarios_list_for_admin(string $perfilFil, string $q, int $page, i
         $r['id']         = (int) ($r['id'] ?? 0);
         $r['cliente_id'] = isset($r['cliente_id']) && $r['cliente_id'] !== null ? (int) $r['cliente_id'] : null;
         $r['empresa_id'] = isset($r['empresa_id']) && $r['empresa_id'] !== null ? (int) $r['empresa_id'] : null;
+        if (isset($r['ativo'])) {
+            $r['ativo'] = (int) $r['ativo'];
+        }
     }
     unset($r);
 
     return ['rows' => $rows, 'total' => $total];
+}
+
+/**
+ * Exclusão permanente do utilizador (apenas administradores da plataforma).
+ *
+ * @return array{ok: bool, err: string}
+ */
+function repo_usuario_delete_by_admin(int $targetId, int $actorAdminId): array
+{
+    $pdo = db();
+    if (!$pdo || $targetId <= 0 || $actorAdminId <= 0) {
+        return ['ok' => false, 'err' => 'Pedido inválido.'];
+    }
+    if ($targetId === $actorAdminId) {
+        return ['ok' => false, 'err' => 'Não é possível excluir o seu próprio utilizador.'];
+    }
+    try {
+        $st = $pdo->prepare('SELECT id, perfil FROM usuarios WHERE id = ? LIMIT 1');
+        $st->execute([$targetId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return ['ok' => false, 'err' => 'Utilizador não encontrado.'];
+        }
+        if (($row['perfil'] ?? '') === 'admin') {
+            $cnt = (int) $pdo->query("SELECT COUNT(*) FROM usuarios WHERE perfil = 'admin'")->fetchColumn();
+            if ($cnt < 2) {
+                return ['ok' => false, 'err' => 'Não é possível excluir o último administrador.'];
+            }
+        }
+        $del = $pdo->prepare('DELETE FROM usuarios WHERE id = ?');
+        $ok  = $del->execute([$targetId]);
+        $n   = $del->rowCount();
+        return ['ok' => (bool) $ok && $n > 0, 'err' => ($ok && $n > 0) ? '' : 'Não foi possível excluir o utilizador.'];
+    } catch (Throwable $e) {
+        return ['ok' => false, 'err' => 'Erro ao excluir: ' . $e->getMessage()];
+    }
 }
 
 function repo_update_usuario_admin(
@@ -7085,7 +7357,8 @@ function repo_update_usuario_admin(
     ?string $moduloPerfil = null,
     ?int $gestorScopeClienteId = null,
     ?int $gestorUserId = null,
-    ?int $empresaIdInput = null
+    ?int $empresaIdInput = null,
+    ?int $ativoOpt = null
 ): array {
     $pdo = db();
     if (!$pdo || $targetId <= 0) {
@@ -7204,8 +7477,23 @@ function repo_update_usuario_admin(
         $iniciais = repo_usuario_calcular_iniciais($nome);
         $mpf      = null;
         $keepSuper = ($perfil === 'admin') ? (int) ($cur['is_super_admin'] ?? 0) : 0;
-        $stmt = $pdo->prepare('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, modulo_perfil = ?, cliente_id = ?, empresa_id = ?, iniciais = ?, is_super_admin = ? WHERE id = ?');
-        $ok   = $stmt->execute([$nome, $email, $perfil, $mpf, $clienteIdOut, $empresaIdOut, $iniciais, $keepSuper, $targetId]);
+
+        $upAtivo = $ativoOpt !== null && repo_usuarios_ativo_column_exists();
+        $ativoVal = 1;
+        if ($upAtivo) {
+            $ativoVal = ((int) $ativoOpt !== 0) ? 1 : 0;
+            $actorUid = (int) ($gestorUserId ?? 0);
+            if ($targetId === $actorUid && $ativoVal === 0) {
+                return ['ok' => false, 'err' => 'Não é possível desativar a sua própria conta.'];
+            }
+        }
+        if ($upAtivo) {
+            $stmt = $pdo->prepare('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, modulo_perfil = ?, cliente_id = ?, empresa_id = ?, iniciais = ?, is_super_admin = ?, ativo = ? WHERE id = ?');
+            $ok   = $stmt->execute([$nome, $email, $perfil, $mpf, $clienteIdOut, $empresaIdOut, $iniciais, $keepSuper, $ativoVal, $targetId]);
+        } else {
+            $stmt = $pdo->prepare('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, modulo_perfil = ?, cliente_id = ?, empresa_id = ?, iniciais = ?, is_super_admin = ? WHERE id = ?');
+            $ok   = $stmt->execute([$nome, $email, $perfil, $mpf, $clienteIdOut, $empresaIdOut, $iniciais, $keepSuper, $targetId]);
+        }
         return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Não foi possível salvar.'];
     } catch (Throwable $e) {
         return ['ok' => false, 'err' => 'Erro ao salvar: ' . $e->getMessage()];

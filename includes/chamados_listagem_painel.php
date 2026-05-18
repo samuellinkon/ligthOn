@@ -75,22 +75,41 @@ $periodoPresetGet = strtolower(trim((string) ($_GET['periodo_preset'] ?? '')));
 
 $periodoDe  = null;
 $periodoAte = null;
+$periodoResolveErr = '';
 if ($periodoLimpar) {
     // sem filtro de data
 } elseif ($medicaoMes !== '') {
-    $periodoDe  = $medicaoMes . '-01';
-    $periodoAte = date('Y-m-t', strtotime($periodoDe));
+    $resolved = medicao_resolve_periodo_filtro($medicaoMes, $periodoDeRaw, $periodoAteRaw);
+    if (!$resolved['ok']) {
+        $periodoResolveErr = $resolved['err'];
+        flash_set('err', $periodoResolveErr);
+        if ($CRM_CHAMADOS_IS_OPERADOR) {
+            header('Location: chamados.php');
+        } else {
+            header('Location: medicao.php');
+        }
+        exit;
+    }
+    $periodoDe  = $resolved['de'];
+    $periodoAte = $resolved['ate'];
 } elseif ($periodoPresetGet !== '' && ($presetRange = chamados_periodo_preset($periodoPresetGet)) !== null) {
     $periodoDe  = $presetRange['de'];
     $periodoAte = $presetRange['ate'];
-} elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoDeRaw)
-    && preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoAteRaw)
-    && $periodoDeRaw <= $periodoAteRaw) {
-    $periodoDe  = $periodoDeRaw;
-    $periodoAte = $periodoAteRaw;
 } else {
-    $periodoDe  = date('Y-m-01');
-    $periodoAte = date('Y-m-t');
+    $livre = medicao_resolve_periodo_livre($periodoDeRaw, $periodoAteRaw);
+    if (!$livre['ok']) {
+        $periodoResolveErr = $livre['err'];
+        flash_set('err', $periodoResolveErr);
+        header('Location: chamados.php');
+        exit;
+    }
+    if ($livre['de'] !== null && $livre['ate'] !== null) {
+        $periodoDe  = $livre['de'];
+        $periodoAte = $livre['ate'];
+    } else {
+        $periodoDe  = date('Y-m-01');
+        $periodoAte = date('Y-m-t');
+    }
 }
 
 /** YYYY-MM para importação BM quando o período é um mês civil completo ou veio medicao_mes. */
@@ -257,7 +276,7 @@ if (db_ok()) {
     } elseif ($f === 'andamento') {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Em andamento'));
     } elseif ($f === 'aguardando') {
-        $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Aguardando'));
+        $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Aguardando Aprovação'));
     } elseif ($f === 'resolvidos') {
         $lista = array_values(array_filter($lista, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true)));
     } elseif ($f === 'cancelados') {
@@ -352,8 +371,8 @@ function adm_chamados_collect_export_rows(
 
 $admChPeriodoCtx = [
     'medicao_mes'       => $medicaoMes,
-    'periodo_de'        => ($medicaoMes === '' && !$periodoLimpar && $periodoDe !== null) ? $periodoDe : '',
-    'periodo_ate'       => ($medicaoMes === '' && !$periodoLimpar && $periodoAte !== null) ? $periodoAte : '',
+    'periodo_de'        => (!$periodoLimpar && $periodoDe !== null) ? $periodoDe : '',
+    'periodo_ate'       => (!$periodoLimpar && $periodoAte !== null) ? $periodoAte : '',
     'periodo_limpar'    => $periodoLimpar,
     'cliente_id'        => $clienteIdListagem > 0 ? $clienteIdListagem : null,
     'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
@@ -439,16 +458,8 @@ if ($exportFmt === 'pdf_anexos') {
             'anexos'  => repo_chamado_anexos($cid),
         ];
     }
-    if ($medicaoMes !== '') {
-        $periodoLabel = 'Mês ' . $medicaoMes;
-    } elseif ($periodoDe !== null && $periodoAte !== null) {
-        $d1 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoDe);
-        $d2 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoAte);
-        if ($d1 instanceof DateTimeImmutable && $d2 instanceof DateTimeImmutable) {
-            $periodoLabel = $d1->format('d/m/Y') . ' — ' . $d2->format('d/m/Y');
-        } else {
-            $periodoLabel = $periodoDe . ' — ' . $periodoAte;
-        }
+    if ($periodoDe !== null && $periodoAte !== null) {
+        $periodoLabel = medicao_periodo_export_label($periodoDe, $periodoAte, $medicaoMes);
     } else {
         $periodoLabel = '—';
     }
@@ -650,27 +661,8 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
 
     if ($periodoLimpar) {
         $periodoTextoBr = 'Todo o período';
-    } elseif ($medicaoMes !== '') {
-        $ym = explode('-', $medicaoMes);
-        if (count($ym) === 2) {
-            $ma = (int) $ym[1];
-            $ya = (int) $ym[0];
-            $mesesPt = [
-                1 => 'janeiro', 2 => 'fevereiro', 3 => 'março', 4 => 'abril', 5 => 'maio', 6 => 'junho',
-                7 => 'julho', 8 => 'agosto', 9 => 'setembro', 10 => 'outubro', 11 => 'novembro', 12 => 'dezembro',
-            ];
-            $periodoTextoBr = isset($mesesPt[$ma]) ? (mb_convert_case($mesesPt[$ma], MB_CASE_TITLE, 'UTF-8') . ' de ' . $ya) : $medicaoMes;
-        } else {
-            $periodoTextoBr = $medicaoMes;
-        }
     } elseif ($periodoDe !== null && $periodoAte !== null) {
-        $d1 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoDe);
-        $d2 = DateTimeImmutable::createFromFormat('Y-m-d', $periodoAte);
-        if ($d1 instanceof DateTimeImmutable && $d2 instanceof DateTimeImmutable) {
-            $periodoTextoBr = $d1->format('d/m/Y') . ' até ' . $d2->format('d/m/Y');
-        } else {
-            $periodoTextoBr = $periodoDe . ' — ' . $periodoAte;
-        }
+        $periodoTextoBr = medicao_periodo_export_label($periodoDe, $periodoAte, $medicaoMes);
     } else {
         $periodoTextoBr = '—';
     }
@@ -687,17 +679,10 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
     $matrizItensId = ($escopoLista !== null && $escopoLista > 0)
         ? $escopoLista
         : (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
-    $pDeIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoDe : '';
-    $pAtIt = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoAte : '';
+    $pDeIt    = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoDe : '';
+    $pAtIt    = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoAte : '';
     $pDeItDet = $pDeIt;
     $pAtItDet = $pAtIt;
-    if ($pDeIt !== '' && $pAtIt !== '' && preg_match('/^\d{4}-\d{2}$/', $refYmBm)) {
-        $primeiroMes = $refYmBm . '-01';
-        $ultimoMes   = date('Y-m-t', strtotime($primeiroMes));
-        if ($pDeIt === $primeiroMes && $pAtIt === $ultimoMes) {
-            $pAtItDet = medicao_bm_export_v2_periodo_ate($refYmBm);
-        }
-    }
 
     /** Linhas do boletim BM importadas (lista «mês atual» virtual) — alimentação da aba MEDIÇÃO */
     $bmLinhasBoletim = [];
@@ -1343,7 +1328,7 @@ include __DIR__ . '/head.php';
     <div class="filters" style="padding:8px 20px 16px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);">
       <a href="<?= htmlspecialchars(oper_chamados_url(1, '', $q)) ?>" class="chip <?= $f === '' ? 'active' : '' ?>">Todos</a>
       <a href="<?= htmlspecialchars(oper_chamados_url(1, 'andamento', $q)) ?>" class="chip <?= $f === 'andamento' ? 'active' : '' ?>">Em andamento</a>
-      <a href="<?= htmlspecialchars(oper_chamados_url(1, 'aguardando', $q)) ?>" class="chip <?= $f === 'aguardando' ? 'active' : '' ?>">Aguardando</a>
+      <a href="<?= htmlspecialchars(oper_chamados_url(1, 'aguardando', $q)) ?>" class="chip <?= $f === 'aguardando' ? 'active' : '' ?>">Aguardando Aprovação</a>
     </div>
     <?php else: ?>
     <div class="filters" style="padding:12px 20px;border-bottom:1px solid var(--border);display:grid;gap:12px;">
@@ -1371,7 +1356,7 @@ include __DIR__ . '/head.php';
             <option value=""<?= $f === '' ? ' selected' : '' ?>>Todos</option>
             <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
             <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
-            <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando</option>
+            <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
             <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
             <option value="cancelados"<?= $f === 'cancelados' ? ' selected' : '' ?>>Cancelados</option>
             <option value="urgentes"<?= $f === 'urgentes' ? ' selected' : '' ?>>Urgentes</option>
@@ -1480,8 +1465,8 @@ include __DIR__ . '/head.php';
           <?php if ($latLista !== null && $lngLista !== null && !$isBm): ?>
           <p class="ch-op-card__geo">GPS <?= htmlspecialchars(number_format((float) $latLista, 5, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $lngLista, 5, '.', '')) ?></p>
           <?php endif; ?>
-          <?php if (!$isBm && !empty($c['finalizado_operador_em']) && empty($c['aprovado_gestor_em'])): ?>
-          <span class="ch-op-card__wait">Aguardando aprovação do gestor</span>
+          <?php if (false): ?>
+          <span class="ch-op-card__wait"></span>
           <?php endif; ?>
         <?php if (!$isBm): ?>
         </a>
@@ -1551,8 +1536,8 @@ include __DIR__ . '/head.php';
                 <?php if (!empty($c['excluido_em'])): ?>
                 <small class="muted" style="display:block;margin-top:4px;">Inativado em <?= htmlspecialchars((string) $c['excluido_em']) ?><?= !empty($c['excluido_por_nome']) ? ' · ' . htmlspecialchars((string) $c['excluido_por_nome']) : '' ?></small>
                 <?php endif; ?>
-              <?php elseif (!$isBm && !empty($c['finalizado_operador_em']) && empty($c['aprovado_gestor_em'])): ?>
-                <small class="muted" style="display:block;margin-top:4px;">Aguardando aprovação</small>
+              <?php elseif (false): ?>
+                <small class="muted" style="display:block;margin-top:4px;"></small>
               <?php endif; ?>
             </td>
             <td class="td-mute"><?= date('d/m/Y H:i', strtotime((string) ($c['data'] ?? 'now'))) ?></td>

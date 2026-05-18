@@ -82,10 +82,9 @@ function bm_med_tpl1_validate(string $tplPath): bool
 }
 
 /**
- * Copia do modelo apenas o que é seguro sem alterar merges/valores da folha destino:
- * larguras de coluna, alturas de linha (1..cap), margens e configuração de página.
+ * Copia do modelo margens e configuração de página (sem larguras/alturas — definidas em PHP).
  *
- * Usado depois de `bm_med_workbook_build` para aproximar o resultado do ficheiro institucional.
+ * Usado depois de `bm_med_workbook_build`; o layout final GIP reaplica alturas e colunas.
  */
 function bm_med_tpl1_overlay_surface(Worksheet $dst, string $tplPath): void
 {
@@ -96,30 +95,6 @@ function bm_med_tpl1_overlay_surface(Worksheet $dst, string $tplPath): void
     $reader->setReadDataOnly(false);
     $srcWb = $reader->load($tplPath);
     $src    = $srcWb->getActiveSheet();
-
-    $gipLastIdx = Coordinate::columnIndexFromString(BM_MED_GIP_LAST_COL);
-    $maxCol = min(
-        max(
-            Coordinate::columnIndexFromString($src->getHighestColumn()),
-            Coordinate::columnIndexFromString($dst->getHighestColumn()),
-        ),
-        $gipLastIdx
-    );
-    for ($ci = 1; $ci <= $maxCol; ++$ci) {
-        $col = Coordinate::stringFromColumnIndex($ci);
-        $w   = $src->getColumnDimension($col)->getWidth();
-        if ($w >= 0) {
-            $dst->getColumnDimension($col)->setWidth($w);
-        }
-    }
-
-    $cap = min(80, max((int) $src->getHighestRow(), (int) $dst->getHighestRow()));
-    for ($r = 1; $r <= $cap; ++$r) {
-        $h = $src->getRowDimension($r)->getRowHeight();
-        if ($h >= 0) {
-            $dst->getRowDimension($r)->setRowHeight($h);
-        }
-    }
 
     $dst->getPageMargins()->setLeft($src->getPageMargins()->getLeft());
     $dst->getPageMargins()->setRight($src->getPageMargins()->getRight());

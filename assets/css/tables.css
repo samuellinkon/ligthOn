@@ -390,15 +390,21 @@ a.pag-btn {
   width: 12%;
 }
 
+.medicao-meses-table th.medicao-data-col,
+.medicao-meses-table td.medicao-data-cell {
+  width: 11%;
+  min-width: 128px;
+}
+
 .medicao-meses-table th.medicao-bm-col,
 .medicao-meses-table td.medicao-bm-cell {
-  width: 30%;
-  min-width: 220px;
+  width: 11%;
+  min-width: 128px;
 }
 
 .medicao-meses-table th.td-actions,
 .medicao-meses-table td.td-actions {
-  width: 19%;
+  width: 17%;
   padding-left: 10px;
   padding-right: 12px;
 }
@@ -409,10 +415,11 @@ a.pag-btn {
   vertical-align: middle;
 }
 
-.medicao-meses-table td.medicao-bm-cell {
-  vertical-align: top;
-  padding-top: 12px;
-  padding-bottom: 12px;
+.medicao-meses-table td.medicao-bm-cell,
+.medicao-meses-table td.medicao-data-cell {
+  vertical-align: middle;
+  padding-top: 10px;
+  padding-bottom: 10px;
   white-space: normal;
 }
 
@@ -448,14 +455,83 @@ a.pag-btn {
   white-space: nowrap;
 }
 
-.medicao-meses-table .actions-inline {
+.medicao-meses-table .actions-inline,
+.medicao-export-toolbar .actions-inline {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
 }
 
-.medicao-meses-table .action-icon {
+.medicao-export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+  flex-shrink: 0;
+}
+
+.medicao-ver-panel-head {
+  align-items: flex-start;
+}
+
+.medicao-export-toolbar--ver {
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.medicao-bm-export-form-hidden {
+  display: none !important;
+}
+
+.medicao-export-toolbar__dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.medicao-export-toolbar .medicao-bm-date {
+  max-width: 148px;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.medicao-export-actions--labeled {
+  gap: 8px;
+}
+
+.medicao-export-actions--labeled .btn {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.medicao-export-btn--bm,
+.medicao-export-btn--bm-detalhado {
+  color: #147a46;
+}
+
+.medicao-export-btn--bm:hover,
+.medicao-export-btn--bm-detalhado:hover {
+  color: #0f5c34;
+  border-color: rgba(20, 122, 70, 0.35);
+  background: #f1fbf6;
+}
+
+.medicao-export-btn--pdf {
+  color: #b42318;
+}
+
+.medicao-export-btn--pdf:hover {
+  color: #912018;
+  border-color: rgba(180, 35, 24, 0.3);
+  background: #fff4f2;
+}
+
+.medicao-meses-table .action-icon,
+.medicao-export-toolbar .action-icon {
   position: relative;
   width: 34px;
   height: 34px;
@@ -471,7 +547,8 @@ a.pag-btn {
   transition: 0.16s ease;
 }
 
-.medicao-meses-table button.action-icon {
+.medicao-meses-table button.action-icon,
+.medicao-export-toolbar button.action-icon {
   padding: 0;
   margin: 0;
   cursor: pointer;
@@ -481,36 +558,42 @@ a.pag-btn {
   box-sizing: border-box;
 }
 
-.medicao-meses-table button.action-icon:focus-visible {
+.medicao-meses-table button.action-icon:focus-visible,
+.medicao-export-toolbar button.action-icon:focus-visible {
   outline: 2px solid #5b4df1;
   outline-offset: 2px;
 }
 
-.medicao-meses-table .action-icon:hover {
+.medicao-meses-table .action-icon:hover,
+.medicao-export-toolbar .action-icon:hover {
   transform: translateY(-1px);
   border-color: #c9cce0;
   box-shadow: 0 8px 18px rgba(18, 24, 40, 0.08);
 }
 
-.medicao-meses-table .action-icon.primary {
+.medicao-meses-table .action-icon.primary,
+.medicao-export-toolbar .action-icon.primary {
   background: #f0efff;
   color: #5b4df1;
   border-color: #dedbff;
 }
 
-.medicao-meses-table .action-icon.excel {
+.medicao-meses-table .action-icon.excel,
+.medicao-export-toolbar .action-icon.excel {
   color: #147a46;
   background: #f1fbf6;
   border-color: #d8f0e4;
 }
 
-.medicao-meses-table .action-icon.pdf {
+.medicao-meses-table .action-icon.pdf,
+.medicao-export-toolbar .action-icon.pdf {
   color: #b42318;
   background: #fff4f2;
   border-color: #ffd8d2;
 }
 
-.medicao-meses-table .action-icon::after {
+.medicao-meses-table .action-icon::after,
+.medicao-export-toolbar .action-icon::after {
   content: attr(aria-label);
   position: absolute;
   left: 50%;
@@ -529,7 +612,8 @@ a.pag-btn {
   z-index: 20;
 }
 
-.medicao-meses-table .action-icon:hover::after {
+.medicao-meses-table .action-icon:hover::after,
+.medicao-export-toolbar .action-icon:hover::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
@@ -563,13 +647,9 @@ tr.catalogo-row--estoque-baixo td {
 }
 
 .catalogo-excel-table__head-sort th {
-  border-bottom: none;
+  border-bottom: 1px solid var(--border, #e2e8f0);
 }
 
-.catalogo-excel-table__head-filters th {
-  padding: 6px 8px 10px;
-  font-weight: 500;
-}
 
 .catalogo-excel-sort {
   display: flex;

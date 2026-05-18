@@ -12,6 +12,32 @@ require_modulo_admin('usuarios');
 
 $escopoUsu = gestao_scope_cliente_id($me);
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['excluir_usuario_id'])) {
+    $delId = (int) ($_POST['excluir_usuario_id'] ?? 0);
+    $retP  = (string) ($_POST['ret_perfil'] ?? '');
+    if (!in_array($retP, ['', 'admin', 'cliente', 'operador', 'gestor'], true)) {
+        $retP = '';
+    }
+    $retQ    = trim((string) ($_POST['ret_q'] ?? ''));
+    $retPage = max(1, (int) ($_POST['ret_page'] ?? 1));
+    if ($delId > 0) {
+        $r = repo_usuario_delete_by_admin($delId, (int) ($me['id'] ?? 0));
+        flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Utilizador excluído permanentemente.' : $r['err']);
+    }
+    $qs = [];
+    if ($retP !== '') {
+        $qs['perfil'] = $retP;
+    }
+    if ($retQ !== '') {
+        $qs['q'] = $retQ;
+    }
+    if ($retPage > 1) {
+        $qs['page'] = $retPage;
+    }
+    header('Location: usuarios.php' . ($qs ? '?' . http_build_query($qs) : ''));
+    exit;
+}
+
 /**
  * @return list<int>
  */
@@ -145,6 +171,7 @@ include __DIR__ . '/../includes/head.php';
             <th>Usuário</th>
             <th>E-mail</th>
             <th>Perfil</th>
+            <th>Situação</th>
             <th>Cadastro</th>
             <th class="text-right">Ações</th>
           </tr>
@@ -152,7 +179,7 @@ include __DIR__ . '/../includes/head.php';
         <tbody>
           <?php if (!$lista): ?>
           <tr>
-            <td colspan="5" class="td-mute">Nenhum usuário encontrado.</td>
+            <td colspan="6" class="td-mute">Nenhum usuário encontrado.</td>
           </tr>
           <?php else: ?>
           <?php foreach ($lista as $u): ?>
@@ -178,9 +205,25 @@ include __DIR__ . '/../includes/head.php';
                 <span class="badge progress">Portal</span>
               <?php endif; ?>
             </td>
+            <td>
+              <?php if (((int) ($u['ativo'] ?? 1)) === 0): ?>
+                <span class="badge muted">Inativo</span>
+              <?php else: ?>
+                <span class="badge done">Ativo</span>
+              <?php endif; ?>
+            </td>
             <td class="td-mute"><small><?= htmlspecialchars((string) ($u['criado_em'] ?? '')) ?></small></td>
             <td class="td-actions">
               <a class="action primary" href="usuario_editar.php?id=<?= (int) ($u['id'] ?? 0) ?>">Editar</a>
+              <?php if ((int) ($u['id'] ?? 0) !== (int) ($me['id'] ?? 0)): ?>
+              <form method="post" action="usuarios.php" style="display:inline;" onsubmit="return confirm('Excluir permanentemente este utilizador? Esta ação não pode ser anulada.');">
+                <input type="hidden" name="excluir_usuario_id" value="<?= (int) ($u['id'] ?? 0) ?>">
+                <input type="hidden" name="ret_perfil" value="<?= htmlspecialchars($perfilFil, ENT_QUOTES, 'UTF-8') ?>">
+                <input type="hidden" name="ret_q" value="<?= htmlspecialchars($q, ENT_QUOTES, 'UTF-8') ?>">
+                <input type="hidden" name="ret_page" value="<?= (int) $page ?>">
+                <button type="submit" class="action" style="color:#b91c1c;border-color:transparent;">Excluir</button>
+              </form>
+              <?php endif; ?>
             </td>
           </tr>
           <?php endforeach; ?>

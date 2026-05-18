@@ -26,7 +26,7 @@ require_once __DIR__ . '/repository.php';
 /** Fonte: Aptos (Office moderno); usar «Calibri» se necessário compatibilidade antiga. */
 const MEDICAO_BM_XLSX_FONT = 'Aptos';
 const MEDICAO_BM_XLSX_SIZE_BASE = 10;
-const MEDICAO_BM_XLSX_SIZE_HEADER = 10;
+const MEDICAO_BM_XLSX_SIZE_HEADER = 9;
 const MEDICAO_BM_XLSX_SIZE_TITLE_MAIN = 15;
 const MEDICAO_BM_XLSX_SIZE_TITLE_SUB = 11;
 const MEDICAO_BM_XLSX_SIZE_TOTAL = 11;
@@ -42,9 +42,15 @@ const MEDICAO_BM_XLSX_ROW_CAPA_GRID = 24.0;
 const MEDICAO_BM_XLSX_ROW_CAPA_SERVICE = 36.0;
 /** Espaçador entre capa e bloco seguinte. */
 const MEDICAO_BM_XLSX_ROW_SPACER = 8.0;
-/** Cabeçalho da grelha ITEM (duas linhas de rótulos). */
-const MEDICAO_BM_XLSX_ROW_TABLE_HDR = 40.0;
-/** Largura da coluna descrição (evita autoSize excessivo). */
+/** Cabeçalho da grelha ITEM (uma linha, sem wrap). */
+const MEDICAO_BM_XLSX_ROW_TABLE_HDR = 22.0;
+/** Meta / subtítulo em linha única. */
+const MEDICAO_BM_XLSX_ROW_TITLE_META = 24.0;
+/** Largura mínima/máxima de coluna (autosize). */
+const MEDICAO_BM_XLSX_COL_WIDTH_MIN = 9.5;
+const MEDICAO_BM_XLSX_COL_WIDTH_MAX = 48.0;
+const MEDICAO_BM_XLSX_COL_DESC_MAX = 60.0;
+/** Largura da coluna descrição (fallback legado v1). */
 const MEDICAO_BM_XLSX_COL_DESC_WIDTH = 52.0;
 
 /** Identidade visual (RGB sem # — formato OOXML). */
@@ -104,11 +110,24 @@ function medicao_bm_boletim_style_font(bool $bold, int $size, string $colorRgb):
  */
 function medicao_bm_boletim_style_align_vc(bool $wrap, string $horizontal = Alignment::HORIZONTAL_GENERAL): array
 {
-    return [
+    $align = [
         'vertical'   => Alignment::VERTICAL_CENTER,
         'horizontal' => $horizontal,
         'wrapText'   => $wrap,
     ];
+    if (!$wrap) {
+        $align['shrinkToFit'] = true;
+    }
+
+    return $align;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function medicao_bm_boletim_alignment_celula(string $horizontal = Alignment::HORIZONTAL_GENERAL): array
+{
+    return medicao_bm_boletim_style_align_vc(false, $horizontal);
 }
 
 /**
@@ -158,18 +177,18 @@ function medicao_bm_boletim_style_arrays_tipografia(): array
         'title_sub' => [
             'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TITLE_SUB, MEDICAO_BM_BRAND_PRIMARY),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
             'borders'   => $bSoft,
         ],
         'title_sub_flat' => [
             'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TITLE_SUB, MEDICAO_BM_BRAND_PRIMARY),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
         ],
         'header_table' => [
             'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_HEADER, MEDICAO_BM_WHITE),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BRAND_PRIMARY),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_CENTER),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_CENTER),
             'borders'   => [
                 'allBorders' => [
                     'borderStyle' => Border::BORDER_THIN,
@@ -183,7 +202,7 @@ function medicao_bm_boletim_style_arrays_tipografia(): array
         ],
         'body_desc' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
         ],
         'numeric' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
@@ -238,7 +257,7 @@ function medicao_bm_boletim_style_arrays_tipografia(): array
         'capa_grid_cell' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
             'borders'   => [
                 'right' => [
                     'borderStyle' => Border::BORDER_THIN,
@@ -250,13 +269,13 @@ function medicao_bm_boletim_style_arrays_tipografia(): array
         'capa_grid_cell_plain' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
         ],
         /** Faixa larga descrição institucional / serviço. */
         'capa_service_banner' => [
             'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TITLE_SUB, MEDICAO_BM_BRAND_PRIMARY),
             'fill'      => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
-            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_CENTER),
+            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_CENTER),
             'borders'   => [
                 'top' => [
                     'borderStyle' => Border::BORDER_THIN,
@@ -313,16 +332,9 @@ function medicao_bm_boletim_aplicar_tipografia_relatorio(Spreadsheet $spreadshee
     }
     $maxRow = max((int) $sheet->getHighestRow(), $itemHeaderRow + 2, $lastDataRow);
 
-    for ($r = 1; $r <= $maxRow; $r++) {
-        $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_HEIGHT);
-    }
-    $sheet->getRowDimension(1)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
-    $sheet->getRowDimension(2)->setRowHeight(24.0);
-    $sheet->getRowDimension(3)->setRowHeight(MEDICAO_BM_XLSX_ROW_SUB_META);
-
     $sheet->getStyle('A1:' . $lastCol . '1')->applyFromArray($st['title_main']);
-    $sheet->getStyle('A2:' . $lastCol . '2')->applyFromArray($st['title_sub']);
-    $sheet->getStyle('A3:' . $lastCol . '3')->applyFromArray($st['title_sub']);
+    $sheet->getStyle('A2:' . $lastCol . '2')->applyFromArray($st['title_sub_flat']);
+    $sheet->getStyle('A3:' . $lastCol . '3')->applyFromArray($st['title_sub_flat']);
 
     $linhaVt = medicao_bm_boletim_find_linha_valor_total_valor($sheet);
     if ($linhaVt !== null) {
@@ -336,11 +348,9 @@ function medicao_bm_boletim_aplicar_tipografia_relatorio(Spreadsheet $spreadshee
     }
 
     $sheet->getStyle('A' . $itemHeaderRow . ':' . $lastCol . $itemHeaderRow)->applyFromArray($st['header_table']);
-    $sheet->getRowDimension($itemHeaderRow)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
     $subH = $itemHeaderRow + 1;
     if ($subH <= $maxRow) {
         $sheet->getStyle('A' . $subH . ':' . $lastCol . $subH)->applyFromArray($st['header_table']);
-        $sheet->getRowDimension($subH)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
     }
 
     if ($lastDataRow >= $firstDataRow) {
@@ -361,9 +371,20 @@ function medicao_bm_boletim_aplicar_tipografia_relatorio(Spreadsheet $spreadshee
         $sheet->getStyle($lMes . $firstDataRow . ':' . $lMes . $lastDataRow)->applyFromArray($st['numeric']);
     }
 
-    $sheet->getColumnDimension('A')->setAutoSize(true);
-    $sheet->getColumnDimension('B')->setWidth(MEDICAO_BM_XLSX_COL_DESC_WIDTH);
-    $sheet->getColumnDimension('C')->setAutoSize(true);
+    $ultimaLinha = max(1, (int) $sheet->getHighestRow());
+    medicao_bm_boletim_autosize_colunas($sheet, 'A', $lastCol, 1, $ultimaLinha, $itemHeaderRow);
+    medicao_bm_boletim_aplicar_layout_sem_quebra($sheet, 'A', $lastCol, 1, $ultimaLinha, [
+        'header_row'     => $itemHeaderRow,
+        'first_data_row' => $firstDataRow,
+        'last_data_row'  => $lastDataRow,
+        'money_cols'     => ['H', $lFin],
+        'qty_cols'       => ['G', $lMes],
+        'left_cols'      => ['A', 'B', 'C'],
+    ]);
+    medicao_bm_boletim_aplicar_alturas_linhas_compactas($sheet, $ultimaLinha, $itemHeaderRow, $firstDataRow, $lastDataRow);
+    if ($subH <= $ultimaLinha) {
+        $sheet->getRowDimension($subH)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
+    }
 }
 
 function medicao_bm_boletim_celula_texto_plano(mixed $v): string
@@ -372,10 +393,170 @@ function medicao_bm_boletim_celula_texto_plano(mixed $v): string
         return '';
     }
     if ($v instanceof RichText) {
-        return trim(str_replace(["\n", "\r"], ' ', $v->getPlainText()));
+        return trim(preg_replace('/\s+/u', ' ', str_replace(["\n", "\r"], ' ', $v->getPlainText())));
     }
 
-    return trim(str_replace(["\n", "\r"], ' ', (string) $v));
+    return trim(preg_replace('/\s+/u', ' ', str_replace(["\n", "\r"], ' ', (string) $v)));
+}
+
+function medicao_bm_boletim_largura_estimada_texto(string $text, bool $bold = false, int $fontSize = MEDICAO_BM_XLSX_SIZE_BASE): float
+{
+    $text = preg_replace('/\s+/u', ' ', trim($text));
+    if ($text === '') {
+        return MEDICAO_BM_XLSX_COL_WIDTH_MIN;
+    }
+    $len    = mb_strlen($text, 'UTF-8');
+    $factor = 1.05 + ($bold ? 0.1 : 0.0);
+    if ($fontSize < MEDICAO_BM_XLSX_SIZE_BASE) {
+        $factor *= 0.92;
+    } elseif ($fontSize > MEDICAO_BM_XLSX_SIZE_BASE) {
+        $factor *= 1.06;
+    }
+
+    return max(MEDICAO_BM_XLSX_COL_WIDTH_MIN, ($len * $factor) + 2.5);
+}
+
+function medicao_bm_boletim_valor_celula_para_largura(Worksheet $sheet, string $coord): string
+{
+    if (!$sheet->cellExists($coord)) {
+        return '';
+    }
+    $cell = $sheet->getCell($coord);
+    try {
+        $fmt = $cell->getFormattedValue();
+        if ($fmt !== null && $fmt !== '') {
+            return medicao_bm_boletim_celula_texto_plano((string) $fmt);
+        }
+    } catch (\Throwable $e) {
+        // usa valor bruto
+    }
+
+    return medicao_bm_boletim_celula_texto_plano($cell->getValue());
+}
+
+function medicao_bm_boletim_autosize_colunas(
+    Worksheet $sheet,
+    string $firstColLetter,
+    string $lastColLetter,
+    int $firstRow,
+    int $lastRow,
+    ?int $headerRow = null
+): void {
+    $colIni = Coordinate::columnIndexFromString($firstColLetter);
+    $colEnd = Coordinate::columnIndexFromString($lastColLetter);
+
+    for ($c = $colIni; $c <= $colEnd; $c++) {
+        $letter = Coordinate::stringFromColumnIndex($c);
+        $maxW   = MEDICAO_BM_XLSX_COL_WIDTH_MIN;
+        $cap    = ($letter === 'B') ? MEDICAO_BM_XLSX_COL_DESC_MAX : MEDICAO_BM_XLSX_COL_WIDTH_MAX;
+
+        for ($r = $firstRow; $r <= $lastRow; $r++) {
+            $coord    = $letter . $r;
+            $bold     = ($headerRow !== null && $r === $headerRow);
+            $fontSize = $bold ? MEDICAO_BM_XLSX_SIZE_HEADER : MEDICAO_BM_XLSX_SIZE_BASE;
+            $text     = medicao_bm_boletim_valor_celula_para_largura($sheet, $coord);
+            $maxW     = max($maxW, medicao_bm_boletim_largura_estimada_texto($text, $bold, $fontSize));
+        }
+
+        $maxW = min($cap, max(MEDICAO_BM_XLSX_COL_WIDTH_MIN, $maxW));
+        $sheet->getColumnDimension($letter)->setAutoSize(false);
+        $sheet->getColumnDimension($letter)->setWidth($maxW);
+    }
+}
+
+/**
+ * @param array{
+ *   header_row?: int|null,
+ *   first_data_row?: int|null,
+ *   last_data_row?: int|null,
+ *   money_cols?: list<string>,
+ *   qty_cols?: list<string>,
+ *   left_cols?: list<string>
+ * } $ctx
+ */
+function medicao_bm_boletim_aplicar_layout_sem_quebra(
+    Worksheet $sheet,
+    string $firstColLetter,
+    string $lastColLetter,
+    int $firstRow,
+    int $lastRow,
+    array $ctx = []
+): void {
+    $headerRow    = isset($ctx['header_row']) ? (int) $ctx['header_row'] : null;
+    $firstDataRow = isset($ctx['first_data_row']) ? (int) $ctx['first_data_row'] : null;
+    $lastDataRow  = isset($ctx['last_data_row']) ? (int) $ctx['last_data_row'] : null;
+    $moneyCols    = $ctx['money_cols'] ?? ['I', 'J', 'K', 'L'];
+    $qtyCols      = $ctx['qty_cols'] ?? ['D', 'E', 'F', 'G', 'H', 'M'];
+    $leftCols     = $ctx['left_cols'] ?? ['A', 'B', 'C'];
+
+    $range = $firstColLetter . $firstRow . ':' . $lastColLetter . $lastRow;
+    $sheet->getStyle($range)->getAlignment()
+        ->setVertical(Alignment::VERTICAL_CENTER)
+        ->setWrapText(false)
+        ->setShrinkToFit(true);
+
+    if ($headerRow !== null && $headerRow >= $firstRow && $headerRow <= $lastRow) {
+        $hdr = 'A' . $headerRow . ':' . $lastColLetter . $headerRow;
+        $sheet->getStyle($hdr)->getAlignment()
+            ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+            ->setVertical(Alignment::VERTICAL_CENTER)
+            ->setWrapText(false)
+            ->setShrinkToFit(true);
+    }
+
+    if ($firstDataRow !== null && $lastDataRow !== null && $firstDataRow <= $lastDataRow) {
+        foreach ($leftCols as $col) {
+            $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
+                ->setHorizontal(Alignment::HORIZONTAL_LEFT)
+                ->setWrapText(false)
+                ->setShrinkToFit(true);
+        }
+        foreach ($qtyCols as $col) {
+            $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
+                ->setHorizontal(Alignment::HORIZONTAL_RIGHT)
+                ->setWrapText(false)
+                ->setShrinkToFit(true);
+        }
+        foreach ($moneyCols as $col) {
+            $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
+                ->setHorizontal(Alignment::HORIZONTAL_RIGHT)
+                ->setWrapText(false)
+                ->setShrinkToFit(true);
+        }
+    }
+
+    $titleEnd = min(4, $lastRow);
+    for ($r = 1; $r <= $titleEnd; $r++) {
+        $sheet->getStyle('A' . $r . ':' . $lastColLetter . $r)->getAlignment()
+            ->setVertical(Alignment::VERTICAL_CENTER)
+            ->setWrapText(false)
+            ->setShrinkToFit(true);
+    }
+}
+
+function medicao_bm_boletim_aplicar_alturas_linhas_compactas(
+    Worksheet $sheet,
+    int $lastRow,
+    int $headerRow,
+    int $firstDataRow,
+    int $lastDataRow
+): void {
+    for ($r = $firstDataRow; $r <= $lastDataRow; $r++) {
+        $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_HEIGHT);
+    }
+    $sheet->getRowDimension(1)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
+    if ($lastRow >= 2) {
+        $sheet->getRowDimension(2)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE_META);
+    }
+    if ($lastRow >= 3) {
+        $sheet->getRowDimension(3)->setRowHeight(MEDICAO_BM_XLSX_ROW_SUB_META);
+    }
+    if ($lastRow >= 4) {
+        $sheet->getRowDimension(4)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE_META);
+    }
+    if ($headerRow >= 1 && $headerRow <= $lastRow) {
+        $sheet->getRowDimension($headerRow)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
+    }
 }
 
 /**
@@ -998,6 +1179,13 @@ function medicao_bm_boletim_v2_compor_linhas(
     }
 
     $orderedKeys = medicao_bm_boletim_v2_listar_keys_ordenadas($impLinhas, $crmRows, $priorBm);
+    $seenOrd = array_fill_keys($orderedKeys, true);
+    foreach (array_keys($catPorCodNorm) as $ck) {
+        if ($ck !== '' && !isset($seenOrd[$ck])) {
+            $orderedKeys[] = $ck;
+            $seenOrd[$ck]  = true;
+        }
+    }
 
     if ($orderedKeys === []) {
         return ['rows' => [], 'valor_medido_total' => 0.0];
@@ -1179,7 +1367,7 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $sheet       = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Boletim BM');
 
-    $lastColLetter = 'N';
+    $lastColLetter = 'M';
     $st            = medicao_bm_boletim_style_arrays_tipografia();
     $seq           = medicao_bm_boletim_numero_sequencia($clienteMatrizId, $refYm);
 
@@ -1188,46 +1376,47 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $sheet->mergeCells('A2:' . $lastColLetter . '2');
     $empresa = trim((string) ($clienteMatriz['empresa'] ?? ''));
     $rotuloM = medicao_mes_label_pt($refYm);
-    $iniPt   = date('d/m/Y', strtotime($periodoDe));
-    $fimPt   = date('d/m/Y', strtotime($periodoAte));
+    $periodoLbl = function_exists('medicao_periodo_export_label')
+        ? medicao_periodo_export_label($periodoDe, $periodoAte, $refYm)
+        : (medicao_data_br($periodoDe) . ' · ' . medicao_data_br($periodoAte));
     $sheet->setCellValue(
         'A2',
-        ('Medição ' . $rotuloM . ' — ' . ($empresa !== '' ? $empresa : 'Contratante'))
-        . "\n"
-        . 'Data inicial solicitada (CRM): ' . $iniPt . '  ·  Até o fecho do BM: ' . $fimPt
+        'Medição ' . $rotuloM
+        . ' — ' . ($empresa !== '' ? $empresa : 'Contratante')
+        . ' — ' . $periodoLbl
     );
-    $sheet->getStyle('A2:' . $lastColLetter . '2')->getAlignment()->setWrapText(true);
-    $sheet->mergeCells('A3:B3');
-    $sheet->setCellValue('A3', 'Valor medido no período (CRM, R$):');
-    $sheet->setCellValue('C3', (float) ($comp['valor_medido_total'] ?? 0));
-    $sheet->getStyle('C3')->getNumberFormat()->setFormatCode('"R$" #,##0.00');
-    $sheet->getStyle('C3')->applyFromArray([
-        'font'         => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TOTAL, MEDICAO_BM_BRAND_PRIMARY),
-        'alignment'    => [
-            'vertical' => Alignment::VERTICAL_CENTER,
-            'horizontal' => Alignment::HORIZONTAL_RIGHT,
+    $sheet->mergeCells('A3:' . $lastColLetter . '3');
+    $sheet->setCellValue(
+        'A3',
+        'VALOR TOTAL DA MEDIÇÃO NO PERÍODO (CRM): R$ '
+        . number_format((float) ($comp['valor_medido_total'] ?? 0), 2, ',', '.')
+    );
+    $sheet->getStyle('A3:' . $lastColLetter . '3')->applyFromArray([
+        'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TOTAL + 1, MEDICAO_BM_BRAND_PRIMARY),
+        'alignment' => [
+            'vertical'   => Alignment::VERTICAL_CENTER,
+            'horizontal' => Alignment::HORIZONTAL_CENTER,
         ],
         'fill' => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SOFT),
     ]);
 
     $sheet->mergeCells('A4:' . $lastColLetter . '4');
+    $iniPt = medicao_data_br($periodoDe);
+    $fimPt = medicao_data_br($periodoAte);
     $sheet->setCellValue(
         'A4',
-        'Exportação: CRM de ' . $iniPt . ' (início solicitado) até ' . $fimPt . ' (fecho efetivo do boletim BM para ' . $rotuloM . ').'
+        'Exportação CRM · Data início: ' . $iniPt . ' · Data fim: ' . $fimPt . ' · Referência: ' . $rotuloM . '.'
     );
-    $sheet->getStyle('A4:' . $lastColLetter . '4')->getAlignment()->setWrapText(true);
-
     $headerRow = 5;
     $headers   = [
         'Item',
         'Descrição',
         'Un',
-        'Saldo (qtd total)',
-        'Data início período',
-        'Soma dos BMS (anteriores)',
-        'Medido no período',
-        'Acumulado',
-        'Saldo a executar',
+        'QTD Saldo (total)',
+        'QTD Soma BMS (anteriores)',
+        'QTD Medido no período',
+        'QTD Acumulado',
+        'QTD Saldo a executar',
         'Acumulado período anterior (R$)',
         'Medido no período (R$)',
         'Acumulado (R$)',
@@ -1241,30 +1430,6 @@ function medicao_export_bm_boletim_v2_xlsx_send(
         $sheet->setCellValue($L . $headerRow, $label);
     }
     $sheet->getStyle('A' . $headerRow . ':' . $lastColLetter . $headerRow)->applyFromArray($st['header_table']);
-    $sheet->getRowDimension($headerRow)->setRowHeight(MEDICAO_BM_XLSX_ROW_TABLE_HDR);
-    $sheet->getStyle('A' . $headerRow . ':' . $lastColLetter . $headerRow)->getAlignment()->setWrapText(true);
-
-    foreach (
-        [
-            'A' => 12,
-            'B' => 55,
-            'C' => 16,
-            'D' => 18,
-            'E' => 18,
-            'F' => 24,
-            'G' => 20,
-            'H' => 18,
-            'I' => 22,
-            'J' => 30,
-            'K' => 24,
-            'L' => 20,
-            'M' => 26,
-            'N' => 12,
-        ] as $colLet => $w
-    ) {
-        $sheet->getColumnDimension($colLet)->setAutoSize(false);
-        $sheet->getColumnDimension($colLet)->setWidth((float) $w);
-    }
 
     $r0 = $headerRow + 1;
     if ($linhasRows === []) {
@@ -1278,25 +1443,21 @@ function medicao_export_bm_boletim_v2_xlsx_send(
             $sheet->setCellValue('B' . $r, (string) $row['_nome']);
             $sheet->setCellValue('C' . $r, (string) $row['_unidade']);
             $sheet->setCellValue('D' . $r, (float) $row['_estoque_saldo']);
-            if ($row['_data_ini_excel'] !== null && is_numeric($row['_data_ini_excel'])) {
-                $sheet->setCellValue('E' . $r, $row['_data_ini_excel']);
-                $sheet->getStyle('E' . $r)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_DATE_DDMMYYYY);
-            }
-            $sheet->setCellValue('F' . $r, (float) $row['_soma_bm_q']);
-            $sheet->setCellValue('G' . $r, (float) $row['_medido_q']);
-            $sheet->setCellValue('H' . $r, (float) $row['_acum_q']);
-            $sheet->setCellValue('I' . $r, (float) $row['_saldo_exec_q']);
+            $sheet->setCellValue('E' . $r, (float) $row['_soma_bm_q']);
+            $sheet->setCellValue('F' . $r, (float) $row['_medido_q']);
+            $sheet->setCellValue('G' . $r, (float) $row['_acum_q']);
+            $sheet->setCellValue('H' . $r, (float) $row['_saldo_exec_q']);
 
-            $sheet->setCellValue('J' . $r, (float) $row['_val_acum_ant']);
-            $sheet->setCellValue('K' . $r, (float) $row['_val_med_periodo']);
-            $sheet->setCellValue('L' . $r, (float) $row['_val_acum']);
-            $sheet->setCellValue('M' . $r, (float) $row['_saldo_exec_v']);
+            $sheet->setCellValue('I' . $r, (float) $row['_val_acum_ant']);
+            $sheet->setCellValue('J' . $r, (float) $row['_val_med_periodo']);
+            $sheet->setCellValue('K' . $r, (float) $row['_val_acum']);
+            $sheet->setCellValue('L' . $r, (float) $row['_saldo_exec_v']);
             $ratio = isset($row['_dev_fin_ratio']) ? $row['_dev_fin_ratio'] : null;
             if ($ratio !== null) {
-                $sheet->setCellValue('N' . $r, $ratio);
-                $sheet->getStyle('N' . $r)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_PERCENTAGE_00);
+                $sheet->setCellValue('M' . $r, $ratio);
+                $sheet->getStyle('M' . $r)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_PERCENTAGE_00);
             } else {
-                $sheet->setCellValue('N' . $r, '');
+                $sheet->setCellValue('M' . $r, '');
             }
 
         }
@@ -1304,22 +1465,20 @@ function medicao_export_bm_boletim_v2_xlsx_send(
         $lastDataRow = $r0 + count($linhasRows) - 1;
 
         $fmtQty = '#,##0.000###';
-        /* D e F–I: quantidades; E fica só data (evita serial Excel como «3,416667»). */
-        $sheet->getStyle('D' . $r0 . ':D' . $lastDataRow)->getNumberFormat()->setFormatCode($fmtQty);
-        $sheet->getStyle('F' . $r0 . ':I' . $lastDataRow)->getNumberFormat()->setFormatCode($fmtQty);
-        $sheet->getStyle('E' . $r0 . ':E' . $lastDataRow)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_DATE_DDMMYYYY);
+        $sheet->getStyle('D' . $r0 . ':H' . $lastDataRow)->getNumberFormat()->setFormatCode($fmtQty);
         $moneyFmt = '"R$" #,##0.00';
-        $sheet->getStyle('J' . $r0 . ':M' . $lastDataRow)->getNumberFormat()->setFormatCode($moneyFmt);
+        $sheet->getStyle('I' . $r0 . ':L' . $lastDataRow)->getNumberFormat()->setFormatCode($moneyFmt);
 
         for ($r = $r0; $r <= $lastDataRow; $r++) {
             $bg                   = (($r - $r0) % 2 === 0) ? MEDICAO_BM_WHITE : MEDICAO_BM_BG_ALT;
             $rowStd               = $st['body_row'];
             $rowStd['fill']       = medicao_bm_boletim_style_fill_solid($bg);
             $sheet->getStyle('A' . $r . ':' . $lastColLetter . $r)->applyFromArray($rowStd);
+            $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_HEIGHT);
             $sheet->getStyle('B' . $r)->applyFromArray($st['body_desc']);
-            $sheet->getStyle('D' . $r . ':' . 'I' . $r)->applyFromArray($st['numeric']);
-            $sheet->getStyle('J' . $r . ':' . 'M' . $r)->applyFromArray($st['money']);
-            $sheet->getStyle('N' . $r)->applyFromArray($st['numeric']);
+            $sheet->getStyle('D' . $r . ':' . 'H' . $r)->applyFromArray($st['numeric']);
+            $sheet->getStyle('I' . $r . ':' . 'L' . $r)->applyFromArray($st['money']);
+            $sheet->getStyle('M' . $r)->applyFromArray($st['numeric']);
         }
         $sheet->getStyle('A' . $r0 . ':' . $lastColLetter . $lastDataRow)->applyFromArray($st['body_block_border']);
     }
@@ -1332,13 +1491,19 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $sheet->getStyle('A1:' . $lastColLetter . '1')->applyFromArray($titleV2Purple);
     $sheet->getStyle('A2:' . $lastColLetter . '2')->applyFromArray($st['title_sub_flat']);
     $sheet->getStyle('A4:' . $lastColLetter . '4')->applyFromArray($st['title_sub_flat']);
-    $sheet->getRowDimension(1)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
-    $sheet->getRowDimension(2)->setRowHeight(40.0);
-    $sheet->getRowDimension(3)->setRowHeight(MEDICAO_BM_XLSX_ROW_SUB_META);
-    $sheet->getRowDimension(4)->setRowHeight(30.0);
 
     $ultimaLinha = max(1, (int) $sheet->getHighestRow());
-    $sheet->getStyle('A1:' . $lastColLetter . $ultimaLinha)->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+
+    medicao_bm_boletim_autosize_colunas($sheet, 'A', $lastColLetter, 1, $ultimaLinha, $headerRow);
+    medicao_bm_boletim_aplicar_layout_sem_quebra($sheet, 'A', $lastColLetter, 1, $ultimaLinha, [
+        'header_row'     => $headerRow,
+        'first_data_row' => $r0,
+        'last_data_row'  => $lastDataRow,
+        'money_cols'     => ['I', 'J', 'K', 'L'],
+        'qty_cols'       => ['D', 'E', 'F', 'G', 'H', 'M'],
+        'left_cols'      => ['A', 'B', 'C'],
+    ]);
+    medicao_bm_boletim_aplicar_alturas_linhas_compactas($sheet, $ultimaLinha, $headerRow, $r0, $lastDataRow);
 
     $stampAte = date('d.m.Y', strtotime($periodoAte));
     $tag      = medicao_bm_boletim_mes_arquivo($refYm);

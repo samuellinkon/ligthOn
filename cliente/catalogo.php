@@ -37,7 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nome  = trim((string) ($_POST['nome'] ?? ''));
         $cod   = trim((string) ($_POST['codigo'] ?? ''));
         $unid  = trim((string) ($_POST['unidade'] ?? 'UN'));
-        $val   = (float) str_replace(',', '.', (string) ($_POST['valor_unitario'] ?? '0'));
+        $valRaw = trim((string) ($_POST['valor_unitario'] ?? '0'));
+        $valRaw = str_replace([' ', '.'], '', $valRaw);
+        $valRaw = str_replace(',', '.', $valRaw);
+        $val   = round((float) $valRaw, 2, PHP_ROUND_HALF_UP);
         $desc  = trim((string) ($_POST['descricao'] ?? ''));
         $ativo = !empty($_POST['ativo']) ? 1 : 0;
         $est   = (float) str_replace(',', '.', (string) ($_POST['estoque_saldo'] ?? '0'));

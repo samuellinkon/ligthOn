@@ -28,7 +28,7 @@ if (!function_exists('status_class')) {
             'Aberta'       => 'open',
             'Em andamento' => 'progress',
             'Respondendo'  => 'progress',
-            'Aguardando'   => 'waiting',
+            'Aguardando Aprovação' => 'waiting',
             'Pendente'     => 'waiting',
             'Normal'       => 'waiting',
             'Baixa'        => 'waiting',

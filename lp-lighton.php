@@ -1,12 +1,21 @@
 <?php
+if (is_file(__DIR__ . '/includes/config.local.php')) {
+    require __DIR__ . '/includes/config.local.php';
+}
+require __DIR__ . '/includes/lp_config.php';
+$lpWhatsAppHref = lp_whatsapp_href();
+$lpLoginUrl     = (string) LP_LOGIN_URL;
+$lpBrand        = (string) LP_BRAND_NAME;
+$lpApp          = (string) LP_APP_NAME;
+$lpTagline      = (string) LP_TAGLINE;
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OnLight | Gestao publica digital para prefeituras</title>
-    <meta name="description" content="OnLight e a plataforma govtech para prefeituras com protocolos, chamados, ouvidoria, indicadores e rastreabilidade em um unico fluxo digital.">
+    <title><?= htmlspecialchars($lpBrand) ?> | <?= htmlspecialchars($lpTagline) ?> — CRM para empresas de iluminação pública</title>
+    <meta name="description" content="<?= htmlspecialchars($lpBrand) ?> centraliza chamados georreferenciados, pontos de luz, app do técnico, boletim de medição (BM) e portal do cliente para operadoras de iluminação pública.">
     <link rel="icon" type="image/png" href="assets/img/lighton-icon.png">
     <link rel="apple-touch-icon" href="assets/img/lighton-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -636,6 +645,65 @@
             color: #b9d4ff;
         }
 
+        .field-section {
+            background: linear-gradient(180deg, #eef4ff 0%, #f8fbff 100%);
+        }
+
+        .field-wrap {
+            display: grid;
+            grid-template-columns: 0.95fr 1.05fr;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .phone-mock {
+            max-width: 320px;
+            margin: 0 auto;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 14px 12px 18px;
+            background: linear-gradient(180deg, #0d2147 0%, #123369 100%);
+            box-shadow: 0 24px 48px rgba(14, 35, 74, 0.28);
+            color: #eaf2ff;
+        }
+
+        .phone-mock .screen {
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            padding: 12px;
+            min-height: 280px;
+        }
+
+        .phone-mock h3 {
+            font-size: 0.95rem;
+            margin-bottom: 10px;
+        }
+
+        .phone-mock ul {
+            list-style: none;
+            display: grid;
+            gap: 8px;
+            font-size: 0.84rem;
+            color: #cfe0ff;
+        }
+
+        .phone-mock li::before {
+            content: "→ ";
+            color: #8cb5ff;
+        }
+
+        .medicao-section {
+            background: #f9fbff;
+        }
+
+        .medicao-wrap {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
         .timeline {
             position: relative;
             display: grid;
@@ -832,6 +900,8 @@
             .hero-grid,
             .solution-wrap,
             .lighting-wrap,
+            .field-wrap,
+            .medicao-wrap,
             .cards-3,
             .cards-2 {
                 grid-template-columns: 1fr;
@@ -868,20 +938,21 @@
     <header class="site-header">
         <div class="container nav">
             <a href="#inicio" class="brand">
-                <img src="assets/img/lighton-logo-transparent.png" alt="Logo OnLight">
-                <strong>light<span>On</span></strong>
+                <img src="assets/img/lighton-logo-transparent.png" alt="Logo <?= htmlspecialchars($lpBrand) ?>">
+                <strong><?= htmlspecialchars($lpBrand) ?></strong>
             </a>
             <nav class="menu" id="menu">
-                <a href="#problemas">Problemas</a>
+                <a href="#problemas">Desafios</a>
                 <a href="#solucao">Solução</a>
                 <a href="#modulos">Módulos</a>
-                <a href="#iluminacao">Iluminação</a>
-                <a href="#indicadores">Indicadores</a>
+                <a href="#campo">App técnico</a>
+                <a href="#medicao">Medição BM</a>
+                <a href="#telas">Telas</a>
                 <a href="#implantacao">Implantação</a>
                 <a href="#faq">FAQ</a>
             </nav>
             <div class="hero-actions">
-                <a href="#cta" class="btn btn-outline hide-mobile">Agendar demonstração</a>
+                <a href="#contato" class="btn btn-outline hide-mobile">Agendar demonstração</a>
                 <button class="menu-toggle" id="menuToggle" aria-label="Abrir menu">☰</button>
             </div>
         </div>
@@ -891,27 +962,27 @@
         <section class="hero" id="inicio">
             <div class="container hero-grid">
                 <div>
-                    <span class="kicker">Plataforma govtech para gestão municipal</span>
-                    <h1>Gestão pública digital, rastreável e eficiente para sua prefeitura</h1>
+                    <span class="kicker">CRM SaaS para operadoras de iluminação pública · app <?= htmlspecialchars($lpApp) ?></span>
+                    <h1>Gestão completa da sua operação de iluminação pública</h1>
                     <p class="subtitle">
-                        Centralize protocolos, chamados, atendimento ao cidadão e indicadores em uma única plataforma para reduzir filas,
-                        organizar setores e dar mais transparência à gestão.
+                        Chamados georreferenciados, equipes em campo, pontos de luz no mapa e boletim de medição (BM) —
+                        tudo integrado para você cumprir contrato com rastreabilidade entre escritório, técnicos e cliente público.
                     </p>
                     <div class="hero-actions">
-                        <a href="#cta" class="btn btn-primary">Agendar demonstração</a>
+                        <a href="#contato" class="btn btn-primary">Agendar demonstração</a>
                         <a href="#modulos" class="btn btn-outline">Ver funcionalidades</a>
                     </div>
                     <div class="hero-badges">
-                        <span>Protocolos digitais</span>
-                        <span>Dashboards em tempo real</span>
-                        <span>Perfis por secretaria</span>
-                        <span>Histórico auditável</span>
-                        <span>Controle de iluminação pública</span>
+                        <span>Chamados com mapa</span>
+                        <span>App do técnico</span>
+                        <span>Boletim BM</span>
+                        <span>Portal do cliente</span>
+                        <span>Auditoria completa</span>
                     </div>
                 </div>
 
-                <div class="screenshot-frame" aria-label="Tela real do sistema OnLight">
-                    <img src="assets/img/admin-dashboard.png" alt="Tela real do sistema OnLight">
+                <div class="screenshot-frame" aria-label="Dashboard <?= htmlspecialchars($lpBrand) ?>">
+                    <img src="assets/img/admin-dashboard.png" alt="Dashboard <?= htmlspecialchars($lpBrand) ?>">
                 </div>
             </div>
         </section>
@@ -919,15 +990,15 @@
         <section class="section problem" id="problemas">
             <div class="container">
                 <div class="section-head">
-                    <h2>Sua prefeitura ainda depende de planilhas, WhatsApp e processos manuais?</h2>
+                    <h2>Sua operação ainda depende de planilhas, WhatsApp e processos manuais?</h2>
                 </div>
                 <div class="grid cards-3">
-                    <article class="card"><h3>Demandas espalhadas</h3><p>Solicitações ficam em canais diferentes e sem fluxo único.</p></article>
-                    <article class="card"><h3>Falta de rastreabilidade</h3><p>Sem histórico padronizado, fica difícil auditar e comprovar ações.</p></article>
-                    <article class="card"><h3>Demora no atendimento</h3><p>Triagem manual e falta de prioridade aumentam filas de resposta.</p></article>
-                    <article class="card"><h3>Dificuldade de cobrar setores</h3><p>Sem responsável claro, pendências se acumulam e atrasam entregas.</p></article>
-                    <article class="card"><h3>Ausência de indicadores</h3><p>Gestão sem painéis não enxerga gargalos em tempo real.</p></article>
-                    <article class="card"><h3>Retrabalho entre secretarias</h3><p>Demandas reabertas e repasses incorretos geram desperdício operacional.</p></article>
+                    <article class="card"><h3>Planilhas paralelas</h3><p>Chamados, materiais e medição em arquivos desconectados, sem visão única.</p></article>
+                    <article class="card"><h3>WhatsApp como sistema</h3><p>Despacho e retorno de campo sem registro formal nem histórico auditável.</p></article>
+                    <article class="card"><h3>Sem geolocalização</h3><p>Endereço impreciso atrasa equipes e dificulta comprovar atendimento no contrato.</p></article>
+                    <article class="card"><h3>BM e medição manual</h3><p>Fechamento mensal lento, sujeito a erro e sem portal para o cliente público.</p></article>
+                    <article class="card"><h3>Cliente sem portal</h3><p>Prefeitura ou contratante sem transparência sobre fila, status e medição.</p></article>
+                    <article class="card"><h3>Técnicos sem app</h3><p>Equipe em campo sem fluxo padronizado, anexos e materiais no mesmo chamado.</p></article>
                 </div>
             </div>
         </section>
@@ -935,24 +1006,25 @@
         <section class="section" id="solucao">
             <div class="container">
                 <div class="section-head">
-                    <h2>O OnLight organiza toda a operação em um único fluxo digital</h2>
+                    <h2>A <?= htmlspecialchars($lpBrand) ?> une escritório, campo e cliente em um único fluxo</h2>
                 </div>
                 <div class="solution-wrap">
                     <div class="solution-copy">
                         <p>
-                            O OnLight conecta atendimento ao cidadão, protocolos, ouvidoria, chamados internos e indicadores gerenciais em uma plataforma unificada.
-                            Cada demanda segue um fluxo claro com status, prazo, setor e responsável.
+                            A <?= htmlspecialchars($lpBrand) ?> conecta a gestão da sua empresa, os técnicos em campo e o portal do cliente contratante
+                            (prefeitura ou órgão público) em uma plataforma pensada para iluminação pública.
                         </p>
                         <p>
-                            Com isso, a gestão acompanha o que está aberto, o que está atrasado e o que foi concluído, com visão por secretaria e histórico completo para controle e auditoria.
+                            Cada chamado segue status, prioridade, responsável e geolocalização — do registro à execução,
+                            aprovação e exportação do boletim de medição (BM) para prestação de contas do contrato.
                         </p>
                     </div>
                     <ul class="benefits">
-                        <li>Atendimento padronizado</li>
-                        <li>Encaminhamento por setor</li>
-                        <li>Controle de prazos</li>
-                        <li>Histórico completo</li>
-                        <li>Gestão por indicadores</li>
+                        <li>Chamados e OS padronizados</li>
+                        <li>Mapa de pontos e chamados</li>
+                        <li>App PWA para técnicos</li>
+                        <li>Medição BM import/export</li>
+                        <li>Auditoria e relatórios</li>
                     </ul>
                 </div>
             </div>
@@ -961,12 +1033,12 @@
         <section class="section" id="modulos">
             <div class="container">
                 <div class="section-head">
-                    <h2>Módulos completos para gestão pública</h2>
-                    <p>Uma plataforma SaaS govtech para prefeituras, secretarias e equipes operacionais.</p>
+                    <h2>Módulos para a operação de iluminação pública</h2>
+                    <p>Tudo o que sua empresa precisa para cumprir contrato com rastreabilidade — do chamado ao boletim BM.</p>
                 </div>
                 <div class="grid cards-4">
-                    <article class="card"><div class="module-icon">PD</div><h3>Protocolo Digital</h3><p>Abertura, triagem, encaminhamento e acompanhamento por status e prioridade.</p></article>
-                    <article class="card"><div class="module-icon">OU</div><h3>Ouvidoria e Atendimento ao Cidadão</h3><p>Centralize manifestações, solicitações e retornos em um fluxo padronizado.</p></article>
+                    <article class="card"><div class="module-icon">CH</div><h3>Chamados e OS</h3><p>Prioridade, status, endereço geo, anexos, materiais e histórico completo.</p></article>
+                    <article class="card"><div class="module-icon">MP</div><h3>Mapa de pontos</h3><p>Cadastro de luminárias e postes, importação em lote, fotos e rotas.</p></article>
                     <article class="card"><div class="module-icon">CI</div><h3>Gestão de Chamados Internos</h3><p>Organize demandas entre setores com responsáveis e prazos definidos.</p></article>
                     <article class="card"><div class="module-icon">PG</div><h3>Painel do Gestor</h3><p>Visualização estratégica de desempenho da operação em tempo real.</p></article>
                     <article class="card"><div class="module-icon">PP</div><h3>Perfis e Permissões</h3><p>Acessos segmentados por secretaria, cargo e nível de responsabilidade.</p></article>

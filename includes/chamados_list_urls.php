@@ -20,9 +20,10 @@ function adm_chamados_url(int $p, string $filtro, string $busca, array $periodoC
     }
     if (!empty($periodoCtx['periodo_limpar'])) {
         $qs['periodo_limpar'] = '1';
-    } elseif (($periodoCtx['medicao_mes'] ?? '') !== '') {
-        $qs['medicao_mes'] = $periodoCtx['medicao_mes'];
     } else {
+        if (($periodoCtx['medicao_mes'] ?? '') !== '') {
+            $qs['medicao_mes'] = $periodoCtx['medicao_mes'];
+        }
         if (($periodoCtx['periodo_de'] ?? '') !== '') {
             $qs['periodo_de'] = $periodoCtx['periodo_de'];
         }

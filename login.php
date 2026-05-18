@@ -39,7 +39,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     audit_log_registar('auth.login_falha', 'auth', null, null, [
         'email' => function_exists('mb_substr') ? mb_substr(trim((string) $email), 0, 160, 'UTF-8') : substr(trim((string) $email), 0, 160),
     ], null);
-    $erro = 'E-mail ou senha inválidos.';
+    require_once __DIR__ . '/includes/repository.php';
+    if (db_ok() && repo_usuario_credenciais_corretas_mas_inativa($email, $senha)) {
+        $erro = 'Esta conta está desativada. Peça ao administrador para reativá-la.';
+    } else {
+        $erro = 'E-mail ou senha inválidos.';
+    }
 }
 
 if (isset($_GET['erro']) && $_GET['erro'] === 'perfil') {

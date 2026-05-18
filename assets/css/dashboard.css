@@ -81,6 +81,23 @@
   color: inherit;
   font-weight: 700;
 }
+
+/* Catálogo: cards KPI clicáveis (filtro na tabela) */
+a.card.metric.metric-card--link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, outline-color 0.15s ease;
+}
+a.card.metric.metric-card--link:hover {
+  box-shadow: 0 8px 24px rgba(83, 74, 183, 0.14);
+}
+a.card.metric.metric-card--link.metric-card--active {
+  outline: 2px solid #534ab7;
+  outline-offset: 2px;
+  box-shadow: 0 8px 28px rgba(83, 74, 183, 0.2);
+}
 /* Wrapper legado no admin (filhos já cobertos por .cards-metrics acima) */
 .dashboard-admin-metrics .metric-change--admin {
   color: #6d63d4;

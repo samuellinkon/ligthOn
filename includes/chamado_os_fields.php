@@ -22,13 +22,12 @@ function chamado_os_opcoes_origem(): array
 function chamado_os_opcoes_problema(): array
 {
     return [
-        'Iluminação pública' => 'Iluminação pública',
-        'Poste / braço' => 'Poste / braço',
-        'Lâmpada / LED' => 'Lâmpada / LED',
-        'Rede / cabos' => 'Rede / cabos',
-        'Transformador' => 'Transformador',
-        'Reclamação geral' => 'Reclamação geral',
-        'Outro' => 'Outro',
+        'Ponto Apagado' => 'Ponto Apagado',
+        'Vazamento de Corrente' => 'Vazamento de Corrente',
+        'Implantação' => 'Implantação',
+        'Evento' => 'Evento',
+        'Serviços Gerais' => 'Serviços Gerais',
+        'Outros' => 'Outros',
     ];
 }
 
@@ -44,16 +43,32 @@ function chamado_os_opcoes_tipo(): array
     ];
 }
 
-/** Gera o título do chamado a partir da classificação da OS (tipo, problema, origem). */
+/** Gera o título do chamado a partir da classificação da OS (problema, origem opcional). */
 function chamado_os_titulo_from_post(array $post): string
 {
-    $tipo = trim((string) ($post['tipo_os'] ?? ''));
     $prob = trim((string) ($post['problema_os'] ?? ''));
     $orig = trim((string) ($post['origem_os'] ?? ''));
-    $parts = array_filter([$tipo, $prob, $orig]);
+    $parts = array_filter([$prob, $orig]);
     $out = implode(' · ', $parts);
 
     return mb_substr($out !== '' ? $out : 'Solicitação de serviço', 0, 200);
+}
+
+/** Valida campos obrigatórios da OS no POST. @return list<string> mensagens de erro */
+function chamado_os_validar_obrigatorios(array $post): array
+{
+    $erros = [];
+    if (trim((string) ($post['origem_os'] ?? '')) === '') {
+        $erros[] = 'Selecione a origem da OS.';
+    }
+    if (trim((string) ($post['problema_os'] ?? '')) === '') {
+        $erros[] = 'Selecione o tipo de problema.';
+    }
+    if (trim((string) ($post['descricao'] ?? '')) === '') {
+        $erros[] = 'Informe a descrição do chamado.';
+    }
+
+    return $erros;
 }
 
 function chamado_os_sanitize_cpf(?string $cpf): ?string

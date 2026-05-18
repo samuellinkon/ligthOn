@@ -240,3 +240,140 @@ function medicao_bm_export_v2_periodo_de_min(string $refYm): string
 
     return date('Y-m-01', $ts);
 }
+
+/**
+ * Formata Y-m-d para dd/mm/YYYY (exportação / UI).
+ */
+function medicao_data_br(string $ymd): string
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+        return $ymd;
+    }
+    $ts = strtotime($ymd);
+
+    return $ts !== false ? date('d/m/Y', $ts) : $ymd;
+}
+
+/**
+ * Rótulo de período para PDF/XLSX com datas explícitas.
+ */
+function medicao_periodo_export_label(?string $de, ?string $ate, string $mesRef = ''): string
+{
+    $de  = $de !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($de)) ? trim($de) : '';
+    $ate = $ate !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($ate)) ? trim($ate) : '';
+
+    if ($de !== '' && $ate !== '') {
+        return 'Data início: ' . medicao_data_br($de) . ' · Data fim: ' . medicao_data_br($ate);
+    }
+    if ($de !== '') {
+        return 'Data início: ' . medicao_data_br($de);
+    }
+    if ($ate !== '') {
+        return 'Data fim: ' . medicao_data_br($ate);
+    }
+    if ($mesRef !== '' && preg_match('/^\d{4}-\d{2}$/', $mesRef)) {
+        return 'Mês ' . medicao_mes_label_pt($mesRef);
+    }
+
+    return '—';
+}
+
+/**
+ * Rótulo curto do intervalo (dd/mm/YYYY a dd/mm/YYYY).
+ */
+function medicao_periodo_label_curto(?string $de, ?string $ate): string
+{
+    $de  = $de !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($de)) ? trim($de) : '';
+    $ate = $ate !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($ate)) ? trim($ate) : '';
+
+    if ($de !== '' && $ate !== '') {
+        return medicao_data_br($de) . ' a ' . medicao_data_br($ate);
+    }
+    if ($de !== '') {
+        return 'a partir de ' . medicao_data_br($de);
+    }
+    if ($ate !== '') {
+        return 'até ' . medicao_data_br($ate);
+    }
+
+    return '—';
+}
+
+/**
+ * Resolve intervalo de filtro para uma linha de medição (mês de referência + datas opcionais).
+ *
+ * @return array{ok: bool, err: string, de: string, ate: string, label: string, label_curto: string}
+ */
+function medicao_resolve_periodo_filtro(string $mesRef, string $dataInicio = '', string $dataFim = ''): array
+{
+    if (!preg_match('/^\d{4}-\d{2}$/', $mesRef)) {
+        return [
+            'ok'          => false,
+            'err'         => 'Mês de referência inválido.',
+            'de'          => '',
+            'ate'         => '',
+            'label'       => '—',
+            'label_curto' => '—',
+        ];
+    }
+
+    $deDefault  = $mesRef . '-01';
+    $ateDefault = medicao_bm_export_v2_periodo_ate($mesRef);
+    $dataInicio = trim($dataInicio);
+    $dataFim    = trim($dataFim);
+
+    $de  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataInicio) ? $dataInicio : $deDefault;
+    $ate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataFim) ? $dataFim : $ateDefault;
+
+    if ($de > $ate) {
+        return [
+            'ok'          => false,
+            'err'         => 'A data início não pode ser posterior à data fim.',
+            'de'          => $de,
+            'ate'         => $ate,
+            'label'       => '—',
+            'label_curto' => '—',
+        ];
+    }
+
+    return [
+        'ok'          => true,
+        'err'         => '',
+        'de'          => $de,
+        'ate'         => $ate,
+        'label'       => medicao_periodo_export_label($de, $ate, $mesRef),
+        'label_curto' => medicao_periodo_label_curto($de, $ate),
+    ];
+}
+
+/**
+ * Resolve período quando não há mês de medição (só datas na listagem de chamados).
+ *
+ * @return array{ok: bool, err: string, de: ?string, ate: ?string}
+ */
+function medicao_resolve_periodo_livre(string $dataInicio = '', string $dataFim = ''): array
+{
+    $dataInicio = trim($dataInicio);
+    $dataFim    = trim($dataFim);
+    $hasDe      = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataInicio);
+    $hasAte     = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataFim);
+
+    if (!$hasDe && !$hasAte) {
+        return ['ok' => true, 'err' => '', 'de' => null, 'ate' => null];
+    }
+
+    $hoje = date('Y-m-d');
+    $de   = $hasDe ? $dataInicio : date('Y-m-01');
+    $ate  = $hasAte ? $dataFim : $hoje;
+
+    if ($de > $ate) {
+        return [
+            'ok'  => false,
+            'err' => 'A data início não pode ser posterior à data fim.',
+            'de'  => $de,
+            'ate' => $ate,
+        ];
+    }
+
+    return ['ok' => true, 'err' => '', 'de' => $de, 'ate' => $ate];
+}

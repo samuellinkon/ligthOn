@@ -1,5 +1,5 @@
 /**
- * Catálogo — filtros e ordenação por coluna (estilo planilha).
+ * Catálogo — ordenação por coluna na tabela.
  */
 (function () {
   'use strict';
@@ -10,11 +10,7 @@
   var tbody = table.querySelector('tbody');
   if (!tbody) return;
 
-  var countEl = document.getElementById('catalogo-itens-count');
   var sortBtns = table.querySelectorAll('.catalogo-excel-sort');
-  var filters = table.querySelectorAll('.catalogo-excel-filter');
-  var btnClear = document.getElementById('catalogo-excel-clear-filters');
-
   var sortKey = null;
   var sortDir = 'asc';
 
@@ -27,37 +23,6 @@
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
-  }
-
-  function rowPasses(row) {
-    var ok = true;
-    filters.forEach(function (el) {
-      if (!ok) return;
-      var key = el.getAttribute('data-filter-key');
-      if (!key) return;
-      var val = norm(el.value);
-      if (val === '') return;
-      var cell = norm(row.getAttribute('data-filter-' + key) || '');
-      if (key === 'tipo' || key === 'status') {
-        if (cell !== val) ok = false;
-      } else if (cell.indexOf(val) === -1) {
-        ok = false;
-      }
-    });
-    return ok;
-  }
-
-  function applyFilters() {
-    var rows = dataRows();
-    var visible = 0;
-    rows.forEach(function (row) {
-      var show = rowPasses(row);
-      row.style.display = show ? '' : 'none';
-      if (show) visible += 1;
-    });
-    if (countEl) {
-      countEl.textContent = String(visible);
-    }
   }
 
   function sortValue(row, key) {
@@ -75,12 +40,7 @@
 
   function applySort() {
     if (!sortKey) return;
-    var rows = dataRows().filter(function (r) {
-      return r.style.display !== 'none';
-    });
-    var hidden = dataRows().filter(function (r) {
-      return r.style.display === 'none';
-    });
+    var rows = dataRows();
     rows.sort(function (a, b) {
       var va = sortValue(a, sortKey);
       var vb = sortValue(b, sortKey);
@@ -92,7 +52,7 @@
       }
       return sortDir === 'desc' ? -cmp : cmp;
     });
-    rows.concat(hidden).forEach(function (row) {
+    rows.forEach(function (row) {
       tbody.appendChild(row);
     });
   }
@@ -126,20 +86,4 @@
       applySort();
     });
   });
-
-  filters.forEach(function (el) {
-    el.addEventListener('input', applyFilters);
-    el.addEventListener('change', applyFilters);
-  });
-
-  if (btnClear) {
-    btnClear.addEventListener('click', function () {
-      filters.forEach(function (el) {
-        el.value = '';
-      });
-      applyFilters();
-    });
-  }
-
-  applyFilters();
 })();

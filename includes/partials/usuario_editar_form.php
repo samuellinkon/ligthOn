@@ -118,6 +118,28 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
     </div>
   </div>
 
+  <?php
+  $mostrarContaAtiva = function_exists('repo_usuarios_ativo_column_exists') && repo_usuarios_ativo_column_exists()
+      && (($escopoUe !== null) || (($me['perfil'] ?? '') === 'admin'));
+  ?>
+  <?php if ($mostrarContaAtiva): ?>
+  <div class="panel-head" style="margin-top:8px;">
+    <h4>Acesso ao sistema</h4>
+    <?php if (($me['perfil'] ?? '') === 'admin'): ?>
+    <span class="panel-sub">Desativar impede o login. A exclusão permanente do registo só existe na lista global de utilizadores (administrador).</span>
+    <?php else: ?>
+    <span class="panel-sub">Desativar impede o login. A sua função não permite apagar utilizadores da base de dados.</span>
+    <?php endif; ?>
+  </div>
+  <div class="panel-body">
+    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:14px;">
+      <input type="checkbox" name="conta_ativa" value="1" style="margin-top:3px;"
+             <?= !isset($usuario['ativo']) || (int) ($usuario['ativo'] ?? 1) !== 0 ? 'checked' : '' ?>>
+      <span>Conta ativa (permite entrar no sistema)</span>
+    </label>
+  </div>
+  <?php endif; ?>
+
   <div class="panel-body">
     <div class="form-actions" style="padding:0;border:0;background:transparent;">
       <a href="<?= htmlspecialchars($cancelHref, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-secondary"<?= $embedForm ? ' target="_top"' : '' ?>>Cancelar</a>

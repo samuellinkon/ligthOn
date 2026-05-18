@@ -143,6 +143,7 @@
       '</strong> chamado(s) aberto(s)</div>' +
       buildHistorico(p.chamados_historico || []) +
       '<div class="ponto-popup-actions">' +
+      '<a class="ponto-popup-link ponto-popup-link--primary" href="chamado_novo.php?ponto_iluminacao_id=' + encodeURIComponent(String(p.id || '')) + '">Abrir chamado</a>' +
       '<a class="ponto-popup-link" href="chamados.php?q=' + encodeURIComponent(codigo) + '">Ver chamados</a>' +
       '<a class="ponto-popup-btn-streetview" href="' + escapeAttr(streetViewUrl) + '" target="_blank" rel="noopener noreferrer">Abrir Street View</a>' +
       '</div>' +

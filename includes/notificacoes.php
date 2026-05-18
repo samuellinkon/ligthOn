@@ -36,3 +36,23 @@ function criarNotificacoesChamado(int $chamadoId, ?int $mensagemId, int $autorId
         repo_notificacao_insert($uid, $chamadoId, $mensagemId, $titulo, $descricao, 'chamado_mensagem');
     }
 }
+
+/**
+ * Notifica técnicos recém-atribuídos a um chamado.
+ *
+ * @param list<int> $tecnicoUserIds
+ */
+function notificar_tecnicos_chamado_atribuido(int $chamadoId, array $tecnicoUserIds, int $autorId): void
+{
+    if ($chamadoId <= 0 || !function_exists('repo_notificacoes_table_exists') || !repo_notificacoes_table_exists()) {
+        return;
+    }
+    $titulo = sprintf('Foi atribuído um chamado ao técnico #%d.', $chamadoId);
+    foreach ($tecnicoUserIds as $uid) {
+        $uid = (int) $uid;
+        if ($uid <= 0 || $uid === $autorId) {
+            continue;
+        }
+        repo_notificacao_insert($uid, $chamadoId, null, $titulo, null, 'chamado_tecnico_atribuido');
+    }
+}

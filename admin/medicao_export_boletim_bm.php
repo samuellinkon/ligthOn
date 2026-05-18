@@ -54,33 +54,30 @@ if (!$clienteMatriz) {
     exit;
 }
 
-$primeiroMesDia   = $mesRaw . '-01';
-$periodoAteMes    = medicao_bm_export_v2_periodo_ate($mesRaw);
 $fazerDownload    = (($_GET['export'] ?? '') === '1');
-$periodoParam     = trim((string) ($_GET['periodo_de'] ?? ''));
+$periodoParamDe   = trim((string) ($_GET['periodo_de'] ?? ''));
+$periodoParamAte  = trim((string) ($_GET['periodo_ate'] ?? ''));
 
 if (!$fazerDownload) {
     header('Location: medicao.php');
     exit;
 }
 
-$periodoDe = preg_match('/^\d{4}-\d{2}-\d{2}$/', $periodoParam) ? $periodoParam : $primeiroMesDia;
-
-if ($periodoDe > $periodoAteMes) {
-    flash_set(
-        'err',
-        'A data inicial não pode ser posterior ao fecho do boletim (' . date('d/m/Y', strtotime($periodoAteMes)) . ').'
-    );
+$resolved = medicao_resolve_periodo_filtro($mesRaw, $periodoParamDe, $periodoParamAte);
+if (!$resolved['ok']) {
+    flash_set('err', $resolved['err']);
     header('Location: medicao.php');
     exit;
 }
+$periodoDe  = $resolved['de'];
+$periodoAte = $resolved['ate'];
 
 audit_log_registar('medicao.exportar_boletim_bm', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
     'ref_ym'        => $mesRaw,
     'periodo_de'    => $periodoDe,
-    'periodo_ate'   => $periodoAteMes,
+    'periodo_ate'   => $periodoAte,
     'exportadora'   => 'v2_consolidado',
 ]);
 
 require_once __DIR__ . '/../includes/medicao_export_bm_boletim_xlsx.php';
-medicao_export_bm_boletim_v2_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $periodoDe, $periodoAteMes);
+medicao_export_bm_boletim_v2_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $periodoDe, $periodoAte);

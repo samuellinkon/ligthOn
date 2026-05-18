@@ -45,8 +45,8 @@
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 700;
-  color: var(--text);
-  background: #ececf3;
+  color: #ffffff;
+  background: #6057c2;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -1340,6 +1340,44 @@ form.info-row {
   justify-content: flex-end;
 }
 
+.chamado-materiais-block__actions--stack {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .chamado-materiais-block__actions--stack {
+    align-items: flex-end;
+  }
+}
+
+.chamado-mat-modal__body .form-group {
+  margin: 0;
+}
+
+.chamado-ponto-streetview__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chamado-mat-modal__box--form {
+  width: min(100%, 480px);
+  max-height: min(92vh, 640px);
+}
+
+.chamado-sol-dev-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chamado-sol-dev-form .form-group {
+  margin: 0;
+}
+
 .chamado-materiais-block--dev .chamado-materiais-block__title {
   color: var(--muted);
 }
@@ -2307,6 +2345,16 @@ select.crm-custom-select-native,
   border-color: rgba(83, 74, 183, 0.25);
 }
 
+.panel-head__actions.chamado-info-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 @media (max-width: 820px) {
   .chamado-header-toolbar__body {
     grid-template-columns: 1fr;
@@ -2343,5 +2391,36 @@ select.crm-custom-select-native,
     width: 100%;
     justify-content: center;
   }
+}
+
+.field-required {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.op-mat-submit--recolhido {
+  background: var(--primary, #534ab7) !important;
+  border-color: var(--primary, #534ab7) !important;
+  color: #fff !important;
+}
+
+.medicao-mes-row {
+  cursor: pointer;
+}
+
+.medicao-mes-row:hover td {
+  background: rgba(83, 74, 183, 0.06);
+}
+
+.chamado-historico-toggle > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 14px 20px;
+  list-style: none;
+}
+
+.chamado-historico-toggle > summary::-webkit-details-marker {
+  display: none;
 }
 

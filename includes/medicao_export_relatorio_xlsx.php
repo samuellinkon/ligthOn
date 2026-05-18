@@ -338,22 +338,30 @@ function medicao_xlsx_cell_inline(int $col0, int $row1, string $text, int $style
  *
  * @param list<list<string>> $sheetRows linha 0 = cabeçalho das colunas BM (fica na linha 7 do Excel)
  */
-function medicao_xlsx_build_worksheet_xml(array $sheetRows, string $empresaNome, string $mesLabelPt, string $mesRef, bool $hasDrawing = false): string
-{
+function medicao_xlsx_build_worksheet_xml(
+    array $sheetRows,
+    string $empresaNome,
+    string $mesLabelPt,
+    string $mesRef,
+    bool $hasDrawing = false,
+    ?string $periodoDe = null,
+    ?string $periodoAte = null
+): string {
     $ns          = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
     $empresaNome = trim($empresaNome);
     $mesLabelPt  = trim($mesLabelPt);
-    $periodoTxt  = '';
-    if (preg_match('/^\d{4}-\d{2}$/', $mesRef)) {
-        $ini = date('d/m/Y', strtotime($mesRef . '-01'));
-        $fim = date('d/m/Y', strtotime($mesRef . '-01 +1 month -1 day'));
-        $periodoTxt = $ini . ' a ' . $fim;
-        if ($mesLabelPt !== '') {
-            $periodoTxt .= ' · ' . $mesLabelPt;
+    $deEff       = $periodoDe !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($periodoDe)) ? trim($periodoDe) : '';
+    $ateEff      = $periodoAte !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($periodoAte)) ? trim($periodoAte) : '';
+    if ($deEff === '' && $ateEff === '' && preg_match('/^\d{4}-\d{2}$/', $mesRef)) {
+        $resolved = medicao_resolve_periodo_filtro($mesRef, '', '');
+        if ($resolved['ok']) {
+            $deEff  = $resolved['de'];
+            $ateEff = $resolved['ate'];
         }
-    } elseif ($mesLabelPt !== '') {
-        $periodoTxt = $mesLabelPt;
     }
+    $periodoTxt = ($deEff !== '' && $ateEff !== '')
+        ? medicao_periodo_export_label($deEff, $ateEff, $mesRef)
+        : ($mesLabelPt !== '' ? $mesLabelPt : '—');
 
     if ($sheetRows === []) {
         $sheetRows = [medicao_relatorio_detalhado_header_row()];
@@ -396,7 +404,7 @@ function medicao_xlsx_build_worksheet_xml(array $sheetRows, string $empresaNome,
         . medicao_xlsx_cell_inline(0, 5, $empresaNome !== '' ? ('Prefeitura / cliente: ' . $empresaNome) : 'Prefeitura / cliente: —', MEDICAO_XLSX_STYLE_SUBTITLE)
         . '</row>';
     $xml .= '<row r="6" spans="1:' . $spanMax . '">'
-        . medicao_xlsx_cell_inline(0, 6, $periodoTxt !== '' ? ('Período: ' . $periodoTxt) : 'Período: —', MEDICAO_XLSX_STYLE_SUBTITLE)
+        . medicao_xlsx_cell_inline(0, 6, $periodoTxt !== '—' ? $periodoTxt : 'Período: —', MEDICAO_XLSX_STYLE_SUBTITLE)
         . '</row>';
 
     foreach ($sheetRows as $i => $row) {
@@ -464,7 +472,16 @@ function medicao_xlsx_drawing_picture_two_cell_xml(
 /**
  * @param list<list<string>> $sheetRows
  */
-function medicao_xlsx_build_workbook_zip(string $tmpPath, array $sheetRows, string $empresaNome, string $mesLabelPt, string $mesRef, int $clienteMatrizId = 0): bool
+function medicao_xlsx_build_workbook_zip(
+    string $tmpPath,
+    array $sheetRows,
+    string $empresaNome,
+    string $mesLabelPt,
+    string $mesRef,
+    int $clienteMatrizId = 0,
+    ?string $periodoDe = null,
+    ?string $periodoAte = null
+): bool {
 {
     $zip = new ZipArchive();
     if ($zip->open($tmpPath, ZipArchive::OVERWRITE | ZipArchive::CREATE) !== true) {
@@ -548,7 +565,10 @@ function medicao_xlsx_build_workbook_zip(string $tmpPath, array $sheetRows, stri
     $zip->addFromString('xl/workbook.xml', medicao_xlsx_part_workbook());
     $zip->addFromString('xl/_rels/workbook.xml.rels', medicao_xlsx_part_workbook_rels());
     $zip->addFromString('xl/styles.xml', medicao_xlsx_part_styles_professional());
-    $zip->addFromString('xl/worksheets/sheet1.xml', medicao_xlsx_build_worksheet_xml($sheetRows, $empresaNome, $mesLabelPt, $mesRef, $hasDrawing));
+    $zip->addFromString(
+        'xl/worksheets/sheet1.xml',
+        medicao_xlsx_build_worksheet_xml($sheetRows, $empresaNome, $mesLabelPt, $mesRef, $hasDrawing, $periodoDe, $periodoAte)
+    );
     $zip->close();
 
     return true;
@@ -724,7 +744,15 @@ function medicao_relatorio_template_set_text(DOMDocument $doc, DOMXPath $xp, str
 /**
  * @param list<list<string>> $sheetRows linha 0 = cabeçalho; demais linhas incluem código (coluna 10) e qtd (coluna 12)
  */
-function medicao_export_relatorio_detalhado_xlsx_send(string $mesRef, array $sheetRows, string $empresaNome = '', string $mesLabelPt = '', int $clienteMatrizId = 0): void
+function medicao_export_relatorio_detalhado_xlsx_send(
+    string $mesRef,
+    array $sheetRows,
+    string $empresaNome = '',
+    string $mesLabelPt = '',
+    int $clienteMatrizId = 0,
+    ?string $periodoDe = null,
+    ?string $periodoAte = null
+): void {
 {
     if (!class_exists(ZipArchive::class)) {
         header('Content-Type: text/plain; charset=UTF-8');
@@ -745,7 +773,7 @@ function medicao_export_relatorio_detalhado_xlsx_send(string $mesRef, array $she
         return;
     }
 
-    if (!medicao_xlsx_build_workbook_zip($tmp, $sheetRows, $empresaNome, $mesLabelPt, $mesRef, $clienteMatrizId)) {
+    if (!medicao_xlsx_build_workbook_zip($tmp, $sheetRows, $empresaNome, $mesLabelPt, $mesRef, $clienteMatrizId, $periodoDe, $periodoAte)) {
         @unlink($tmp);
         header('Content-Type: text/plain; charset=UTF-8');
         echo 'Falha ao gerar o arquivo XLSX.';

@@ -29,6 +29,17 @@ if (!isset($ch_os_pontos_opcoes)) {
 if (!isset($ch_os_mostrar_preview_mapa)) {
     $ch_os_mostrar_preview_mapa = true;
 }
+if (!isset($ch_os_readonly_endereco)) {
+    $ch_os_readonly_endereco = false;
+}
+
+$ch_os_req = static function (string $label, bool $required = false): string {
+    if (!$required) {
+        return $label;
+    }
+
+    return $label . ' <span class="field-required" aria-hidden="true">*</span>';
+};
 
 $f = static function (string $k, string $def = ''): string {
     global $ch_os_vals;
@@ -50,7 +61,7 @@ if ($dab === '' || $dab === '0000-00-00') {
 
 $origOpts = chamado_os_opcoes_origem();
 $probOpts = chamado_os_opcoes_problema();
-$tipoOpts = chamado_os_opcoes_tipo();
+$chOsReadonlyAddr = !empty($ch_os_readonly_endereco);
 
 ?>
 <div class="os-form-layout">
@@ -89,6 +100,25 @@ $tipoOpts = chamado_os_opcoes_tipo();
     <div class="os-section-body">
       <div class="form-grid form-grid--os-pane">
         <p class="os-pane-sub">Endereço</p>
+        <?php if ($chOsReadonlyAddr): ?>
+        <div class="chamado-os-endereco-readonly" aria-label="Endereço cadastrado">
+          <?php
+          $enderecoExibir = trim((string) ($ch_os_vals['endereco_completo'] ?? ''));
+          if ($enderecoExibir === '') {
+              $enderecoExibir = chamado_os_compor_endereco_completo($ch_os_vals) ?? '—';
+          }
+          $latExibir = trim((string) ($ch_os_vals['latitude'] ?? ''));
+          $lngExibir = trim((string) ($ch_os_vals['longitude'] ?? ''));
+          ?>
+          <p class="chamado-ponto-endereco__text"><?= htmlspecialchars($enderecoExibir, ENT_QUOTES, 'UTF-8') ?></p>
+          <?php if ($latExibir !== '' || $lngExibir !== ''): ?>
+          <p class="muted" style="margin-top:8px;font-size:13px;">
+            Coordenadas: <?= htmlspecialchars($latExibir !== '' ? $latExibir : '—', ENT_QUOTES, 'UTF-8') ?>
+            · <?= htmlspecialchars($lngExibir !== '' ? $lngExibir : '—', ENT_QUOTES, 'UTF-8') ?>
+          </p>
+          <?php endif; ?>
+        </div>
+        <?php else: ?>
         <div class="os-addr-grid" role="group" aria-label="Endereço">
           <div class="form-group os-addr-cep">
             <label for="os_cep">CEP</label>
@@ -131,11 +161,12 @@ $tipoOpts = chamado_os_opcoes_tipo();
                    placeholder="SP" value="<?= $f('os_uf') ?>">
           </div>
         </div>
+        <?php endif; ?>
 
         <p class="os-pane-sub os-pane-sub--divider">Classificação</p>
         <div class="form-group">
-          <label for="os_origem">Origem da OS</label>
-          <select id="os_origem" name="origem_os" class="select">
+          <label for="os_origem"><?= $ch_os_req('Origem da OS', true) ?></label>
+          <select id="os_origem" name="origem_os" class="select" required>
             <option value="">Selecione...</option>
             <?php foreach ($origOpts as $val => $lab): ?>
               <option value="<?= htmlspecialchars((string) $val, ENT_QUOTES, 'UTF-8') ?>"<?= ((string) ($ch_os_vals['origem_os'] ?? '') === (string) $val) ? ' selected' : '' ?>><?= htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') ?></option>
@@ -143,24 +174,15 @@ $tipoOpts = chamado_os_opcoes_tipo();
           </select>
         </div>
         <div class="form-group">
-          <label for="os_problema">Problema</label>
-          <select id="os_problema" name="problema_os" class="select">
+          <label for="os_problema"><?= $ch_os_req('Problema', true) ?></label>
+          <select id="os_problema" name="problema_os" class="select" required>
             <option value="">Selecione...</option>
             <?php foreach ($probOpts as $val => $lab): ?>
               <option value="<?= htmlspecialchars((string) $val, ENT_QUOTES, 'UTF-8') ?>"<?= ((string) ($ch_os_vals['problema_os'] ?? '') === (string) $val) ? ' selected' : '' ?>><?= htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
           </select>
         </div>
-        <div class="form-group">
-          <label for="os_tipo">Tipo de OS</label>
-          <select id="os_tipo" name="tipo_os" class="select">
-            <option value="">Selecione...</option>
-            <?php foreach ($tipoOpts as $val => $lab): ?>
-              <option value="<?= htmlspecialchars((string) $val, ENT_QUOTES, 'UTF-8') ?>"<?= ((string) ($ch_os_vals['tipo_os'] ?? '') === (string) $val) ? ' selected' : '' ?>><?= htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-
+        <?php if (!$chOsReadonlyAddr): ?>
         <p class="os-pane-sub os-pane-sub--divider">Coordenadas e referência</p>
         <div class="form-group">
           <label for="chamado_latitude">Latitude</label>
@@ -172,6 +194,7 @@ $tipoOpts = chamado_os_opcoes_tipo();
           <input type="text" id="chamado_longitude" name="longitude" class="input" inputmode="decimal"
                  placeholder="-46.6559" value="<?= $f('longitude') ?>">
         </div>
+        <?php endif; ?>
         <div class="form-group full">
           <label for="os_ref">Ponto de referência</label>
           <input type="text" id="os_ref" name="ponto_referencia" class="input" maxlength="255"
@@ -238,8 +261,8 @@ $tipoOpts = chamado_os_opcoes_tipo();
     <div class="os-section-header">Descrição do problema</div>
     <div class="os-section-body">
       <div class="form-group" style="margin:0;">
-        <label for="descricao">Descrição</label>
-        <textarea id="descricao" name="descricao" class="textarea" rows="8"
+        <label for="descricao"><?= $ch_os_req('Descrição', true) ?></label>
+        <textarea id="descricao" name="descricao" class="textarea" rows="8" required
                   placeholder="Descreva o problema com o máximo de detalhes possível..."><?= htmlspecialchars((string) $ch_os_descricao, ENT_QUOTES, 'UTF-8') ?></textarea>
       </div>
     </div>
@@ -431,6 +454,19 @@ $tipoOpts = chamado_os_opcoes_tipo();
         tab.hidden = false;
       }
       svBlock.hidden = false;
+      var svGenFallback = mapGeocodeGeneration;
+      var llFb = encodeURIComponent(String(lat) + ',' + String(lng));
+      window.setTimeout(function () {
+        if (svGenFallback !== mapGeocodeGeneration || !iframe) return;
+        if (iframe.src.indexOf('output=svembed') !== -1) {
+          iframe.src = 'https://www.google.com/maps?q=' + llFb + '&z=17&hl=pt-BR&output=embed';
+          if (svLabel) svLabel.textContent = 'Mapa (fallback)';
+          if (tab) {
+            tab.setAttribute('href', 'https://www.google.com/maps/search/?api=1&query=' + llFb);
+            tab.textContent = 'Abrir no Google Maps';
+          }
+        }
+      }, 4000);
     } else if (hasMapaEndereco) {
       mapGeocodeGeneration++;
       var gen = mapGeocodeGeneration;

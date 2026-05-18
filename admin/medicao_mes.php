@@ -28,8 +28,18 @@ if (!preg_match('/^\d{4}-\d{2}$/', $mesRaw)) {
     exit;
 }
 $mesRef = $mesRaw;
-$dataDe = $mesRef . '-01';
-$dataAte = date('Y-m-t', strtotime($dataDe));
+$periodoResolvido = medicao_resolve_periodo_filtro(
+    $mesRef,
+    trim((string) ($_GET['periodo_de'] ?? '')),
+    trim((string) ($_GET['periodo_ate'] ?? ''))
+);
+if (!$periodoResolvido['ok']) {
+    flash_set('err', $periodoResolvido['err']);
+    header('Location: medicao.php');
+    exit;
+}
+$dataDe  = $periodoResolvido['de'];
+$dataAte = $periodoResolvido['ate'];
 
 $escopoEmpresa = gestao_scope_cliente_id($me);
 if ($escopoEmpresa !== null) {
@@ -77,7 +87,7 @@ $linhasExibicao = medicao_linhas_exibicao_mes($linhas, $impLinhas);
 $totExibicao    = medicao_tot_resumo_com_import_bm($tot, $impLinhas);
 $listagemSoBm   = medicao_listagem_so_import_bm($linhas, $impLinhas);
 
-$periodoTxt   = date('d/m/Y', strtotime($dataDe)) . ' a ' . date('d/m/Y', strtotime($dataAte));
+$periodoTxt   = $periodoResolvido['label_curto'];
 $contratoDisp = $contratoRef !== '' ? $contratoRef : '—';
 $mesLabel     = medicao_mes_label_pt($mesRef);
 
@@ -106,8 +116,10 @@ audit_log_registar('medicao.acessar_mes', 'medicao', null, $clienteId > 0 ? $cli
 ]);
 
 $medicaoFiltrosQs = [
-    'mes'      => $mesRef,
-    'contrato' => $contratoRef,
+    'mes'         => $mesRef,
+    'periodo_de'  => $dataDe,
+    'periodo_ate' => $dataAte,
+    'contrato'    => $contratoRef,
 ];
 $medicaoExportPlanilhaHref = 'medicao_mes.php?' . http_build_query(array_merge($medicaoFiltrosQs, ['export' => 'planilha']));
 

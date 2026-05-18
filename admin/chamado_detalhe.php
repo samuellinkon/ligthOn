@@ -131,11 +131,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($CRM_CHAMADO_PORTAL) {
                 $chSt = repo_chamado($id);
-                if ($chSt && (($chSt['status'] ?? '') === 'Aguardando')) {
+                if ($chSt && (($chSt['status'] ?? '') === 'Aguardando Aprovação')) {
                     repo_update_chamado_status($id, 'Em andamento');
                 }
             } elseif (!$interna) {
-                repo_update_chamado_status($id, 'Em andamento');
+                $chSt = repo_chamado($id);
+                $stAtual = (string) ($chSt['status'] ?? '');
+                if (!in_array($stAtual, ['Resolvido', 'Fechado', 'Cancelado'], true)) {
+                    repo_update_chamado_status($id, 'Em andamento');
+                }
             }
 
             if ($CRM_CHAMADO_PORTAL) {
@@ -183,16 +187,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-        } elseif ($acao === 'resolver') {
-            repo_update_chamado_status($id, 'Resolvido');
-            flash_set('ok', 'Chamado marcado como resolvido.');
+        } elseif ($acao === 'cancelar') {
+            if (!$CRM_CHAMADO_PORTAL) {
+                flash_set('err', 'Ação não permitida.');
+            } else {
+                $stCancel = (string) (repo_chamado($id)['status'] ?? '');
+                if (in_array($stCancel, ['Resolvido', 'Fechado', 'Cancelado'], true)) {
+                    flash_set('err', 'Este chamado não pode mais ser cancelado.');
+                } elseif (repo_update_chamado_status($id, 'Cancelado', 'cliente')) {
+                    flash_set('ok', 'Chamado cancelado.');
+                } else {
+                    flash_set('err', 'Não foi possível cancelar o chamado.');
+                }
+            }
 
         } elseif ($acao === 'status') {
-            $novo = (string) ($_POST['status'] ?? 'Em andamento');
-            $permitidosStatus = ['Aberto', 'Em andamento', 'Aguardando', 'Resolvido', 'Fechado', 'Cancelado'];
+            $perfilSt = (string) ($user['perfil'] ?? 'gestor');
+            $novo     = (string) ($_POST['status'] ?? 'Em andamento');
+            $permitidosStatus = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Fechado', 'Cancelado'];
             if (!in_array($novo, $permitidosStatus, true)) {
                 flash_set('err', 'Status inválido.');
-            } elseif (repo_update_chamado_status($id, $novo)) {
+            } elseif ($novo === 'Cancelado' && !in_array(strtolower($perfilSt), ['gestor', 'admin', 'super_admin'], true)) {
+                flash_set('err', 'Apenas gestor ou administrador pode cancelar chamados por aqui.');
+            } elseif ($novo === 'Resolvido') {
+                $valRes = repo_validar_chamado_resolvido($id);
+                if (!$valRes['ok']) {
+                    flash_set('err', $valRes['err']);
+                } elseif (repo_update_chamado_status($id, $novo, $perfilSt)) {
+                    flash_set('ok', 'Status atualizado para "' . $novo . '".');
+                } else {
+                    flash_set('err', 'Não foi possível atualizar o status.');
+                }
+            } elseif (repo_update_chamado_status($id, $novo, $perfilSt)) {
                 flash_set('ok', 'Status atualizado para "' . $novo . '".');
             } else {
                 flash_set('err', 'Não foi possível atualizar o status.');
@@ -231,10 +257,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash_set('err', $r['err']);
             }
 
-        } elseif ($acao === 'aprovar_execucao') {
-            $checklist = trim((string) ($_POST['checklist_realizado'] ?? ''));
-            $r = repo_chamado_aprovar_gestor($id, (int) ($user['id'] ?? 0), (string) ($user['nome'] ?? 'Gestor'), $checklist);
-            flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Execução aprovada e chamado resolvido.' : $r['err']);
+        } elseif ($acao === 'solicitar_item_devolutivo') {
+            $nomeItem = trim((string) ($_POST['item_devolutivo_nome'] ?? ''));
+            $codItem  = trim((string) ($_POST['item_devolutivo_codigo'] ?? ''));
+            $qtdItem  = (float) str_replace(',', '.', (string) ($_POST['item_devolutivo_qtd'] ?? '1'));
+            $obsItem  = trim((string) ($_POST['item_devolutivo_obs'] ?? ''));
+            if ($nomeItem === '') {
+                flash_set('err', 'Informe o nome do item devolutivo solicitado.');
+            } else {
+                require_once __DIR__ . '/../includes/notificacoes.php';
+                $tituloNotif = sprintf(
+                    'Solicitação de item devolutivo no chamado #%d: %s',
+                    $id,
+                    function_exists('mb_substr') ? mb_substr($nomeItem, 0, 80, 'UTF-8') : substr($nomeItem, 0, 80)
+                );
+                $descNotif = trim($codItem !== '' ? 'Código: ' . $codItem . ' · ' : '') . 'Qtd: ' . $qtdItem
+                    . ($obsItem !== '' ? ' · ' . $obsItem : '');
+                $destGest = repo_notificacao_destinatarios_chamado($id, true);
+                foreach (array_unique($destGest) as $uidDest) {
+                    if ((int) $uidDest === (int) ($user['id'] ?? 0)) {
+                        continue;
+                    }
+                    repo_notificacao_insert((int) $uidDest, $id, null, $tituloNotif, $descNotif, 'chamado_item_devolutivo');
+                }
+                audit_log_registar('chamado.item_devolutivo.solicitar', 'chamado', $id, (int) ($ch['cliente_id'] ?? 0) ?: null, [
+                    'nome'   => $nomeItem,
+                    'codigo' => $codItem,
+                    'qtd'    => $qtdItem,
+                    'obs'    => $obsItem,
+                ]);
+                flash_set('ok', 'Solicitação de item devolutivo enviada ao gestor.');
+            }
+
+        } elseif ($acao === 'prioridade') {
+            $nova = (string) ($_POST['prioridade'] ?? 'Normal');
+            $permitidasPrio = ['Baixa', 'Normal', 'Alta', 'Urgente'];
+            if (!in_array($nova, $permitidasPrio, true)) {
+                flash_set('err', 'Prioridade inválida.');
+            } elseif (repo_update_chamado_prioridade($id, $nova)) {
+                flash_set('ok', 'Prioridade atualizada para "' . $nova . '".');
+            } else {
+                flash_set('err', 'Não foi possível atualizar a prioridade.');
+            }
 
         } elseif ($acao === 'localizacao') {
             $end = trim($_POST['endereco_completo'] ?? '');
@@ -513,13 +577,14 @@ foreach ($anexos as $a) {
     }
 }
 
-/* Cabeçalho: segmentos do título (tipo · problema · origem) */
-$tituloRaw = trim((string) ($chamado['titulo'] ?? ''));
-$tituloPartes = $tituloRaw !== ''
-    ? preg_split('/\s*·\s*/u', $tituloRaw, -1, PREG_SPLIT_NO_EMPTY)
-    : [];
-$tituloPartes = array_values(array_filter(array_map('trim', $tituloPartes), static fn ($p) => $p !== ''));
-$chamadoTituloPrincipal = $tituloPartes[0] ?? ($tituloRaw !== '' ? $tituloRaw : 'Chamado');
+/* Cabeçalho: problema ou título legado */
+$chamadoTituloPrincipal = trim((string) ($chamado['problema_os'] ?? ''));
+if ($chamadoTituloPrincipal === '') {
+    $chamadoTituloPrincipal = trim((string) ($chamado['titulo'] ?? ''));
+}
+if ($chamadoTituloPrincipal === '') {
+    $chamadoTituloPrincipal = 'Chamado';
+}
 
 $lblPosteHeader = '';
 if (db_ok() && (int) ($chamado['ponto_iluminacao_id'] ?? 0) > 0) {
@@ -536,8 +601,6 @@ $chamadoAbertoStr = ($tsAberto !== false)
 $chamadoAbertoCurto = ($tsAberto !== false)
     ? 'Aberto ' . date('d/m/y', $tsAberto) . ' · ' . date('H:i', $tsAberto)
     : '—';
-
-$lblCanalHeader = trim((string) ($chamado['origem_os'] ?? ''));
 
 $topTitle    = 'Chamado #' . $chamado['id'];
 $topSubtitle = $chamado['titulo'];
@@ -568,6 +631,12 @@ include __DIR__ . '/../includes/head.php';
       gap: 14px;
     }
 
+    .chamado-location-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
     .chamado-location-coords {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -593,6 +662,16 @@ include __DIR__ . '/../includes/head.php';
       margin: 0;
       border: 0;
       border-radius: 0;
+    }
+
+    .chamado-loc-sv-admin .chamado-ponto-streetview__frame-wrap {
+      padding-bottom: 0;
+      height: 260px;
+      border-radius: 12px;
+    }
+
+    .chamado-loc-sv-admin .chamado-ponto-streetview__frame {
+      border-radius: 12px;
     }
 
     @media (max-width: 560px) {
@@ -952,33 +1031,18 @@ include __DIR__ . '/../includes/head.php';
           <?php if ($lblPosteHeader !== ''): ?>
             <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="Poste / ponto"><?= htmlspecialchars($lblPosteHeader) ?></span>
           <?php endif; ?>
-          <?php if ($lblCanalHeader !== ''): ?>
-            <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="Canal / origem"><?= htmlspecialchars($lblCanalHeader) ?></span>
-          <?php endif; ?>
           <span class="chamado-header-toolbar__chip chamado-header-toolbar__chip--muted" title="<?= htmlspecialchars($chamadoAbertoStr) ?>"><?= htmlspecialchars($chamadoAbertoCurto) ?></span>
         </div>
       </div>
+      <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
       <div class="chamado-header-toolbar__actions" aria-label="Ações rápidas">
-        <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
-          <button type="submit" form="chamado-form-os-dados"
-                  class="btn btn-secondary btn-sm chamado-header-toolbar__btn-save js-chamado-os-salvar"
-                  id="chamado_os_salvar_manual"
-                  disabled
-                  title="Altere a ficha da OS antes de salvar">Salvar</button>
-        <?php endif; ?>
-        <?php if (!$CRM_CHAMADO_PORTAL && !in_array($chamado['status'], ['Resolvido', 'Fechado', 'Cancelado'], true)): ?>
-          <form method="post" class="chamado-header-toolbar__form-inline">
-            <input type="hidden" name="acao" value="resolver">
-            <button class="btn btn-primary btn-sm" type="submit">Resolver</button>
-          </form>
-        <?php endif; ?>
-        <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
-           href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'pdf'])) ?>"
-           title="Resumo do chamado com anexos e fotos do poste — use Imprimir para gerar PDF">PDF</a>
-        <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
-           href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'xlsx'])) ?>"
-           title="Relatório Excel com várias abas: resumo, conversa, itens e anexos">Excel</a>
+        <button type="submit" form="chamado-form-os-dados"
+                class="btn btn-secondary btn-sm chamado-header-toolbar__btn-save js-chamado-os-salvar"
+                id="chamado_os_salvar_manual"
+                disabled
+                title="Altere a ficha da OS antes de salvar">Salvar</button>
       </div>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -999,6 +1063,7 @@ include __DIR__ . '/../includes/head.php';
           $ch_os_descricao = (string) ($chamado['descricao'] ?? '');
           $ch_os_mostrar_ponto = !empty($pontosOsForm);
           $ch_os_pontos_opcoes = $pontosOsForm;
+          $ch_os_readonly_endereco = true;
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
           ?>
         </div>
@@ -1017,6 +1082,7 @@ include __DIR__ . '/../includes/head.php';
           $ch_os_descricao = (string) ($chamado['descricao'] ?? '');
           $ch_os_mostrar_ponto = !empty($pontosOsForm);
           $ch_os_pontos_opcoes = $pontosOsForm;
+          $ch_os_readonly_endereco = true;
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
           ?>
         </div>
@@ -1153,8 +1219,11 @@ include __DIR__ . '/../includes/head.php';
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-mat-dev-title" class="chamado-materiais-block__title">Devolvidos / recolhidos</h5>
               <?php if (!$CRM_CHAMADO_PORTAL): ?>
-              <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-pick" data-pick-mov="devolvido" data-catalog-tipo="produto"
-                <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo para recolhimento"' : '' ?>>Recolher produto</button>
+              <div class="chamado-materiais-block__actions chamado-materiais-block__actions--stack">
+                <button type="button" class="btn btn-primary btn-sm js-cham-mat-open-pick" data-pick-mov="devolvido" data-catalog-tipo="produto"
+                  <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo para recolhimento"' : '' ?>>Recolher produto</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-ch-solicitar-devolutivo-open>Solicitar novo item devolutivo</button>
+              </div>
               <?php endif; ?>
             </div>
             <?php if (empty($chamadoMateriaisDev)): ?>
@@ -1285,17 +1354,6 @@ include __DIR__ . '/../includes/head.php';
       <?php endif; ?>
       <?php endif; ?>
 
-      <?php if (!$CRM_CHAMADO_PORTAL): ?>
-      <div class="card chamado-historico-card">
-        <div class="panel-head">
-          <h4>Histórico</h4>
-          <span class="panel-sub"><?= count($chamadoHistorico) ?> evento(s) · criação, edições, mensagens, fotos, itens e aprovações</span>
-        </div>
-        <div class="panel-body">
-          <?php include __DIR__ . '/../includes/chamado_historico_timeline.php'; ?>
-        </div>
-      </div>
-      <?php endif; ?>
 
       <!-- CONVERSA -->
       <div class="card">
@@ -1355,56 +1413,35 @@ include __DIR__ . '/../includes/head.php';
           </div>
         </form>
       </div>
+
+      <?php if (!$CRM_CHAMADO_PORTAL): ?>
+      <details class="card chamado-historico-card chamado-historico-toggle">
+        <summary class="panel-head" style="list-style:none;cursor:pointer;">
+          <h4 style="display:inline;margin:0;">Histórico</h4>
+          <span class="panel-sub"><?= count($chamadoHistorico) ?> evento(s)</span>
+        </summary>
+        <div class="panel-body">
+          <?php include __DIR__ . '/../includes/chamado_historico_timeline.php'; ?>
+        </div>
+      </details>
+      <?php endif; ?>
     </div>
 
     <aside class="flex-col" style="gap:18px;">
-      <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
-      <div class="card">
-        <div class="panel-head">
-          <h4>Aprovação do gestor</h4>
-          <span class="panel-sub">Checklist do que foi realizado e aprovação final do chamado</span>
-        </div>
-        <div class="panel-body">
-          <?php if (!empty($chamado['aprovado_gestor_em'])): ?>
-            <div class="panel-note">
-              <div class="panel-head"><h4>Atendimento aprovado</h4></div>
-              <div class="panel-body" style="line-height:1.6;">
-                <p class="muted" style="margin:0 0 8px;">
-                  Aprovado por <?= htmlspecialchars((string) ($chamado['aprovado_gestor_nome'] ?? 'gestor')) ?>
-                  em <?= date('d/m/Y H:i', strtotime((string) $chamado['aprovado_gestor_em'])) ?>.
-                </p>
-                <?php if (!empty($chamado['checklist_realizado'])): ?>
-                  <strong>Checklist realizado</strong>
-                  <p style="margin:6px 0 0;color:var(--muted);"><?= nl2br(htmlspecialchars((string) $chamado['checklist_realizado'])) ?></p>
-                <?php endif; ?>
-              </div>
-            </div>
-          <?php elseif (!empty($chamado['finalizado_operador_em'])): ?>
-            <form method="post" class="form-stack" style="display:flex;flex-direction:column;gap:12px;">
-              <input type="hidden" name="acao" value="aprovar_execucao">
-              <p class="muted" style="margin:0;">
-                Técnico finalizou em <?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?>.
-                Confira os itens usados/devolvidos e registre o checklist antes de aprovar.
-              </p>
-              <div class="form-group" style="margin:0;">
-                <label for="checklist_realizado">Checklist do que foi realizado</label>
-                <textarea id="checklist_realizado" name="checklist_realizado" class="textarea" rows="4"
-                          placeholder="Ex.: troca de 2 lâmpadas, teste de funcionamento, recolhimento dos itens queimados..."><?= htmlspecialchars((string) ($chamado['checklist_realizado'] ?? '')) ?></textarea>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Aprovar execução e resolver chamado</button>
-              </div>
-            </form>
-          <?php else: ?>
-            <p class="muted" style="margin:0;">Aguardando o técnico finalizar o atendimento pelo PWA.</p>
-          <?php endif; ?>
-        </div>
-      </div>
-      <?php endif; ?>
-
       <!-- INFORMAÇÕES -->
       <div class="card">
-        <div class="panel-head"><h4>Informações</h4></div>
+        <div class="panel-head">
+          <h4>Informações</h4>
+          <div class="panel-head__actions chamado-info-export-actions" aria-label="Exportar chamado">
+            <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
+               href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'pdf'])) ?>"
+               target="_blank" rel="noopener"
+               title="Resumo do chamado com anexos e fotos do poste — use Imprimir para gerar PDF">PDF</a>
+            <a class="btn btn-ghost btn-sm chamado-header-toolbar__ghost"
+               href="<?= htmlspecialchars('chamado_detalhe.php?' . http_build_query(['id' => $id, 'export' => 'xlsx'])) ?>"
+               title="Relatório Excel com várias abas: resumo, conversa, itens e anexos">Excel</a>
+          </div>
+        </div>
         <div class="panel-body flex-col" style="gap:12px;">
           <div class="info-row"><span>Prefeitura / órgão</span>
             <?php if ($cliente && !$CRM_CHAMADO_PORTAL): ?>
@@ -1437,16 +1474,32 @@ include __DIR__ . '/../includes/head.php';
             </span>
           </div>
 
-          <div class="info-row"><span>Prioridade</span><strong><?= htmlspecialchars($chamado['prioridade']) ?></strong></div>
+          <form method="post" class="info-row">
+            <input type="hidden" name="acao" value="prioridade">
+            <span>Prioridade</span>
+            <span class="info-edit-value">
+              <select name="prioridade" class="select" onchange="this.form.submit()">
+                <?php foreach (['Baixa', 'Normal', 'Alta', 'Urgente'] as $p): ?>
+                  <option value="<?= htmlspecialchars($p) ?>" <?= ($chamado['prioridade'] ?? '') === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </span>
+          </form>
           <?php if (!empty($chamado['finalizado_operador_em'])): ?>
             <div class="info-row"><span>Finalizado pelo técnico</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?></strong></div>
-          <?php endif; ?>
-          <?php if (!empty($chamado['aprovado_gestor_em'])): ?>
-            <div class="info-row"><span>Aprovado</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['aprovado_gestor_em'])) ?></strong></div>
           <?php endif; ?>
 
           <?php if ($CRM_CHAMADO_PORTAL): ?>
           <div class="info-row"><span>Status</span><strong><?= htmlspecialchars((string) ($chamado['status'] ?? '')) ?></strong></div>
+          <?php
+            $stCli = (string) ($chamado['status'] ?? '');
+            if (!in_array($stCli, ['Resolvido', 'Fechado', 'Cancelado'], true)):
+          ?>
+          <form method="post" class="info-row" style="margin-top:8px;" onsubmit="return confirm('Cancelar este chamado? Esta ação não pode ser desfeita pelo portal.');">
+            <input type="hidden" name="acao" value="cancelar">
+            <button type="submit" class="btn btn-secondary btn-sm">Cancelar chamado</button>
+          </form>
+          <?php endif; ?>
           <?php else: ?>
           <!-- Status editável -->
           <form method="post" class="info-row">
@@ -1454,7 +1507,7 @@ include __DIR__ . '/../includes/head.php';
             <span>Status</span>
             <span class="info-edit-value">
               <select name="status" class="select" onchange="this.form.submit()">
-                <?php foreach (['Aberto','Em andamento','Aguardando','Resolvido','Fechado','Cancelado'] as $s): ?>
+                <?php foreach (['Aberto','Em andamento','Aguardando Aprovação','Resolvido','Fechado','Cancelado'] as $s): ?>
                   <option <?= $chamado['status'] === $s ? 'selected' : '' ?>><?= $s ?></option>
                 <?php endforeach; ?>
               </select>
@@ -1646,20 +1699,31 @@ include __DIR__ . '/../includes/head.php';
         </div>
         <div class="panel-body">
           <div class="chamado-location-grid">
-            <div class="form-group">
-              <label for="endereco_completo">Endereço completo</label>
-              <textarea id="endereco_completo" class="textarea" rows="3" readonly><?= htmlspecialchars((string) ($chamado['endereco_completo'] ?? '')) ?></textarea>
+            <?php
+            $enderecoMapaTxt = trim((string) ($chamado['endereco_completo'] ?? ''));
+            $latMapaTxt = isset($chamado['latitude']) && $chamado['latitude'] !== null && $chamado['latitude'] !== ''
+                ? (string) $chamado['latitude'] : '';
+            $lngMapaTxt = isset($chamado['longitude']) && $chamado['longitude'] !== null && $chamado['longitude'] !== ''
+                ? (string) $chamado['longitude'] : '';
+            ?>
+            <div class="chamado-location-field">
+              <span class="chamado-ponto-endereco__label">Endereço completo</span>
+              <div class="chamado-ponto-endereco__text"><?= $enderecoMapaTxt !== ''
+                  ? nl2br(htmlspecialchars($enderecoMapaTxt, ENT_QUOTES, 'UTF-8'))
+                  : '<span class="muted">Não informado</span>' ?></div>
             </div>
             <div class="chamado-location-coords">
-              <div class="form-group">
-                <label for="latitude">Latitude</label>
-                <input type="text" id="latitude" class="input" readonly
-                       value="<?= isset($chamado['latitude']) && $chamado['latitude'] !== null ? htmlspecialchars((string) $chamado['latitude']) : '' ?>">
+              <div class="chamado-location-field">
+                <span class="chamado-ponto-endereco__label">Latitude</span>
+                <div class="chamado-ponto-endereco__text"><?= $latMapaTxt !== ''
+                    ? htmlspecialchars($latMapaTxt, ENT_QUOTES, 'UTF-8')
+                    : '<span class="muted">Não informada</span>' ?></div>
               </div>
-              <div class="form-group">
-                <label for="longitude">Longitude</label>
-                <input type="text" id="longitude" class="input" readonly
-                       value="<?= isset($chamado['longitude']) && $chamado['longitude'] !== null ? htmlspecialchars((string) $chamado['longitude']) : '' ?>">
+              <div class="chamado-location-field">
+                <span class="chamado-ponto-endereco__label">Longitude</span>
+                <div class="chamado-ponto-endereco__text"><?= $lngMapaTxt !== ''
+                    ? htmlspecialchars($lngMapaTxt, ENT_QUOTES, 'UTF-8')
+                    : '<span class="muted">Não informada</span>' ?></div>
               </div>
             </div>
             <div class="chamado-location-actions">
@@ -1670,8 +1734,22 @@ include __DIR__ . '/../includes/head.php';
             </div>
           </div>
           <?php if (!empty($loadLeaflet)): ?>
-          <div class="chamado-location-map" style="margin-top:14px;">
-            <div id="chamado-map-mini" class="chamado-map-mini" aria-label="Mapa do chamado"></div>
+          <div id="chamado-loc-preview" style="margin-top:14px;">
+            <div id="chamado-loc-sv-wrap" class="chamado-ponto-streetview chamado-loc-sv-admin" hidden>
+              <div class="chamado-ponto-streetview__head">
+                <span id="chamado-loc-sv-label" class="chamado-ponto-streetview__label">Street View</span>
+                <div class="chamado-ponto-streetview__head-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="chamado-loc-sv-map-btn">Ver mapa</button>
+                  <a id="chamado-loc-sv-tab" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
+                </div>
+              </div>
+              <div class="chamado-ponto-streetview__frame-wrap">
+                <iframe id="chamado-loc-sv-frame" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy"></iframe>
+              </div>
+            </div>
+            <div class="chamado-location-map">
+              <div id="chamado-map-mini" class="chamado-map-mini" hidden aria-label="Mapa do chamado"></div>
+            </div>
           </div>
           <?php endif; ?>
         </div>
@@ -1827,15 +1905,23 @@ include __DIR__ . '/../includes/head.php';
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="<?= htmlspecialchars($basePath) ?>assets/js/chamado-loc-preview.js"></script>
 <script>
-(function () {
-  var lat = <?= json_encode((float) $chamado['latitude']) ?>;
-  var lng = <?= json_encode((float) $chamado['longitude']) ?>;
-  var map = L.map('chamado-map-mini', { scrollWheelZoom: false, zoomControl: true });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
-  L.marker([lat, lng]).addTo(map);
-  map.setView([lat, lng], 15);
-})();
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.CrmChamadoLocPreview) return;
+  window.CrmChamadoLocPreview.init({
+    mapId: 'chamado-map-mini',
+    svWrapId: 'chamado-loc-sv-wrap',
+    svFrameId: 'chamado-loc-sv-frame',
+    svTabId: 'chamado-loc-sv-tab',
+    svLabelId: 'chamado-loc-sv-label',
+    svMapBtnId: 'chamado-loc-sv-map-btn',
+    lat: <?= json_encode((float) $chamado['latitude']) ?>,
+    lng: <?= json_encode((float) $chamado['longitude']) ?>,
+    scrollWheelZoom: false,
+    zoomControl: true
+  });
+});
 </script>
 <?php endif; ?>
 <script>
@@ -2149,4 +2235,11 @@ include __DIR__ . '/../includes/head.php';
   }
 })();
 </script>
+<?php
+$devolutivoModalId        = 'ch-solicitar-devolutivo-modal';
+$devolutivoModalOpenAttr  = 'data-ch-solicitar-devolutivo-open';
+$devolutivoModalCloseAttr = 'data-ch-solicitar-devolutivo-close';
+$devolutivoFieldPrefix    = 'ch';
+require __DIR__ . '/../includes/partials/chamado_solicitar_devolutivo_modal.php';
+?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

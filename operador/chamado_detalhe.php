@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             $nome = (string) ($user['nome'] ?? 'Operador');
             $r = repo_operador_chamado_finalizar($id, (int) ($user['id'] ?? 0), $empresaId, $nome);
             if ($r['ok']) {
-                $msgs[] = 'Chamado enviado para aprovação do gestor.';
+                $msgs[] = 'Chamado enviado ao gestor (Aguardando Aprovação).';
                 flash_set('ok', implode(' ', $msgs));
             } else {
                 flash_set('err', $r['err']);
@@ -144,7 +144,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
     } elseif ($acao === 'finalizar') {
         $nome = (string) ($user['nome'] ?? 'Operador');
         $r    = repo_operador_chamado_finalizar($id, (int) ($user['id'] ?? 0), $empresaId, $nome);
-        flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Chamado marcado como finalizado.' : $r['err']);
+        flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Chamado enviado ao gestor (Aguardando Aprovação).' : $r['err']);
+    } elseif ($acao === 'solicitar_item_devolutivo') {
+        $nomeItem = trim((string) ($_POST['item_devolutivo_nome'] ?? ''));
+        $codItem  = trim((string) ($_POST['item_devolutivo_codigo'] ?? ''));
+        $qtdItem  = (float) str_replace(',', '.', (string) ($_POST['item_devolutivo_qtd'] ?? '1'));
+        $obsItem  = trim((string) ($_POST['item_devolutivo_obs'] ?? ''));
+        if ($nomeItem === '') {
+            flash_set('err', 'Informe o nome do item devolutivo.');
+        } else {
+            require_once __DIR__ . '/../includes/notificacoes.php';
+            $tituloNotif = sprintf('Solicitação de item devolutivo no chamado #%d: %s', $id, mb_substr($nomeItem, 0, 80, 'UTF-8'));
+            $descNotif   = trim($codItem !== '' ? 'Código: ' . $codItem . ' · ' : '') . 'Qtd: ' . $qtdItem
+                . ($obsItem !== '' ? ' · ' . $obsItem : '');
+            $destGest = repo_notificacao_destinatarios_chamado($id, true);
+            foreach (array_unique($destGest) as $uidDest) {
+                if ((int) $uidDest === (int) ($user['id'] ?? 0)) {
+                    continue;
+                }
+                repo_notificacao_insert((int) $uidDest, $id, null, $tituloNotif, $descNotif, 'chamado_item_devolutivo');
+            }
+            audit_log_registar('chamado.item_devolutivo.solicitar', 'chamado', $id, (int) ($ch['cliente_id'] ?? 0) ?: null, [
+                'nome' => $nomeItem, 'codigo' => $codItem, 'qtd' => $qtdItem, 'obs' => $obsItem,
+            ]);
+            flash_set('ok', 'Solicitação enviada ao gestor.');
+        }
     } elseif ($acao === 'chamado_item_add') {
         $itemId = (int) ($_POST['item_id'] ?? 0);
         $qtd    = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
@@ -250,7 +274,11 @@ if (!$chamado || !repo_chamado_acessivel_operador_atribuido($id, $empresaId, (in
 
 $chamadoClienteId   = (int) ($chamado['cliente_id'] ?? 0);
 $respostas          = repo_chamado_respostas_do_ticket($id, true);
-$servicos           = $chamadoClienteId > 0 ? repo_cliente_itens_list($chamadoClienteId, true) : [];
+$servicosAll        = $chamadoClienteId > 0 ? repo_cliente_itens_list($chamadoClienteId, true) : [];
+$servicos           = array_values(array_filter(
+    $servicosAll,
+    static fn ($ci) => strtolower(trim((string) ($ci['tipo'] ?? ''))) === 'produto'
+));
 $chamadoMateriaisOp = [];
 try {
     $chamadoMateriaisOp = repo_chamado_itens_list($id);
@@ -370,6 +398,9 @@ $topbarHideTitle = true;
     .op-photo-empty small{font-size:12px;color:var(--muted);max-width:280px;line-height:1.45}
     .op-fotos-section:has(.op-photo-preview.active) .op-photo-empty{display:none!important}
     .op-map{height:260px;border-radius:16px;overflow:hidden;background:#f1f5f9;border:1px solid var(--border)}
+    .op-loc-streetview{margin-top:12px}
+    .op-loc-streetview .chamado-ponto-streetview__frame-wrap{padding-bottom:0;height:260px;border-radius:16px}
+    .op-loc-streetview .chamado-ponto-streetview__frame{border-radius:16px}
     .op-item-combo{position:relative;width:100%}
     .op-item-combo__dd{position:absolute;left:0;right:0;top:calc(100% + 4px);max-height:min(320px,50vh);overflow-y:auto;background:#faf8f5;border:1px solid #e8e4df;border-radius:14px;box-shadow:0 12px 36px rgba(15,23,42,.12);z-index:60;display:none;padding:6px}
     .op-item-combo.is-open .op-item-combo__dd{display:block}
@@ -555,9 +586,23 @@ $topbarHideTitle = true;
                 <?php endif; ?>
               </div>
               <?php if (!$chamadoTemCoords && $refLocal !== ''): ?>
-                <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço no mapa…</p>
+                <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
               <?php endif; ?>
-              <div id="chamado-map-atendimento" class="op-map op-ref-map" aria-label="Mapa do endereço do chamado"></div>
+              <div id="op-loc-preview" class="op-ref-map">
+                <div id="op-loc-streetview-wrap" class="chamado-ponto-streetview op-loc-streetview" hidden>
+                  <div class="chamado-ponto-streetview__head">
+                    <span id="op-loc-sv-label" class="chamado-ponto-streetview__label">Street View</span>
+                    <div class="chamado-ponto-streetview__head-actions">
+                      <button type="button" class="btn btn-ghost btn-sm" id="op-loc-sv-map-btn">Ver mapa</button>
+                      <a id="op-loc-sv-tab" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
+                    </div>
+                  </div>
+                  <div class="chamado-ponto-streetview__frame-wrap">
+                    <iframe id="op-loc-streetview-frame" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy"></iframe>
+                  </div>
+                </div>
+                <div id="chamado-map-atendimento" class="op-map" hidden aria-label="Mapa do endereço do chamado"></div>
+              </div>
             <?php endif; ?>
           </div>
           <?php if ($jaFechado): ?>
@@ -570,7 +615,7 @@ $topbarHideTitle = true;
               <button type="button" class="btn btn-secondary op-btn-tall" id="op-btn-gal">Galeria</button>
             </div>
             <?php if (!$jaFechado): ?>
-              <small class="muted" style="margin:0;font-size:12px;line-height:1.45;text-align:center;">Envie o chamado ao gestor para aprovação. É necessária pelo menos uma foto no chamado.</small>
+              <small class="muted" style="margin:0;font-size:12px;line-height:1.45;text-align:center;">Ao salvar, o chamado fica <strong>Aguardando Aprovação</strong> do gestor. É necessária pelo menos uma foto.</small>
             <?php endif; ?>
           </div>
 
@@ -633,7 +678,7 @@ $topbarHideTitle = true;
             </div>
             <?php if (!$jaFechado): ?>
             <div class="chamado-materiais-op-add op-mat-panel">
-              <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="utilizado">
+              <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="utilizado" data-catalog-filter="produto">
                 <input type="hidden" name="acao" value="chamado_item_add">
                 <input type="hidden" name="movimento" value="utilizado">
                 <input type="hidden" name="item_id" data-op-item-id value="">
@@ -698,8 +743,11 @@ $topbarHideTitle = true;
                   <input type="text" name="quantidade" class="input op-mat-qtd" value="1" inputmode="decimal" placeholder="Qtd" aria-label="Quantidade">
                   <input type="text" name="observacao" class="input op-mat-obs" placeholder="Observação opcional">
                 </div>
-                <button type="submit" class="btn btn-secondary op-mat-submit" <?= empty($servicos) ? 'disabled' : '' ?>>Adicionar recolhido</button>
+                <button type="submit" class="btn btn-primary op-mat-submit op-mat-submit--recolhido" <?= empty($servicos) ? 'disabled' : '' ?>>Adicionar recolhido</button>
               </form>
+              <div class="chamado-materiais-block__actions chamado-materiais-block__actions--stack" style="margin-top:10px;">
+                <button type="button" class="btn btn-ghost btn-sm" data-op-solicitar-devolutivo-open>Solicitar novo item devolutivo</button>
+              </div>
             </div>
             <?php endif; ?>
             <div class="chamado-materiais-empty chamado-materiais-empty--muted op-mat-empty" data-op-mat-empty="devolvido" <?= empty($itensDevolvidosOp) ? '' : 'hidden' ?>>
@@ -972,7 +1020,7 @@ $topbarHideTitle = true;
       alertMsg('Inclua pelo menos uma foto do atendimento antes de concluir o chamado.', 'Salvar chamado');
       return;
     }
-    var msg = 'Enviar este chamado ao gestor para aprovação?';
+    var msg = 'Enviar este chamado ao gestor? O status passará para Aguardando Aprovação.';
     if (typeof window.appConfirm === 'function') {
       window.appConfirm({ message: msg, title: 'Confirmar', danger: false }).then(function (ok) {
         if (!ok) return;
@@ -1024,120 +1072,34 @@ $topbarHideTitle = true;
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="<?= htmlspecialchars($basePath) ?>assets/js/chamado-loc-preview.js"></script>
 <script>
-(function () {
-  var el = document.getElementById('chamado-map-atendimento');
-  if (!el || typeof L === 'undefined') return;
-  var lat = <?= $chamadoTemCoords ? json_encode((float) $chamado['latitude']) : 'null' ?>;
-  var lng = <?= $chamadoTemCoords ? json_encode((float) $chamado['longitude']) : 'null' ?>;
-  var attempts = <?= json_encode($geocodeAttempts, JSON_UNESCAPED_UNICODE) ?>;
-  var hint = document.getElementById('chamado-map-geocode-hint');
-  var map;
-  var nomEmail = 'crm-prefeitura-nominatim%40invalid.local';
-  var nomOpts = {
-    method: 'GET',
-    headers: { 'Accept-Language': 'pt-BR,pt;q=0.9' },
-    mode: 'cors',
-    credentials: 'omit'
-  };
-
-  function showMap(la, lo) {
-    if (map) return;
-    map = L.map('chamado-map-atendimento', { scrollWheelZoom: false });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
-    L.marker([la, lo]).addTo(map);
-    map.setView([la, lo], 15);
-    window.setTimeout(function () { map.invalidateSize(); }, 120);
-    if (hint) hint.remove();
-  }
-
-  function nominatimStructured(street, city, state) {
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
-      + '&street=' + encodeURIComponent(street)
-      + '&city=' + encodeURIComponent(city)
-      + '&state=' + encodeURIComponent(state)
-      + '&country=' + encodeURIComponent('Brasil');
-    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
-  }
-
-  function nominatimQ(q) {
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
-      + '&q=' + encodeURIComponent(q);
-    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
-  }
-
-  function photonQ(q) {
-    var url = 'https://photon.komoot.io/api/?limit=1&lang=pt&q=' + encodeURIComponent(q);
-    return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : null; });
-  }
-
-  function hitFromNominatim(hits) {
-    if (!hits || !hits[0]) return null;
-    var la = parseFloat(hits[0].lat);
-    var lo = parseFloat(hits[0].lon);
-    return isFinite(la) && isFinite(lo) ? { lat: la, lon: lo } : null;
-  }
-
-  function hitFromPhoton(data) {
-    if (!data || !data.features || !data.features[0] || !data.features[0].geometry) return null;
-    var c = data.features[0].geometry.coordinates;
-    if (!c || c.length < 2) return null;
-    return { lat: c[1], lon: c[0] };
-  }
-
-  function tryAttempts(i) {
-    if (i >= attempts.length) {
-      var lastQ = attempts.length ? (attempts[attempts.length - 1].q || '') : '';
-      if (!lastQ) {
-        if (hint) {
-          hint.textContent = 'Sem endereço para localizar no mapa.';
-          hint.style.color = 'var(--danger,#b91c1c)';
-        }
-        return Promise.resolve(null);
-      }
-      return photonQ(lastQ).then(function (data) {
-        return hitFromPhoton(data);
-      });
-    }
-    var a = attempts[i];
-    var p = (a.type === 'structured')
-      ? nominatimStructured(a.street, a.city, a.state)
-      : nominatimQ(a.q || '');
-    return p.then(function (hits) {
-      var h = hitFromNominatim(hits);
-      if (h) return h;
-      return tryAttempts(i + 1);
-    });
-  }
-
-  if (lat != null && lng != null) {
-    showMap(lat, lng);
-    return;
-  }
-  if (!attempts.length) {
-    if (hint) hint.remove();
-    return;
-  }
-
-  tryAttempts(0)
-    .then(function (hit) {
-      if (hit) {
-        showMap(hit.lat, hit.lon);
-        return;
-      }
-      if (hint) {
-        hint.textContent = 'Não foi possível localizar automaticamente. Use o botão Google Maps acima.';
-        hint.style.color = 'var(--muted,#64748b)';
-      }
-    })
-    .catch(function () {
-      if (hint) {
-        hint.textContent = 'Mapa indisponível (verifique a ligação).';
-        hint.style.color = 'var(--danger,#b91c1c)';
-      }
-    });
-})();
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.CrmChamadoLocPreview) return;
+  window.CrmChamadoLocPreview.init({
+    mapId: 'chamado-map-atendimento',
+    svWrapId: 'op-loc-streetview-wrap',
+    svFrameId: 'op-loc-streetview-frame',
+    svTabId: 'op-loc-sv-tab',
+    svLabelId: 'op-loc-sv-label',
+    svMapBtnId: 'op-loc-sv-map-btn',
+    hintId: 'chamado-map-geocode-hint',
+    lat: <?= $chamadoTemCoords ? json_encode((float) $chamado['latitude']) : 'null' ?>,
+    lng: <?= $chamadoTemCoords ? json_encode((float) $chamado['longitude']) : 'null' ?>,
+    attempts: <?= json_encode($geocodeAttempts, JSON_UNESCAPED_UNICODE) ?>,
+    scrollWheelZoom: false,
+    zoomControl: true
+  });
+});
 </script>
 <?php endif; ?>
+
+<?php
+$devolutivoModalId        = 'op-solicitar-devolutivo-modal';
+$devolutivoModalOpenAttr  = 'data-op-solicitar-devolutivo-open';
+$devolutivoModalCloseAttr = 'data-op-solicitar-devolutivo-close';
+$devolutivoFieldPrefix    = 'op';
+require __DIR__ . '/../includes/partials/chamado_solicitar_devolutivo_modal.php';
+?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

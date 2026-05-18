@@ -11,8 +11,10 @@ $cid = (int) ($CLIENTE['cliente_id'] ?? 0);
 $scopeDash = $cid > 0 ? repo_cliente_matriz_raiz_id($cid) : 0;
 
 $refYmDashboard = date('Y-m');
-$osMesResumo    = ['n_total' => 0, 'valor_total' => 0.0];
-$totalMedicaoMes = 0.0;
+$osMesResumo       = ['n_total' => 0, 'valor_total' => 0.0];
+$totalMedicaoMes   = 0.0;
+$totalBmAcumulado  = 0.0;
+$moduloMedicaoDash = app_modulo_habilitado('cliente', 'medicao');
 
 $mapDeRaw  = (string) ($_GET['map_de'] ?? '');
 $mapAteRaw = (string) ($_GET['map_ate'] ?? '');
@@ -167,9 +169,12 @@ if (db_ok() && $scopeDash > 0) {
     if (function_exists('repo_os_pedido_resumo_mes')) {
         $osMesResumo = repo_os_pedido_resumo_mes($scopeDash, $refYmDashboard);
     }
-    $impMes = repo_medicao_import_fetch($scopeDash, $refYmDashboard);
-    foreach ($impMes['linhas'] ?? [] as $il) {
-        $totalMedicaoMes += (float) ($il['valor_medido_periodo'] ?? 0);
+    if ($moduloMedicaoDash) {
+        $impMes = repo_medicao_import_fetch($scopeDash, $refYmDashboard);
+        foreach ($impMes['linhas'] ?? [] as $il) {
+            $totalMedicaoMes += (float) ($il['valor_medido_periodo'] ?? 0);
+        }
+        $totalBmAcumulado = repo_medicao_bm_valor_acumulado($scopeDash);
     }
 } else {
     $dash = null;
@@ -186,7 +191,8 @@ if (db_ok() && $scopeDash > 0) {
         3
     );
     $osMesResumo     = ['n_total' => 0, 'valor_total' => 0.0];
-    $totalMedicaoMes = 0.0;
+    $totalMedicaoMes  = 0.0;
+    $totalBmAcumulado = 0.0;
 }
 
 $topTitle    = 'Painel';
@@ -240,6 +246,8 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <?php endif; ?>
 
+
+    <?php if ($moduloMedicaoDash): ?>
     <div class="card metric">
       <div class="metric-top">
         <div>
@@ -250,6 +258,18 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="metric-change info"><?= htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) ?> · importação BM (valor medido no período)</div>
     </div>
+
+    <div class="card metric">
+      <div class="metric-top">
+        <div>
+          <div class="metric-label">Total de BM acumulado</div>
+          <div class="metric-value" style="font-size:1.25rem;">R$ <?= number_format($totalBmAcumulado, 2, ',', '.') ?></div>
+        </div>
+        <div class="icon-box" style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;font-weight:800;">Σ</div>
+      </div>
+      <div class="metric-change info">Soma de todas as importações BM · <a href="medicao.php">Ver medições</a></div>
+    </div>
+    <?php endif; ?>
   </div>
 
   <?php if ($moduleChamadosMap || $modulePontosMap): ?>

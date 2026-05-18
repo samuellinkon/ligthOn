@@ -15,11 +15,11 @@ require_once __DIR__ . '/sidebar_nav_icon.php';
 
 $items = [
     ['key' => 'dashboard', 'label' => 'Painel',          'href' => 'cliente/index.php'],
+    ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'cliente/pontos_iluminacao.php'],
     ['key' => 'chamados',  'label' => 'Meus Chamados',  'href' => 'cliente/chamados.php'],
     ['key' => 'medicao',   'label' => 'Medição',        'href' => 'cliente/medicao.php'],
     ['key' => 'catalogo',  'label' => 'Catálogo',       'href' => 'cliente/catalogo.php'],
     ['key' => 'auditoria', 'label' => 'Auditoria',      'href' => 'cliente/auditoria.php'],
-    ['key' => 'pontos_iluminacao', 'label' => 'Iluminação', 'href' => 'cliente/pontos_iluminacao.php'],
     ['key' => 'documentos', 'label' => 'Documentos',    'href' => 'cliente/documentos.php'],
     ['key' => 'meus_dados', 'label' => 'Meus dados',   'href' => 'cliente/meus_dados.php'],
     ['key' => 'suporte',   'label' => 'Suporte',        'href' => 'cliente/suporte.php'],

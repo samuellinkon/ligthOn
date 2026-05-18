@@ -126,7 +126,7 @@ function chamados_periodo_anexos_export_html(
 
     $nAberto      = (int) ($porSt['Aberto'] ?? 0);
     $nAndamento   = (int) ($porSt['Em andamento'] ?? 0);
-    $nAguardando  = (int) ($porSt['Aguardando'] ?? 0);
+    $nAguardando  = (int) ($porSt['Aguardando Aprovação'] ?? $porSt['Aguardando Finalização'] ?? $porSt['Aguardando'] ?? 0);
     $nResolvido   = (int) ($porSt['Resolvido'] ?? 0);
     $nFechado     = (int) ($porSt['Fechado'] ?? 0);
     $nCancelado   = (int) ($porSt['Cancelado'] ?? 0);
@@ -138,7 +138,7 @@ function chamados_periodo_anexos_export_html(
     $nResolvidosKpi = $nResolvido + $nFechado;
 
     $emitidoEm = date('d/m/Y H:i');
-    $docTitle  = 'Relatório de chamados e anexos';
+    $docTitle  = 'Relatório Fotográfico';
 
     $mimeIsImage = static function (?string $mime): bool {
         $m = strtolower(trim((string) $mime));
@@ -637,89 +637,28 @@ function chamados_periodo_anexos_export_html(
         </div>
       </div>
 
-      <div class="kpi-wrap">
-        <p class="kpi-title">Resumo executivo</p>
-        <table class="kpi-grid">
-          <tr>
-            <td>
-              <div class="kpi-card kpi-card--info">
-                <div class="kpi-card__label">Total chamados</div>
-                <div class="kpi-card__val"><?= (int) $totalR ?></div>
-              </div>
-            </td>
-            <td>
-              <div class="kpi-card">
-                <div class="kpi-card__label">Em andamento</div>
-                <div class="kpi-card__val"><?= (int) $nAndamento ?></div>
-              </div>
-            </td>
-            <td>
-              <div class="kpi-card kpi-card--ok">
-                <div class="kpi-card__label">Resolvidos</div>
-                <div class="kpi-card__val"><?= (int) $nResolvidosKpi ?></div>
-                <div class="kpi-card__hint">Resolvido + Fechado</div>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <div class="kpi-card">
-                <div class="kpi-card__label">Com anexos</div>
-                <div class="kpi-card__val"><?= (int) $comAx ?></div>
-              </div>
-            </td>
-            <td>
-              <div class="kpi-card kpi-card--danger">
-                <div class="kpi-card__label">Urgentes</div>
-                <div class="kpi-card__val"><?= (int) $urgAb ?></div>
-                <div class="kpi-card__hint">Alta/Urgente abertos</div>
-              </div>
-            </td>
-            <td>
-              <div class="kpi-card kpi-card--warn">
-                <div class="kpi-card__label">Pendentes</div>
-                <div class="kpi-card__val"><?= (int) $nPendentes ?></div>
-                <div class="kpi-card__hint">Aberto + Andamento + Aguardando</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <p class="kpi-title" style="margin-top:14px;">Distribuição por status</p>
+      <p class="section-title" style="margin-top:16px;">Chamados neste relatório</p>
       <div class="status-mini">
-        <table>
+        <table width="100%">
           <tr>
-            <th>Abertos</th><th>Andamento</th><th>Aguard.</th><th>Resolv.</th><th>Fechados</th><th>Canc.</th>
+            <th style="width:12%;">#</th>
+            <th style="width:22%;">Data</th>
+            <th>Endereço / local</th>
           </tr>
+          <?php foreach ($items as $packCapa):
+              $chCapa = $packCapa['chamado'];
+              $cidCapa = (int) ($chCapa['id'] ?? 0);
+              $dataCapa = trim((string) ($chCapa['data'] ?? ''));
+              $endCapa = trim((string) ($chCapa['endereco_completo'] ?? ''));
+              ?>
           <tr>
-            <td><?= (int) $nAberto ?></td>
-            <td><?= (int) $nAndamento ?></td>
-            <td><?= (int) $nAguardando ?></td>
-            <td><?= (int) $nResolvido ?></td>
-            <td><?= (int) $nFechado ?></td>
-            <td><?= (int) $nCancelado ?></td>
+            <td><strong><?= $h((string) $cidCapa) ?></strong></td>
+            <td><?= $h($dataCapa !== '' ? $dataCapa : '—') ?></td>
+            <td><?= $h($endCapa !== '' ? $endCapa : '—') ?></td>
           </tr>
+          <?php endforeach; ?>
         </table>
       </div>
-
-      <?php if ($porPr !== []): ?>
-      <p class="section-title" style="margin-top:12px;">Prioridades (período)</p>
-      <div class="status-mini">
-        <table>
-          <tr>
-            <?php foreach ($porPr as $label => $num): ?>
-            <th><?= $h((string) $label) ?></th>
-            <?php endforeach; ?>
-          </tr>
-          <tr>
-            <?php foreach ($porPr as $num): ?>
-            <td><?= (int) $num ?></td>
-            <?php endforeach; ?>
-          </tr>
-        </table>
-      </div>
-      <?php endif; ?>
 
       <?php if ($listaTruncada): ?>
       <div class="warn-box">
@@ -755,14 +694,9 @@ function chamados_periodo_anexos_export_html(
       <div class="ch-card">
         <div class="ch-card__head">
           <div class="ch-card__id">Chamado #<?= $h((string) $cid) ?></div>
-          <div class="ch-card__badges">
-            <span class="badge badge--status-<?= $h($stSlug) ?>">● <?= $h($statusLb !== '' ? $statusLb : '—') ?></span>
-            <span class="badge badge--prio-<?= $h($prSlug) ?>">Prioridade: <?= $h($prioLb !== '' ? $prioLb : '—') ?></span>
-          </div>
         </div>
         <table class="ch-card__grid">
           <tr><th>Data</th><td><?= $h($dataCh !== '' ? $dataCh : '—') ?></td></tr>
-          <?php if ($clienteL !== ''): ?><tr><th>Cliente / órgão</th><td><?= $h($clienteL) ?></td></tr><?php endif; ?>
           <?php if ($endereco !== ''): ?><tr><th>Endereço</th><td><?= $h($endereco) ?></td></tr><?php endif; ?>
           <?php if ($tecnico !== ''): ?><tr><th>Equipe / técnico</th><td><?= $h($tecnico) ?></td></tr><?php endif; ?>
         </table>
@@ -804,7 +738,7 @@ function chamados_periodo_anexos_export_html(
                 $tam  = (int) ($a['tamanho'] ?? 0);
                 $href = $anexoUrl($aid);
                 $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                $leg  = chamados_pdf_legenda_curta($nome !== '' ? $nome : ('Anexo #' . (string) $aid));
+                $leg  = 'Foto';
                 ?>
             <td class="photo-grid__cell" colspan="2">
               <figure class="photo-grid__fig">
@@ -815,7 +749,7 @@ function chamados_periodo_anexos_export_html(
                   <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
                   <?php endif; ?>
                 </div>
-                <figcaption class="photo-grid__cap"><?= $h($leg) ?> · <?= $h($fmtBytes($tam)) ?> · <a href="<?= $href ?>">CRM</a></figcaption>
+                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
               </figure>
             </td>
             <?php
@@ -826,7 +760,7 @@ function chamados_periodo_anexos_export_html(
                 $tam  = (int) ($a['tamanho'] ?? 0);
                 $href = $anexoUrl($aid);
                 $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                $leg  = chamados_pdf_legenda_curta($nome !== '' ? $nome : ('Anexo #' . (string) $aid));
+                $leg  = 'Foto';
                 ?>
             <td class="photo-grid__cell" colspan="3">
               <figure class="photo-grid__fig">
@@ -837,7 +771,7 @@ function chamados_periodo_anexos_export_html(
                   <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
                   <?php endif; ?>
                 </div>
-                <figcaption class="photo-grid__cap"><?= $h($leg) ?> · <?= $h($fmtBytes($tam)) ?> · <a href="<?= $href ?>">CRM</a></figcaption>
+                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
               </figure>
             </td>
             <?php
@@ -848,7 +782,7 @@ function chamados_periodo_anexos_export_html(
                     $tam  = (int) ($a['tamanho'] ?? 0);
                     $href = $anexoUrl($aid);
                     $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                    $leg  = chamados_pdf_legenda_curta($nome !== '' ? $nome : ('Anexo #' . (string) $aid));
+                    $leg  = 'Foto';
                     ?>
             <td class="photo-grid__cell">
               <figure class="photo-grid__fig">
@@ -859,7 +793,7 @@ function chamados_periodo_anexos_export_html(
                   <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
                   <?php endif; ?>
                 </div>
-                <figcaption class="photo-grid__cap"><?= $h($leg) ?> · <?= $h($fmtBytes($tam)) ?> · <a href="<?= $href ?>">CRM</a></figcaption>
+                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
               </figure>
             </td>
                 <?php

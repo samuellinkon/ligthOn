@@ -41,6 +41,7 @@ if (!in_array($statusFiltro, ['', 'ativo', 'inativo'], true)) {
 }
 $q = trim((string) ($_GET['q'] ?? ''));
 $codFiltro = trim((string) ($_GET['cod'] ?? ''));
+$estoqueBaixoFiltro = isset($_GET['estoque_baixo']) && (string) $_GET['estoque_baixo'] === '1';
 
 $catalogoTemEstoque = repo_cliente_itens_estoque_saldo_column_exists();
 $catalogoEstoqueBaixoLimiar = 10.0;
@@ -48,6 +49,12 @@ $catalogoEstoqueFmt = static function (float $n): string {
     $t = rtrim(rtrim(number_format($n, 4, ',', '.'), '0'), ',');
 
     return $t === '' ? '0' : $t;
+};
+$catalogoValorRound = static function (float $n): float {
+    return round($n, 2, PHP_ROUND_HALF_UP);
+};
+$catalogoValorFmt = static function (float $n) use ($catalogoValorRound): string {
+    return number_format($catalogoValorRound($n), 2, ',', '.');
 };
 
 $todosItens = repo_cliente_itens_list($catalogoPainelClienteId, false);
@@ -61,7 +68,12 @@ $totalEstoqueBaixo = $catalogoTemEstoque
     ))
     : 0;
 
-$itens = array_values(array_filter($todosItens, static function (array $it) use ($tipoFiltro, $statusFiltro, $q, $codFiltro): bool {
+$itens = array_values(array_filter($todosItens, static function (array $it) use ($tipoFiltro, $statusFiltro, $q, $codFiltro, $estoqueBaixoFiltro, $catalogoTemEstoque, $catalogoEstoqueBaixoLimiar): bool {
+    if ($estoqueBaixoFiltro && $catalogoTemEstoque) {
+        if (empty($it['ativo']) || (float) ($it['estoque_saldo'] ?? 0) >= $catalogoEstoqueBaixoLimiar) {
+            return false;
+        }
+    }
     if ($tipoFiltro !== '' && ($it['tipo'] ?? '') !== $tipoFiltro) {
         return false;
     }
@@ -91,7 +103,15 @@ $itens = array_values(array_filter($todosItens, static function (array $it) use 
     return true;
 }));
 
-$catalogoPainelUrl = static function (array $base, string $script, string $tipo, string $status, string $busca, string $cod = ''): string {
+$catalogoPainelUrl = static function (
+    array $base,
+    string $script,
+    string $tipo,
+    string $status,
+    string $busca,
+    string $cod = '',
+    bool $estoqueBaixo = false
+): string {
     $qs = $base;
     if ($tipo !== '') {
         $qs['tipo'] = $tipo;
@@ -105,9 +125,54 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
     if ($cod !== '') {
         $qs['cod'] = $cod;
     }
+    if ($estoqueBaixo) {
+        $qs['estoque_baixo'] = '1';
+    }
     $built = http_build_query($qs);
 
     return $built !== '' ? ($script . '?' . $built) : $script;
+};
+
+$filtroMetricAtivos   = $statusFiltro === 'ativo' && $tipoFiltro === '' && !$estoqueBaixoFiltro;
+$filtroMetricProdutos = $tipoFiltro === 'produto' && !$estoqueBaixoFiltro;
+$filtroMetricServicos = $tipoFiltro === 'servico' && !$estoqueBaixoFiltro;
+
+$hrefMetricAtivos = $catalogoPainelUrl(
+    $catalogoPainelHiddenQuery,
+    $catalogoPainelFormAction,
+    '',
+    $filtroMetricAtivos ? '' : 'ativo',
+    '',
+    ''
+);
+$hrefMetricProdutos = $catalogoPainelUrl(
+    $catalogoPainelHiddenQuery,
+    $catalogoPainelFormAction,
+    $filtroMetricProdutos ? '' : 'produto',
+    '',
+    '',
+    ''
+);
+$hrefMetricServicos = $catalogoPainelUrl(
+    $catalogoPainelHiddenQuery,
+    $catalogoPainelFormAction,
+    $filtroMetricServicos ? '' : 'servico',
+    '',
+    '',
+    ''
+);
+$hrefMetricEstoqueBaixo = $catalogoPainelUrl(
+    $catalogoPainelHiddenQuery,
+    $catalogoPainelFormAction,
+    '',
+    '',
+    '',
+    '',
+    !$estoqueBaixoFiltro
+);
+
+$metricCardClass = static function (bool $active): string {
+    return 'card metric metric-card--link' . ($active ? ' metric-card--active' : '');
 };
 
 ?>
@@ -120,35 +185,35 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
   <?php endif; ?>
 
   <div class="cards-metrics" style="grid-template-columns:repeat(<?= $catalogoTemEstoque ? 4 : 3 ?>,1fr);">
-    <div class="card metric">
+    <a class="<?= htmlspecialchars($metricCardClass($filtroMetricAtivos), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($hrefMetricAtivos, ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div><div class="metric-label">Ativos</div><div class="metric-value"><?= (int) $totalAtivos ?></div></div>
         <div class="icon-box green">OK</div>
       </div>
-      <div class="metric-change success">Disponíveis para chamados</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change success">Disponíveis para chamados — clique para filtrar</div>
+    </a>
+    <a class="<?= htmlspecialchars($metricCardClass($filtroMetricProdutos), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($hrefMetricProdutos, ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div><div class="metric-label">Produtos</div><div class="metric-value"><?= (int) $totalProdutos ?></div></div>
         <div class="icon-box purple">PR</div>
       </div>
-      <div class="metric-change muted">Materiais e itens físicos</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change muted">Materiais e itens físicos — clique para filtrar</div>
+    </a>
+    <a class="<?= htmlspecialchars($metricCardClass($filtroMetricServicos), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($hrefMetricServicos, ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div><div class="metric-label">Serviços</div><div class="metric-value"><?= (int) $totalServicos ?></div></div>
         <div class="icon-box orange">SV</div>
       </div>
-      <div class="metric-change muted">Atividades executadas</div>
-    </div>
+      <div class="metric-change muted">Atividades executadas — clique para filtrar</div>
+    </a>
     <?php if ($catalogoTemEstoque): ?>
-    <div class="card metric">
+    <a class="<?= htmlspecialchars($metricCardClass($estoqueBaixoFiltro), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($hrefMetricEstoqueBaixo, ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div><div class="metric-label">Estoque baixo</div><div class="metric-value"><?= (int) $totalEstoqueBaixo ?></div></div>
         <div class="icon-box red">!</div>
       </div>
-      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo &lt; <?= (int) $catalogoEstoqueBaixoLimiar ?> (ativos)</div>
-    </div>
+      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo &lt; <?= (int) $catalogoEstoqueBaixoLimiar ?> — clique para filtrar</div>
+    </a>
     <?php endif; ?>
   </div>
 
@@ -162,6 +227,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
         <?php if (!$catalogoPainelSomenteLeitura): ?>
         <button class="btn btn-primary btn-sm" type="button" data-open-item-modal data-tipo="produto">+ Produto</button>
         <button class="btn btn-secondary btn-sm" type="button" data-open-item-modal data-tipo="servico">+ Serviço</button>
+        <a class="btn btn-secondary btn-sm" href="catalogo_export_xlsx.php?cliente_id=<?= (int) $catalogoPainelClienteId ?>">Exportar XLS</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefImportar) ?>">Importar planilha</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefAplicadoChamados) ?>" title="Lançamentos de itens do catálogo em chamados">Catálogo aplicado em chamados</a>
         <?php else: ?>
@@ -203,7 +269,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
       </div>
       <div class="filters-form-actions">
         <button type="submit" class="btn btn-primary">Filtrar</button>
-        <?php if ($tipoFiltro !== '' || $statusFiltro !== '' || $q !== '' || $codFiltro !== ''): ?>
+        <?php if ($tipoFiltro !== '' || $statusFiltro !== '' || $q !== '' || $codFiltro !== '' || $estoqueBaixoFiltro): ?>
         <a class="btn btn-secondary" href="<?= htmlspecialchars($catalogoPainelUrl($catalogoPainelHiddenQuery, $catalogoPainelFormAction, '', '', '', '')) ?>">Limpar</a>
         <?php endif; ?>
       </div>
@@ -214,6 +280,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
       <a href="<?= htmlspecialchars($catalogoPainelUrl($catalogoPainelHiddenQuery, $catalogoPainelFormAction, 'produto', $statusFiltro, $q, $codFiltro)) ?>" class="chip <?= $tipoFiltro === 'produto' ? 'active' : '' ?>">Produtos</a>
       <a href="<?= htmlspecialchars($catalogoPainelUrl($catalogoPainelHiddenQuery, $catalogoPainelFormAction, 'servico', $statusFiltro, $q, $codFiltro)) ?>" class="chip <?= $tipoFiltro === 'servico' ? 'active' : '' ?>">Serviços</a>
     </div>
+
 
     <div class="table-wrap">
       <table id="catalogo-itens-table" class="catalogo-excel-table">
@@ -230,32 +297,6 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
             <th><button type="button" class="catalogo-excel-sort" data-sort-key="status"><span>Status</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
             <th class="text-right catalogo-excel-filter-actions"><span class="muted" style="font-size:11px;font-weight:600;text-transform:uppercase;">Ações</span></th>
           </tr>
-          <tr class="catalogo-excel-table__head-filters">
-            <th>
-              <select class="catalogo-excel-filter" data-filter-key="tipo" aria-label="Filtrar tipo">
-                <option value="">Todos</option>
-                <option value="produto">Produto</option>
-                <option value="servico">Serviço</option>
-              </select>
-            </th>
-            <th><input type="search" class="catalogo-excel-filter" data-filter-key="nome" placeholder="Filtrar nome" aria-label="Filtrar nome"></th>
-            <th><input type="search" class="catalogo-excel-filter" data-filter-key="codigo" placeholder="Filtrar código" aria-label="Filtrar código" value="<?= htmlspecialchars($codFiltro) ?>"></th>
-            <th><input type="search" class="catalogo-excel-filter" data-filter-key="unidade" placeholder="Un." aria-label="Filtrar unidade"></th>
-            <th><input type="search" class="catalogo-excel-filter" data-filter-key="valor" placeholder="Valor" aria-label="Filtrar valor unitário"></th>
-            <?php if ($catalogoTemEstoque): ?>
-            <th><input type="search" class="catalogo-excel-filter" data-filter-key="estoque" placeholder="Saldo" aria-label="Filtrar estoque"></th>
-            <?php endif; ?>
-            <th>
-              <select class="catalogo-excel-filter" data-filter-key="status" aria-label="Filtrar status">
-                <option value="">Todos</option>
-                <option value="ativo">Ativo</option>
-                <option value="inativo">Inativo</option>
-              </select>
-            </th>
-            <th class="catalogo-excel-filter-actions">
-              <button type="button" class="btn-catalogo-excel-clear" id="catalogo-excel-clear-filters" title="Limpar filtros das colunas">Limpar colunas</button>
-            </th>
-          </tr>
         </thead>
         <tbody>
           <?php
@@ -270,7 +311,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
             $estNeg    = $catalogoTemEstoque && $estSaldo < 0;
             $rowClass  = $estBaixo ? 'catalogo-row--estoque-baixo' : '';
             $estClasse = $estNeg ? 'catalogo-estoque--negativo' : ($estBaixo ? 'catalogo-estoque--baixo' : '');
-            $statusKey = !empty($it['ativo']) ? 'ativo' : 'inativo';
+            $valorNum = $catalogoValorRound((float) ($it['valor_unitario'] ?? 0));
           ?>
           <tr
             data-catalogo-row="1"
@@ -279,16 +320,9 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
             data-sort-nome="<?= htmlspecialchars((string) ($it['nome'] ?? '')) ?>"
             data-sort-codigo="<?= htmlspecialchars($codRaw) ?>"
             data-sort-unidade="<?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?>"
-            data-sort-valor="<?= htmlspecialchars((string) ($it['valor_unitario'] ?? '0')) ?>"
+            data-sort-valor="<?= htmlspecialchars((string) $valorNum) ?>"
             data-sort-estoque="<?= htmlspecialchars((string) $estSaldo) ?>"
             data-sort-status="<?= !empty($it['ativo']) ? '1' : '0' ?>"
-            data-filter-tipo="<?= htmlspecialchars($tipoRaw) ?>"
-            data-filter-nome="<?= htmlspecialchars((string) ($it['nome'] ?? '')) ?>"
-            data-filter-codigo="<?= htmlspecialchars($codRaw) ?>"
-            data-filter-unidade="<?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?>"
-            data-filter-valor="<?= htmlspecialchars(number_format((float) ($it['valor_unitario'] ?? 0), 4, ',', '.')) ?>"
-            data-filter-estoque="<?= htmlspecialchars($catalogoEstoqueFmt($estSaldo)) ?>"
-            data-filter-status="<?= htmlspecialchars($statusKey) ?>"
           >
             <td><span class="badge badge-plain"><?= (($it['tipo'] ?? '') === 'produto') ? 'Produto' : 'Serviço' ?></span></td>
             <td>
@@ -302,7 +336,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
             </td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['codigo'] ?? '—')) ?></td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></td>
-            <td class="text-right">R$ <?= number_format((float) ($it['valor_unitario'] ?? 0), 4, ',', '.') ?></td>
+            <td class="text-right">R$ <?= $catalogoValorFmt((float) ($it['valor_unitario'] ?? 0)) ?></td>
             <?php if ($catalogoTemEstoque): ?>
             <td class="text-right<?= $estClasse !== '' ? ' ' . $estClasse : '' ?>">
               <?= $catalogoEstoqueFmt($estSaldo) ?>
@@ -321,7 +355,7 @@ $catalogoPainelUrl = static function (array $base, string $script, string $tipo,
                 data-nome="<?= htmlspecialchars((string) ($it['nome'] ?? ''), ENT_QUOTES) ?>"
                 data-codigo="<?= htmlspecialchars((string) ($it['codigo'] ?? ''), ENT_QUOTES) ?>"
                 data-unidade="<?= htmlspecialchars((string) ($it['unidade'] ?? 'UN'), ENT_QUOTES) ?>"
-                data-valor="<?= htmlspecialchars((string) ($it['valor_unitario'] ?? '0'), ENT_QUOTES) ?>"
+                data-valor="<?= htmlspecialchars($catalogoValorFmt((float) ($it['valor_unitario'] ?? 0)), ENT_QUOTES) ?>"
                 data-estoque="<?= htmlspecialchars((string) ($it['estoque_saldo'] ?? '0'), ENT_QUOTES) ?>"
                 data-descricao="<?= htmlspecialchars((string) ($it['descricao'] ?? ''), ENT_QUOTES) ?>"
                 data-ativo="<?= !empty($it['ativo']) ? '1' : '0' ?>"
@@ -375,12 +409,12 @@ $catalogoPainelBasePath = isset($basePath) ? (string) $basePath : '../';
         <input type="text" id="modal_codigo" name="codigo" class="input" maxlength="64" placeholder="SKU / interno">
       </div>
       <div class="form-group">
-        <label for="modal_unidade">Unidade</label>
-        <input type="text" id="modal_unidade" name="unidade" class="input" value="UN" maxlength="20" placeholder="UN, m, kg, h">
-      </div>
-      <div class="form-group">
         <label for="modal_valor">Valor unitário (R$)</label>
         <input type="text" id="modal_valor" name="valor_unitario" class="input" inputmode="decimal" value="0" placeholder="0,00">
+      </div>
+      <div class="form-group">
+        <label for="modal_unidade">Unidade</label>
+        <input type="text" id="modal_unidade" name="unidade" class="input" value="UN" maxlength="20" placeholder="UN, m, kg, h">
       </div>
       <?php if ($catalogoTemEstoque): ?>
       <div class="form-group">
@@ -389,11 +423,6 @@ $catalogoPainelBasePath = isset($basePath) ? (string) $basePath : '../';
         <span class="muted" style="font-size:12px;">Aceita saldo negativo. Alerta quando &lt; <?= (int) $catalogoEstoqueBaixoLimiar ?></span>
       </div>
       <?php endif; ?>
-      <div class="form-group" style="display:flex;align-items:flex-end;">
-        <label class="checkbox" style="margin-bottom:10px;">
-          <input type="checkbox" name="ativo" id="modal_ativo" value="1" checked> Ativo no catálogo
-        </label>
-      </div>
       <div class="form-group full">
         <label for="modal_descricao">Descrição</label>
         <textarea id="modal_descricao" name="descricao" class="textarea" rows="3" maxlength="500" placeholder="Descrição opcional para o catálogo"></textarea>
@@ -419,19 +448,18 @@ $catalogoPainelBasePath = isset($basePath) ? (string) $basePath : '../';
   var valor = document.getElementById('modal_valor');
   var estoque = document.getElementById('modal_estoque');
   var desc = document.getElementById('modal_descricao');
-  var ativo = document.getElementById('modal_ativo');
 
   function open(btn) {
-    var editing = !!btn.getAttribute('data-id');
-    id.value = btn.getAttribute('data-id') || '0';
+    var itemId = btn.getAttribute('data-id');
+    var editing = itemId !== null && itemId !== '';
+    id.value = editing ? itemId : '0';
     tipo.value = btn.getAttribute('data-tipo') || 'produto';
     nome.value = btn.getAttribute('data-nome') || '';
     codigo.value = btn.getAttribute('data-codigo') || '';
     unidade.value = btn.getAttribute('data-unidade') || 'UN';
-    valor.value = btn.getAttribute('data-valor') || '0';
+    valor.value = btn.getAttribute('data-valor') || '0,00';
     if (estoque) estoque.value = btn.getAttribute('data-estoque') || '0';
     desc.value = btn.getAttribute('data-descricao') || '';
-    ativo.checked = (btn.getAttribute('data-ativo') || '1') === '1';
     title.textContent = editing ? 'Editar item' : (tipo.value === 'servico' ? 'Novo serviço' : 'Novo produto');
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');

@@ -15,7 +15,7 @@ $empresaId = operador_empresa_id($user);
 $operadorId = (int) ($user['id'] ?? 0);
 
 /** Em atendimento no mapa / resumo: não só "Aberto", senão chamados "Em andamento" ou "Aguardando" somem do painel. */
-$statusOperadorMapa = ['Aberto', 'Em andamento', 'Aguardando'];
+$statusOperadorMapa = ['Aberto', 'Em andamento', 'Aguardando Aprovação'];
 
 $chamadosAbertos = [];
 $mapPins = [];
@@ -115,7 +115,7 @@ include __DIR__ . '/../includes/head.php';
     <div class="panel-body">
       <div id="chamados-map" role="region" aria-label="Mapa dos chamados atribuídos ao operador"></div>
       <p class="muted" style="font-size:12px;margin-top:10px;margin-bottom:0;">
-        Pins: chamados <strong>atribuídos a você</strong>, em <strong>Aberto</strong>, <strong>Em andamento</strong> ou <strong>Aguardando</strong>, com coordenadas. A lista ao lado conta os mesmos status (com ou sem GPS).
+        Pins: chamados <strong>atribuídos a você</strong>, em <strong>Aberto</strong>, <strong>Em andamento</strong> ou <strong>Aguardando Aprovação</strong>, com coordenadas. A lista ao lado conta os mesmos status (com ou sem GPS).
       </p>
     </div>
   </div>

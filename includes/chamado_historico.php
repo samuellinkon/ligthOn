@@ -104,7 +104,7 @@ function chamado_historico_detalhe_por_acao(string $acao, array $payload): strin
             return $nome !== '' ? $nome : 'Arquivo anexado';
 
         case 'chamado.operador.enviar_os':
-            return 'Status: ' . (string) ($payload['status_novo'] ?? 'Aguardando');
+            return 'Status: ' . (string) ($payload['status_novo'] ?? 'Aguardando Aprovação');
 
         case 'chamado.gestor.aprovar':
         case 'chamado.marco.aprovado':

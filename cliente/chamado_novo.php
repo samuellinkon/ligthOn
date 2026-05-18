@@ -16,6 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: chamado_novo.php'); exit;
     }
     try {
+        $osErros = chamado_os_validar_obrigatorios($_POST);
+        if ($osErros !== []) {
+            flash_set('err', implode(' ', $osErros));
+            header('Location: chamado_novo.php'); exit;
+        }
         $os = chamado_os_parse_post($_POST);
         $id = repo_create_chamado(array_merge($os, [
             'cliente_id'          => (int) ($user['cliente_id'] ?? 0),

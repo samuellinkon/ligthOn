@@ -29,8 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('err', 'Selecione o cliente.');
             header('Location: chamado_novo.php'); exit;
         }
-        $os            = chamado_os_parse_post($_POST);
-        $respInformado = trim((string) ($_POST['responsavel'] ?? ''));
+        $osErros = chamado_os_validar_obrigatorios($_POST);
+        if ($osErros !== []) {
+            flash_set('err', implode(' ', $osErros));
+            header('Location: chamado_novo.php'); exit;
+        }
+        $os       = chamado_os_parse_post($_POST);
+        $respAuto = trim((string) ($user['nome'] ?? ''));
         $id = repo_create_chamado(array_merge($os, [
             'cliente_id'          => $cidNovo,
             'ponto_iluminacao_id' => (int) ($_POST['ponto_iluminacao_id'] ?? 0),
@@ -39,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'latitude'            => $_POST['latitude'] ?? '',
             'longitude'           => $_POST['longitude'] ?? '',
             'prioridade'          => $_POST['prioridade'] ?? 'Normal',
-            'responsavel'         => $respInformado !== '' ? $respInformado : null,
+            'responsavel'         => $respAuto !== '' ? $respAuto : null,
             'status'              => 'Aberto',
         ]));
 
@@ -107,38 +112,6 @@ foreach ($listaClientesChamado as $c) {
     }
 }
 
-$empresaRaizResponsavel = 0;
-if ($escopoCli !== null && $escopoCli > 0) {
-    $empresaRaizResponsavel = $escopoCli;
-} elseif ($chamadoNovoClienteId > 0) {
-    $empresaRaizResponsavel = repo_cliente_matriz_raiz_id($chamadoNovoClienteId);
-}
-
-$responsavelGestores = [];
-if (db_ok() && $empresaRaizResponsavel > 0) {
-    $responsavelGestores = repo_usuarios_gestores_por_empresa_raiz($empresaRaizResponsavel);
-}
-if (empty($responsavelGestores) && (($user['perfil'] ?? '') === 'gestor')) {
-    $gn = trim((string) ($user['nome'] ?? ''));
-    if ($gn !== '') {
-        $responsavelGestores = [['id' => (int) ($user['id'] ?? 0), 'nome' => $gn]];
-    }
-}
-
-$responsavelPadraoNome = '';
-if (!empty($responsavelGestores)) {
-    $uidMe = (int) ($user['id'] ?? 0);
-    foreach ($responsavelGestores as $g) {
-        if ((int) ($g['id'] ?? 0) === $uidMe) {
-            $responsavelPadraoNome = (string) ($g['nome'] ?? '');
-            break;
-        }
-    }
-    if ($responsavelPadraoNome === '') {
-        $responsavelPadraoNome = (string) ($responsavelGestores[0]['nome'] ?? '');
-    }
-}
-
 $pontosIluminacaoChamado = [];
 if (db_ok()) {
     if ($escopoCli !== null && $escopoCli > 0) {
@@ -166,26 +139,12 @@ include __DIR__ . '/../includes/head.php';
       <input type="hidden" name="cliente" value="<?= $chamadoNovoClienteId ?>">
     <?php endif; ?>
 
-    <div class="form form-grid" style="padding-bottom: 8px;">
-      <div class="form-group">
-        <label for="responsavel">Responsável interno</label>
-        <select id="responsavel" name="responsavel" class="select" <?= empty($responsavelGestores) ? 'disabled' : '' ?>>
-          <?php if (empty($responsavelGestores)): ?>
-          <option value="">— Cadastre gestores em Usuários —</option>
-          <?php else: ?>
-          <?php foreach ($responsavelGestores as $g):
-              $gNome = (string) ($g['nome'] ?? '');
-              ?>
-          <option value="<?= htmlspecialchars($gNome, ENT_QUOTES, 'UTF-8') ?>" <?= $gNome === $responsavelPadraoNome ? 'selected' : '' ?>><?= htmlspecialchars($gNome, ENT_QUOTES, 'UTF-8') ?></option>
-          <?php endforeach; ?>
-          <?php endif; ?>
-        </select>
-        <small class="muted" style="display:block;margin-top:6px;">Gestores da empresa (painel interno) que acompanham o chamado.<?php if ($escopoCli !== null): ?> Ao abrir como gestor, o padrão é você.<?php endif; ?></small>
-      </div>
-    </div>
-
     <?php
     $ch_os_vals = [];
+    $pontoPre = (int) ($_GET['ponto_iluminacao_id'] ?? 0);
+    if ($pontoPre > 0) {
+        $ch_os_vals['ponto_iluminacao_id'] = $pontoPre;
+    }
     $ch_os_descricao = '';
     $ch_os_mostrar_ponto = !empty($pontosIluminacaoChamado);
     $ch_os_pontos_opcoes = $pontosIluminacaoChamado ?: [];
