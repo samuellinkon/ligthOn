@@ -10,6 +10,7 @@ if (!isset($basePath)) $basePath = '../';
 <script src="<?= $basePath ?>assets/js/confirm-modal.js"></script>
 <script src="<?= $basePath ?>assets/js/sidebar.js"></script>
 <script src="<?= $basePath ?>assets/js/main.js"></script>
+<script src="<?= $basePath ?>assets/js/crm-export-loading.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-export-loading.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-custom-select.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-custom-select.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-custom-file.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-custom-file.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-viacep.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-viacep.js') ?>"></script>

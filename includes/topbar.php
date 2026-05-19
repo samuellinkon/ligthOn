@@ -26,6 +26,7 @@ if (!isset($topbarCompact)) {
 $painelNotifOk = false;
 $notifUnreadInitial = 0;
 $notifApiHref       = '';
+$notifPaginaHref    = '';
 if (function_exists('db_ok') && db_ok()) {
     if (!function_exists('repo_notificacoes_table_exists')) {
         require_once __DIR__ . '/repository.php';
@@ -40,19 +41,22 @@ if (function_exists('db_ok') && db_ok()) {
             if (function_exists('repo_notificacoes_count_unread')) {
                 $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
             }
-            $notifApiHref = $bp . '/admin/notificacoes_api.php';
+            $notifApiHref    = $bp . '/admin/notificacoes_api.php';
+            $notifPaginaHref = $bp . '/admin/notificacoes.php';
         } elseif ($uidN > 0 && $perf === 'operador') {
             $painelNotifOk = true;
             if (function_exists('repo_notificacoes_count_unread')) {
                 $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
             }
-            $notifApiHref = $bp . '/operador/notificacoes_api.php';
+            $notifApiHref    = $bp . '/operador/notificacoes_api.php';
+            $notifPaginaHref = $bp . '/operador/notificacoes.php';
         } elseif ($uidN > 0 && $perf === 'cliente') {
             $painelNotifOk = true;
             if (function_exists('repo_notificacoes_count_unread')) {
                 $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
             }
-            $notifApiHref = $bp . '/cliente/notificacoes_api.php';
+            $notifApiHref    = $bp . '/cliente/notificacoes_api.php';
+            $notifPaginaHref = $bp . '/cliente/notificacoes.php';
         }
     }
 }
@@ -88,6 +92,11 @@ if (function_exists('db_ok') && db_ok()) {
           </div>
           <ul class="topbar-notif-list" id="topbarNotifList"></ul>
           <div class="topbar-notif-empty" id="topbarNotifEmpty" hidden>Nenhuma notificação.</div>
+          <?php if ($notifPaginaHref !== ''): ?>
+          <div class="topbar-notif-foot">
+            <a href="<?= htmlspecialchars($notifPaginaHref) ?>" class="topbar-notif-ver-todas">Ver todas</a>
+          </div>
+          <?php endif; ?>
         </div>
       </div>
       <script>

@@ -6413,17 +6413,76 @@ function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
 
 function repo_notificacoes_count_unread(int $usuarioId): int
 {
+    return repo_notificacoes_count_for_user($usuarioId, 'unread');
+}
+
+function repo_notificacoes_count_for_user(int $usuarioId, ?string $filtro = null): int
+{
     $pdo = db();
     if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
         return 0;
     }
+    $sql = 'SELECT COUNT(*) FROM notificacoes WHERE usuario_id = ?';
+    $params = [$usuarioId];
+    if ($filtro === 'unread') {
+        $sql .= ' AND lida = 0';
+    }
     try {
-        $st = $pdo->prepare('SELECT COUNT(*) FROM notificacoes WHERE usuario_id = ? AND lida = 0');
-        $st->execute([$usuarioId]);
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
 
         return (int) $st->fetchColumn();
     } catch (Throwable $e) {
         return 0;
+    }
+}
+
+/**
+ * @return array{rows:list<array>,total:int}
+ */
+function repo_notificacoes_list_paginated(int $usuarioId, int $page, int $perPage, ?string $filtro = null): array
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
+        return ['rows' => [], 'total' => 0];
+    }
+    $page    = max(1, $page);
+    $perPage = max(1, min(50, $perPage));
+    $offset  = ($page - 1) * $perPage;
+    $where   = 'usuario_id = ?';
+    $params  = [$usuarioId];
+    if ($filtro === 'unread') {
+        $where .= ' AND lida = 0';
+    }
+    try {
+        $stCount = $pdo->prepare('SELECT COUNT(*) FROM notificacoes WHERE ' . $where);
+        $stCount->execute($params);
+        $total = (int) $stCount->fetchColumn();
+
+        $st = $pdo->prepare(
+            'SELECT id, chamado_id, titulo, descricao, lida,
+                    DATE_FORMAT(data_criacao, \'%Y-%m-%d %H:%i:%s\') AS data_criacao
+             FROM notificacoes
+             WHERE ' . $where . '
+             ORDER BY data_criacao DESC, id DESC
+             LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset
+        );
+        $st->execute($params);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            $cid            = (int) ($r['chamado_id'] ?? 0);
+            $r['id']        = (int) ($r['id'] ?? 0);
+            $r['chamado_id'] = $cid;
+            $r['lida']      = (int) ($r['lida'] ?? 0);
+            $r['titulo']    = (string) ($r['titulo'] ?? '');
+            $r['descricao'] = isset($r['descricao']) ? ($r['descricao'] !== '' ? (string) $r['descricao'] : null) : null;
+            $r['link']      = 'chamado_detalhe.php?id=' . $cid;
+        }
+        unset($r);
+
+        return ['rows' => $rows, 'total' => $total];
+    } catch (Throwable $e) {
+        return ['rows' => [], 'total' => 0];
     }
 }
 

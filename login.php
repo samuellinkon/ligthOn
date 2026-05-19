@@ -92,46 +92,6 @@ $cssBustLogin = static function (string $file): int {
       margin-bottom: 14px;
       line-height: 1.45;
     }
-    .quick-login {
-      display: grid;
-      gap: 8px;
-      margin-top: 14px;
-    }
-    .quick-login-title {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-    .quick-login-btn {
-      align-items: center;
-      background: rgba(79, 70, 229, .06);
-      border: 1px solid rgba(79, 70, 229, .16);
-      border-radius: 12px;
-      color: var(--text);
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      padding: 10px 12px;
-      text-align: left;
-      width: 100%;
-    }
-    .quick-login-btn strong,
-    .quick-login-btn small {
-      display: block;
-    }
-    .quick-login-btn small {
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 2px;
-    }
-    .quick-login-badge {
-      color: var(--primary);
-      font-size: 12px;
-      font-weight: 800;
-      margin-left: 12px;
-    }
   </style>
 </head>
 <body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?>>
@@ -139,7 +99,7 @@ $cssBustLogin = static function (string $file): int {
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="brand brand--login-logo">
-      <img class="brand-logo-img brand-logo-img--login-full" src="<?= htmlspecialchars(defined('APP_BRAND_LOGO') ? APP_BRAND_LOGO : 'assets/img/lighton-logo.png') ?>" width="280" height="120" alt="<?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?>">
+      <img class="brand-logo-img brand-logo-img--login-full" src="assets/img/lighton-logo-login.png" width="280" height="280" alt="<?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?>">
       <h1 class="sr-only"><?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight') ?></h1>
     </div>
 
@@ -176,49 +136,9 @@ $cssBustLogin = static function (string $file): int {
 
       <button type="submit" class="btn btn-primary btn-block btn-lg">Entrar</button>
 
-      <div class="quick-login" aria-label="Acessos rápidos de teste">
-        <div class="quick-login-title">Acessos rápidos de teste</div>
-        <button type="button" class="quick-login-btn" data-login-email="ouvidoria@ipojuca.pe.gov.br">
-          <span>
-            <strong>Portal da prefeitura</strong>
-            <small>ouvidoria@ipojuca.pe.gov.br</small>
-          </span>
-          <span class="quick-login-badge">12345678</span>
-        </button>
-        <button type="button" class="quick-login-btn" data-login-email="operador@operador.com.br">
-          <span>
-            <strong>Operador</strong>
-            <small>operador@operador.com.br</small>
-          </span>
-          <span class="quick-login-badge">12345678</span>
-        </button>
-        <button type="button" class="quick-login-btn" data-login-email="gestor@gestor.com.br">
-          <span>
-            <strong>Gestão e iluminação</strong>
-            <small>gestor@gestor.com.br</small>
-          </span>
-          <span class="quick-login-badge">12345678</span>
-        </button>
-      </div>
     </form>
   </div>
 </div>
-
-<script>
-(function () {
-  var form = document.getElementById('login-form');
-  var email = document.getElementById('email');
-  var senha = document.getElementById('senha');
-  if (!form || !email || !senha) return;
-  document.querySelectorAll('[data-login-email]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      email.value = btn.getAttribute('data-login-email') || '';
-      senha.value = '12345678';
-      form.submit();
-    });
-  });
-})();
-</script>
 
 <?php if (app_debug_mode()): ?>
 <script src="assets/js/form-fill-dev.js"></script>

@@ -286,16 +286,21 @@ $metricCardClass = static function (bool $active): string {
       <table id="catalogo-itens-table" class="catalogo-excel-table">
         <thead>
           <tr class="catalogo-excel-table__head-sort">
-            <th><button type="button" class="catalogo-excel-sort" data-sort-key="tipo"><span>Tipo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th><button type="button" class="catalogo-excel-sort" data-sort-key="nome"><span>Nome</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th><button type="button" class="catalogo-excel-sort" data-sort-key="codigo"><span>Código</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th><button type="button" class="catalogo-excel-sort" data-sort-key="unidade"><span>Un.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="valor"><span>Valor unit.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="tipo"><span class="catalogo-excel-sort__label">Tipo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="nome"><span class="catalogo-excel-sort__label">Nome</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="codigo"><span class="catalogo-excel-sort__label">Código</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="unidade"><span class="catalogo-excel-sort__label">Un.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col" class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="valor"><span class="catalogo-excel-sort__label">Valor unit.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
             <?php if ($catalogoTemEstoque): ?>
-            <th class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="estoque"><span>Estoque saldo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col" class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="estoque"><span class="catalogo-excel-sort__label">Estoque saldo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
             <?php endif; ?>
-            <th><button type="button" class="catalogo-excel-sort" data-sort-key="status"><span>Status</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th class="text-right catalogo-excel-filter-actions"><span class="muted" style="font-size:11px;font-weight:600;text-transform:uppercase;">Ações</span></th>
+            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="status"><span class="catalogo-excel-sort__label">Status</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <th scope="col" class="catalogo-excel-col-acoes">
+              <div class="catalogo-excel-sort catalogo-excel-sort--static">
+                <span class="catalogo-excel-sort__label">Ações</span>
+                <span class="catalogo-excel-sort__icon catalogo-excel-sort__icon--spacer" aria-hidden="true">↕</span>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>

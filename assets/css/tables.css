@@ -640,54 +640,77 @@ tr.catalogo-row--estoque-baixo td {
   font-weight: 700;
 }
 
-/* Catálogo — cabeçalho estilo Excel (ordenação + filtro por coluna) */
+/* Catálogo — cabeçalho ordenável (padrão das tabelas do sistema) */
 .catalogo-excel-table {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+  min-width: 56rem;
+  border-collapse: collapse;
 }
 
 .catalogo-excel-table thead th {
-  vertical-align: bottom;
+  vertical-align: middle;
   padding: 0;
-  background: var(--surface-2, #f8fafc);
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  background: #fafafe;
+  border-bottom: 1px solid #f2f2f7;
+  white-space: nowrap;
 }
 
 .catalogo-excel-table__head-sort th {
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  border-bottom: 1px solid #f2f2f7;
 }
 
+.catalogo-excel-table thead th:has([data-sort-key="nome"]) {
+  white-space: normal;
+  min-width: 12rem;
+}
+
+.catalogo-excel-table thead th:has([data-sort-key="valor"]),
+.catalogo-excel-table thead th:has([data-sort-key="estoque"]) {
+  min-width: 7.5rem;
+}
+
+.catalogo-excel-table thead th.catalogo-excel-col-acoes {
+  width: auto;
+  white-space: nowrap;
+}
 
 .catalogo-excel-sort {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
+  box-sizing: border-box;
   margin: 0;
-  padding: 10px 12px;
+  padding: 14px 20px;
   border: 0;
   background: transparent;
   font: inherit;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--text-muted, #64748b);
+  letter-spacing: 0.06em;
+  color: var(--muted);
   cursor: pointer;
   text-align: left;
 }
 
+.catalogo-excel-sort__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .catalogo-excel-sort.text-right,
 th.text-right .catalogo-excel-sort {
-  justify-content: flex-end;
+  grid-template-columns: auto auto;
+  justify-content: end;
   text-align: right;
 }
 
 .catalogo-excel-sort:hover {
   background: rgba(83, 74, 183, 0.06);
-  color: var(--text, #0f172a);
+  color: var(--text);
 }
 
 .catalogo-excel-sort.is-sorted-asc,
@@ -697,8 +720,23 @@ th.text-right .catalogo-excel-sort {
 
 .catalogo-excel-sort__icon {
   font-size: 11px;
+  line-height: 1;
   opacity: 0.75;
   flex-shrink: 0;
+}
+
+.catalogo-excel-sort--static {
+  cursor: default;
+  pointer-events: none;
+}
+
+.catalogo-excel-sort--static:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.catalogo-excel-sort__icon--spacer {
+  visibility: hidden;
 }
 
 .catalogo-excel-filter {
@@ -720,8 +758,9 @@ select.catalogo-excel-filter {
   cursor: pointer;
 }
 
-.catalogo-excel-filter-actions {
-  text-align: right;
+.catalogo-excel-table td.td-actions {
+  width: auto;
+  white-space: nowrap;
 }
 
 .btn-catalogo-excel-clear {
