@@ -66,6 +66,7 @@ $cssBustLogin = static function (string $file): int {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?></title>
+  <?php require_once __DIR__ . '/includes/meta_social.php'; app_meta_social_render(['title' => $pageTitle . ' · ' . (function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação')]); ?>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
