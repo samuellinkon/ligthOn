@@ -379,15 +379,8 @@ a.pag-btn {
 }
 
 .medicao-meses-table th:nth-child(3),
-.medicao-meses-table td:nth-child(3),
-.medicao-meses-table th:nth-child(4),
-.medicao-meses-table td:nth-child(4) {
-  width: 11%;
-}
-
-.medicao-meses-table th:nth-child(5),
-.medicao-meses-table td:nth-child(5) {
-  width: 12%;
+.medicao-meses-table td:nth-child(3) {
+  width: 14%;
 }
 
 .medicao-meses-table th.medicao-data-col,
@@ -404,7 +397,8 @@ a.pag-btn {
 
 .medicao-meses-table th.td-actions,
 .medicao-meses-table td.td-actions {
-  width: 17%;
+  width: 32%;
+  min-width: 300px;
   padding-left: 10px;
   padding-right: 12px;
 }
@@ -452,7 +446,7 @@ a.pag-btn {
 }
 
 .medicao-meses-table td.td-actions {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .medicao-meses-table .actions-inline,
@@ -499,35 +493,27 @@ a.pag-btn {
   font-size: 13px;
 }
 
+.medicao-meses-table td.td-actions .medicao-export-actions--labeled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+}
+
 .medicao-export-actions--labeled {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .medicao-export-actions--labeled .btn {
-  font-weight: 600;
+  margin: 0;
   white-space: nowrap;
-}
-
-.medicao-export-btn--bm,
-.medicao-export-btn--bm-detalhado {
-  color: #147a46;
-}
-
-.medicao-export-btn--bm:hover,
-.medicao-export-btn--bm-detalhado:hover {
-  color: #0f5c34;
-  border-color: rgba(20, 122, 70, 0.35);
-  background: #f1fbf6;
-}
-
-.medicao-export-btn--pdf {
-  color: #b42318;
-}
-
-.medicao-export-btn--pdf:hover {
-  color: #912018;
-  border-color: rgba(180, 35, 24, 0.3);
-  background: #fff4f2;
 }
 
 .medicao-meses-table .action-icon,
@@ -625,6 +611,28 @@ a.pag-btn {
 
 tr.catalogo-row--estoque-baixo td {
   background: rgba(220, 38, 38, 0.04);
+}
+
+.catalogo-item-nome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.35;
+}
+
+.catalogo-item-nome strong {
+  font-weight: 600;
+}
+
+.catalogo-badge-estoque-baixo {
+  flex-shrink: 0;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 2px 8px;
 }
 
 .catalogo-estoque--negativo {

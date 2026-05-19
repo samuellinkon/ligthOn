@@ -328,6 +328,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash_set('err', 'Não foi possível salvar a ficha.');
             }
 
+        } elseif ($acao === 'salvar_tudo') {
+            $msgsOk  = [];
+            $msgsErr = [];
+
+            require_once __DIR__ . '/../includes/chamado_os_fields.php';
+            $os = chamado_os_parse_post($_POST);
+            $os['titulo'] = chamado_os_titulo_from_post($_POST);
+            $os['descricao'] = trim($_POST['descricao'] ?? '');
+            $os['latitude'] = $_POST['latitude'] ?? '';
+            $os['longitude'] = $_POST['longitude'] ?? '';
+            $os['ponto_iluminacao_id'] = (int) ($_POST['ponto_iluminacao_id'] ?? 0);
+            if (repo_update_chamado_os_dados($id, $os)) {
+                $msgsOk[] = 'Ficha da ordem de serviço';
+            } else {
+                $msgsErr[] = 'Não foi possível salvar a ficha da OS.';
+            }
+
+            $chAtual = repo_chamado($id);
+            $empresaChamado = $chAtual ? repo_cliente_catalogo_dono_id((int) ($chAtual['cliente_id'] ?? 0)) : 0;
+            $tecnicoIdsPost = $_POST['tecnico_user_ids'] ?? [];
+            if (!is_array($tecnicoIdsPost)) {
+                $tecnicoIdsPost = [];
+            }
+            $tecnicoIds = [];
+            foreach ($tecnicoIdsPost as $tid) {
+                $tid = (int) $tid;
+                if ($tid > 0 && !in_array($tid, $tecnicoIds, true)) {
+                    $tecnicoIds[] = $tid;
+                }
+            }
+            $rEquipe = repo_chamado_atribuir_tecnicos($id, $tecnicoIds, $empresaChamado);
+            if ($rEquipe['ok']) {
+                $msgsOk[] = 'Equipe';
+            } else {
+                $msgsErr[] = (string) ($rEquipe['err'] ?? 'Não foi possível salvar a equipe.');
+            }
+
+            $temArq = !empty($_FILES['anexos']['name'][0]);
+            if ($temArq) {
+                $destino = upload_dir_chamado($id);
+                $res = upload_gravar_multiplos($_FILES['anexos'], $destino);
+                $arquivosSalvos = 0;
+                foreach ($res['salvos'] as $arq) {
+                    repo_create_chamado_anexo([
+                        'chamado_id'    => $id,
+                        'resposta_id'   => null,
+                        'nome_original' => $arq['nome_original'],
+                        'nome_arquivo'  => $arq['nome_arquivo'],
+                        'mime'          => $arq['mime'],
+                        'tamanho'       => $arq['tamanho'],
+                        'enviado_por'   => $user['nome'] ?? 'Admin',
+                        'enviado_tipo'  => 'admin',
+                    ]);
+                    $arquivosSalvos++;
+                }
+                if ($arquivosSalvos > 0) {
+                    $msgsOk[] = $arquivosSalvos . ' anexo(s)';
+                }
+                if (!empty($res['erros'])) {
+                    $msgsErr[] = 'Anexos: ' . implode(' | ', $res['erros']);
+                } elseif ($arquivosSalvos === 0) {
+                    $msgsErr[] = 'Não foi possível enviar os anexos selecionados.';
+                }
+            }
+
+            if ($msgsErr !== []) {
+                flash_set('err', implode(' ', $msgsErr));
+            } elseif ($msgsOk !== []) {
+                flash_set('ok', 'Salvo: ' . implode(', ', $msgsOk) . '.');
+            } else {
+                flash_set('ok', 'Chamado salvo.');
+            }
+
         } elseif ($acao === 'chamado_item_add') {
             $itemId = (int) ($_POST['item_id'] ?? 0);
             $qtd     = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
@@ -1036,11 +1109,11 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
       <div class="chamado-header-toolbar__actions" aria-label="Ações rápidas">
-        <button type="submit" form="chamado-form-os-dados"
-                class="btn btn-secondary btn-sm chamado-header-toolbar__btn-save js-chamado-os-salvar"
-                id="chamado_os_salvar_manual"
+        <button type="button"
+                class="btn btn-secondary btn-sm chamado-header-toolbar__btn-save js-chamado-salvar-tudo"
+                id="chamado_salvar_tudo"
                 disabled
-                title="Altere a ficha da OS antes de salvar">Salvar</button>
+                title="Altere a ficha, a equipe ou selecione anexos antes de salvar">Salvar</button>
       </div>
       <?php endif; ?>
     </div>
@@ -1070,11 +1143,10 @@ include __DIR__ . '/../includes/head.php';
         </fieldset>
       </div>
       <?php else: ?>
-      <form method="post" id="chamado-form-os-dados" class="card" style="overflow:hidden;">
-        <input type="hidden" name="acao" value="os_dados">
+      <div id="chamado-form-os-dados" class="card chamado-os-dados-panel" style="overflow:hidden;">
         <div class="panel-head">
           <h4>Ordem de serviço</h4>
-          <span class="panel-sub">Contribuinte, endereço e classificação no mesmo bloco; descrição abaixo — igual ao formulário de abertura</span>
+          <span class="panel-sub">Contribuinte, endereço e classificação no mesmo bloco; descrição abaixo. Use <strong>Salvar</strong> no topo para gravar a ficha, a equipe e os anexos de uma vez.</span>
         </div>
         <div class="form" style="padding: 0 24px 20px;">
           <?php
@@ -1086,10 +1158,7 @@ include __DIR__ . '/../includes/head.php';
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
           ?>
         </div>
-        <div class="chamado-os-form__actions" style="padding: 0 24px 22px; display:flex; justify-content:flex-end; gap:12px; border-top:1px solid var(--border); padding-top:16px;">
-          <button type="submit" class="btn btn-secondary btn-sm js-chamado-os-salvar" disabled title="Altere a ficha da OS antes de salvar">Salvar</button>
-        </div>
-      </form>
+      </div>
       <?php endif; ?>
       <?php endif; ?>
 
@@ -1469,7 +1538,7 @@ include __DIR__ . '/../includes/head.php';
                 <strong class="muted" style="font-size:13px;">Ninguém na equipe ainda</strong>
               <?php endif; ?>
               <?php if (!$CRM_CHAMADO_PORTAL): ?>
-              <span class="muted" style="font-size:11px;display:block;margin-top:6px;">Monte a dupla ou trio em «Equipe no chamado», acima do mapa.</span>
+              <span class="muted" style="font-size:11px;display:block;margin-top:6px;">Monte a dupla ou trio em «Equipe no chamado» e clique em <strong>Salvar</strong> no topo.</span>
               <?php endif; ?>
             </span>
           </div>
@@ -1637,15 +1706,13 @@ include __DIR__ . '/../includes/head.php';
       <div class="card equipe-picker-card">
         <div class="panel-head">
           <h4>Equipe no chamado</h4>
-          <span class="panel-sub">Quem vai ao campo neste atendimento — em geral dupla ou trio. Toque no nome para incluir ou tirar; use <strong>Salvar equipe</strong> para gravar.</span>
+          <span class="panel-sub">Quem vai ao campo neste atendimento — em geral dupla ou trio. Toque no nome para incluir ou tirar; use <strong>Salvar</strong> no topo da página para gravar tudo de uma vez.</span>
         </div>
         <div class="panel-body">
           <?php if (empty($tecnicosChamado)): ?>
             <p class="muted" style="margin:0;font-size:13px;line-height:1.5;">Nenhum operador cadastrado para a empresa deste catálogo. Cadastre operadores na empresa antes de montar a equipe.</p>
           <?php else: ?>
-            <form method="post" class="equipe-picker-form" id="equipe_picker_form" autocomplete="off">
-              <input type="hidden" name="acao" value="tecnico">
-              <input type="hidden" name="silent_autosave" id="chamado_equipe_silent_autosave" value="">
+            <div class="equipe-picker-form" id="equipe_picker_form" autocomplete="off">
               <div class="equipe-picker-top">
                 <span id="equipe_picker_count" class="<?= htmlspecialchars($equipeCountClass) ?>" aria-live="polite"><?= htmlspecialchars($equipeCountLabel) ?></span>
                 <label class="sr-only" for="filtro_equipe_chamado">Buscar operador</label>
@@ -1681,11 +1748,8 @@ include __DIR__ . '/../includes/head.php';
                 <?php endforeach; ?>
               </div>
               <p class="equipe-picker-many" id="equipe_picker_many" <?= $equipeN > 3 ? '' : 'hidden' ?>>Mais de três pessoas é incomum — confira se todos entram neste chamado.</p>
-              <div class="equipe-picker-foot">
-                <p class="equipe-picker-hint">Selecionados continuam visíveis na busca. Limpe o campo para ver a lista inteira.</p>
-                <button type="submit" class="btn btn-primary btn-sm">Salvar equipe</button>
-              </div>
-            </form>
+              <p class="equipe-picker-hint equipe-picker-foot">Selecionados continuam visíveis na busca. Limpe o campo para ver a lista inteira.</p>
+            </div>
           <?php endif; ?>
         </div>
       </div>
@@ -1764,23 +1828,19 @@ include __DIR__ . '/../includes/head.php';
         </div>
         <div class="panel-body flex-col" style="gap:10px;">
           <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
-          <form method="post" action="chamado_detalhe.php?id=<?= (int) $id ?>" enctype="multipart/form-data" class="chamado-anexos-painel-upload" style="padding-bottom:10px;border-bottom:1px solid var(--border-soft);margin-bottom:6px;">
-            <input type="hidden" name="acao" value="anexos_painel">
+          <div class="chamado-anexos-painel-upload" style="padding-bottom:10px;border-bottom:1px solid var(--border-soft);margin-bottom:6px;">
             <div class="form-group full" style="margin:0;">
               <label for="chamado_anexos_painel_input">Adicionar arquivos</label>
               <div class="file-upload">
                 <div class="file-icon">⇪</div>
                 <strong>Clique ou arraste aqui</strong>
-                <span>Vários arquivos de uma vez — imagens, PDF e documentos (até 10MB cada)</span>
+                <span>Vários arquivos de uma vez — imagens, PDF e documentos (até 10MB cada). Serão enviados ao clicar em <strong>Salvar</strong> no topo.</span>
                 <input type="file" id="chamado_anexos_painel_input" name="anexos[]" multiple hidden
                        accept=".pdf,.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar,.7z">
               </div>
               <div class="file-list"></div>
             </div>
-            <div class="form-actions" style="margin-top:10px;">
-              <button type="submit" class="btn btn-primary btn-sm">Enviar anexos</button>
-            </div>
-          </form>
+          </div>
           <?php endif; ?>
           <?php if (empty($anexos)): ?>
             <div class="empty-state" style="padding:12px 0 8px;">
@@ -2186,15 +2246,26 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCount();
 })();
 
-/** Ficha OS: botões «Salvar» (header e rodapé) só habilitam com alterações; gravação manual ao submeter. */
+/** Salvar único (header): ficha OS + equipe + anexos pendentes num POST. */
 (function () {
-  var osForm = document.getElementById('chamado-form-os-dados');
-  var osSalvarBtns = document.querySelectorAll('.js-chamado-os-salvar');
+  var osPanel = document.getElementById('chamado-form-os-dados');
+  var salvarBtn = document.getElementById('chamado_salvar_tudo');
+  var equipeRoot = document.getElementById('equipe_picker_grid');
+  var anexosInput = document.getElementById('chamado_anexos_painel_input');
+  if (!osPanel || !salvarBtn) return;
 
   function osFormSnapshot() {
-    if (!osForm) return '';
     try {
-      var fd = new FormData(osForm);
+      var fd = new FormData();
+      osPanel.querySelectorAll('input, select, textarea').forEach(function (el) {
+        if (!el.name || el.disabled) return;
+        if (el.type === 'checkbox' || el.type === 'radio') {
+          if (el.checked) fd.append(el.name, el.value);
+          return;
+        }
+        if (el.type === 'file') return;
+        fd.append(el.name, el.value);
+      });
       var parts = [];
       fd.forEach(function (v, k) {
         parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(String(v)));
@@ -2206,32 +2277,103 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  var osInitialSnap = '';
-  function osUpdateSalvarButton() {
-    if (!osForm || !osSalvarBtns.length) return;
-    var dirty = osFormSnapshot() !== osInitialSnap;
-    osSalvarBtns.forEach(function (btn) {
-      btn.disabled = !dirty;
-      btn.title = dirty ? 'Gravar alterações da ordem de serviço' : 'Altere a ficha da OS antes de salvar';
-      btn.classList.toggle('is-dirty', dirty);
-      btn.classList.toggle('btn-primary', dirty);
-      btn.classList.toggle('btn-secondary', !dirty);
+  function equipeSnapshot() {
+    if (!equipeRoot) return '';
+    var ids = [];
+    equipeRoot.querySelectorAll('input[type="checkbox"][name="tecnico_user_ids[]"]:checked').forEach(function (cb) {
+      ids.push(cb.value);
     });
+    ids.sort();
+    return ids.join(',');
   }
 
-  if (osForm) {
-    osInitialSnap = osFormSnapshot();
-    osUpdateSalvarButton();
-    osForm.addEventListener('change', function (e) {
-      var t = e.target;
-      if (!t || !t.name || t.name === 'acao') return;
-      osUpdateSalvarButton();
+  var osInitialSnap = osFormSnapshot();
+  var equipeInitialSnap = equipeSnapshot();
+
+  function isDirty() {
+    var osDirty = osFormSnapshot() !== osInitialSnap;
+    var equipeDirty = equipeSnapshot() !== equipeInitialSnap;
+    var anexosDirty = anexosInput && anexosInput.files && anexosInput.files.length > 0;
+    return osDirty || equipeDirty || anexosDirty;
+  }
+
+  function updateSalvarButton() {
+    var dirty = isDirty();
+    salvarBtn.disabled = !dirty;
+    salvarBtn.title = dirty
+      ? 'Gravar ficha da OS, equipe e anexos selecionados'
+      : 'Altere a ficha, a equipe ou selecione anexos antes de salvar';
+    salvarBtn.classList.toggle('is-dirty', dirty);
+    salvarBtn.classList.toggle('btn-primary', dirty);
+    salvarBtn.classList.toggle('btn-secondary', !dirty);
+  }
+
+  function appendHidden(form, name, value) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = name;
+    inp.value = value;
+    form.appendChild(inp);
+  }
+
+  salvarBtn.addEventListener('click', function () {
+    if (salvarBtn.disabled) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.action = window.location.pathname + window.location.search;
+    f.enctype = 'multipart/form-data';
+    f.style.display = 'none';
+    appendHidden(f, 'acao', 'salvar_tudo');
+
+    osPanel.querySelectorAll('input, select, textarea').forEach(function (el) {
+      if (!el.name || el.disabled) return;
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        if (el.checked) appendHidden(f, el.name, el.value);
+        return;
+      }
+      if (el.type === 'file') return;
+      appendHidden(f, el.name, el.value);
     });
-    osForm.addEventListener('input', function (e) {
-      var t = e.target;
-      if (!t || !t.name || t.name === 'acao') return;
-      osUpdateSalvarButton();
-    });
+
+    if (equipeRoot) {
+      equipeRoot.querySelectorAll('input[type="checkbox"][name="tecnico_user_ids[]"]:checked').forEach(function (cb) {
+        appendHidden(f, 'tecnico_user_ids[]', cb.value);
+      });
+    }
+
+    if (anexosInput && anexosInput.files && anexosInput.files.length) {
+      var fileInp = document.createElement('input');
+      fileInp.type = 'file';
+      fileInp.name = 'anexos[]';
+      fileInp.multiple = true;
+      var dt = new DataTransfer();
+      for (var i = 0; i < anexosInput.files.length; i++) {
+        dt.items.add(anexosInput.files[i]);
+      }
+      fileInp.files = dt.files;
+      f.appendChild(fileInp);
+    }
+
+    document.body.appendChild(f);
+    f.submit();
+  });
+
+  updateSalvarButton();
+  osPanel.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.name) return;
+    updateSalvarButton();
+  });
+  osPanel.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || !t.name) return;
+    updateSalvarButton();
+  });
+  if (equipeRoot) {
+    equipeRoot.addEventListener('change', updateSalvarButton);
+  }
+  if (anexosInput) {
+    anexosInput.addEventListener('change', updateSalvarButton);
   }
 })();
 </script>

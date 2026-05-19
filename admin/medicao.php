@@ -83,8 +83,6 @@ include __DIR__ . '/../includes/head.php';
             <tr>
               <th>Mês</th>
               <th>Chamados</th>
-              <th>Materiais</th>
-              <th>Serv. itens</th>
               <th>Total</th>
               <th class="medicao-data-col">Data início</th>
               <th class="medicao-data-col">Data fim</th>
@@ -94,7 +92,7 @@ include __DIR__ . '/../includes/head.php';
           <tbody>
             <?php if (empty($mesesLista)): ?>
               <tr>
-                <td colspan="8" class="muted" style="padding:28px 20px;text-align:left;">
+                <td colspan="6" class="muted" style="padding:28px 20px;text-align:left;">
                   Nenhum mês com chamados nem importação BM — importe a planilha ou registe chamados para ver meses aqui.
                 </td>
               </tr>
@@ -134,8 +132,6 @@ include __DIR__ . '/../includes/head.php';
               <tr class="medicao-mes-row" data-medicao-mes="<?= htmlspecialchars($ym, ENT_QUOTES, 'UTF-8') ?>" id="bm-<?= htmlspecialchars(str_replace(['\\', '/'], '-', $ym), ENT_QUOTES, 'UTF-8') ?>">
                 <td class="td-strong"><?= htmlspecialchars(medicao_mes_label_pt($ym)) ?></td>
                 <td><?= (int) ($row['n_chamados'] ?? 0) ?></td>
-                <td class="td-mute">R$ <?= number_format((float) ($row['valor_materiais'] ?? 0), 2, ',', '.') ?></td>
-                <td class="td-mute">R$ <?= number_format((float) ($row['valor_servicos'] ?? 0), 2, ',', '.') ?></td>
                 <td><strong>R$ <?= number_format((float) ($row['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>
                 <td class="medicao-data-cell">
                   <form id="<?= htmlspecialchars($bmFormId, ENT_QUOTES, 'UTF-8') ?>" method="get" action="medicao_export_boletim_bm.php" class="medicao-bm-inline-form">
@@ -164,12 +160,11 @@ include __DIR__ . '/../includes/head.php';
                          title="<?= $dateTitle ?>">
                 </td>
                 <td class="td-actions">
-                  <div class="actions-inline">
-                    <a class="action-icon js-medicao-periodo-link" href="<?= htmlspecialchars($hrefChamados) ?>" data-link-kind="chamados" title="Chamados" aria-label="Chamados">💬</a>
-                    <button type="submit" form="<?= htmlspecialchars($bmFormId, ENT_QUOTES, 'UTF-8') ?>" class="action-icon excel" title="Excel — boletim BM" aria-label="Excel — boletim BM">📄</button>
-                    <a class="action-icon excel js-medicao-periodo-link" href="<?= htmlspecialchars($hrefXlsxDet) ?>" data-link-kind="xlsx_detalhes" title="Excel — medição completa" aria-label="Excel — medição completa">📋</a>
-                    <a class="action-icon pdf js-medicao-periodo-link" href="<?= htmlspecialchars($hrefPdfAnexos) ?>" data-link-kind="pdf_anexos" title="Relatório Fotográfico" aria-label="Relatório Fotográfico">📎</a>
-                  </div>
+                  <?php
+                    $bmExportComLabels      = true;
+                    $bmMostrarClienteHidden = $escopoEmpresa === null && $clienteId > 0;
+                    require __DIR__ . '/../includes/partials/medicao_bm_export_acoes.php';
+                  ?>
                 </td>
               </tr>
             <?php endforeach; endif; ?>
@@ -177,7 +172,7 @@ include __DIR__ . '/../includes/head.php';
         </table>
       </div>
       <p class="muted" style="margin:16px 20px 20px;font-size:13px;line-height:1.45;">
-        Defina <strong>Data início</strong> e/ou <strong>Data fim</strong> para filtrar medição, boletim BM (📄), Excel completo (📋) e PDF com imagens (📎).
+        Defina <strong>Data início</strong> e/ou <strong>Data fim</strong> para filtrar medição, boletim BM, medição completa e relatório fotográfico.
         Campos vazios usam o 1.º dia do mês e o fecho do boletim (<strong><?= htmlspecialchars(date('d/m/Y')) ?></strong> no mês corrente).
       </p>
     </div>

@@ -326,13 +326,12 @@ $metricCardClass = static function (bool $active): string {
           >
             <td><span class="badge badge-plain"><?= (($it['tipo'] ?? '') === 'produto') ? 'Produto' : 'Serviço' ?></span></td>
             <td>
-              <strong><?= htmlspecialchars((string) ($it['nome'] ?? '')) ?></strong>
-              <?php if ($estBaixo): ?>
-                <div style="margin-top:4px;"><span class="badge" style="background:rgba(220,38,38,.12);color:#dc2626;">Estoque baixo</span></div>
-              <?php endif; ?>
-              <?php if (!empty($it['descricao'])): ?>
-                <div class="muted" style="font-size:12px;margin-top:4px;"><?= htmlspecialchars((string) $it['descricao']) ?></div>
-              <?php endif; ?>
+              <div class="catalogo-item-nome">
+                <strong><?= htmlspecialchars((string) ($it['nome'] ?? '')) ?></strong>
+                <?php if ($estBaixo): ?>
+                  <span class="badge catalogo-badge-estoque-baixo">Estoque baixo</span>
+                <?php endif; ?>
+              </div>
             </td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['codigo'] ?? '—')) ?></td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></td>

@@ -5026,6 +5026,9 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
             'alteracoes'   => $diffOs,
             'n_alteracoes' => count($diffOs),
         ]);
+        if ($pontoId !== null && $pontoId > 0) {
+            chamado_sync_primeira_imagem_chamado_para_ponto($id, $pontoId);
+        }
     }
 
     return $ok;

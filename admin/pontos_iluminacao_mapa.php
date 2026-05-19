@@ -81,8 +81,8 @@ include __DIR__ . '/../includes/head.php';
   .leaflet-marker-icon:hover .ponto-marker{transform:scale(1.38);background:#fef08a!important;border-color:#ca8a04!important;box-shadow:0 2px 10px rgba(202,138,4,.45)}
   .leaflet-marker-icon:hover .ponto-marker--alert{background:#fde047!important;border-color:#a16207!important}
   .ponto-popup{width:300px;max-width:72vw}
-  .ponto-popup-photo{width:100%;height:136px;border-radius:12px;object-fit:cover;background:#f3f4f6;border:1px solid var(--border);display:block;margin:8px 0}
-  .ponto-popup-photo-empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:700;font-size:12px}
+  .ponto-popup-photo{width:50%;max-width:50%;height:68px;max-height:68px;border-radius:10px;object-fit:cover;object-position:center;background:#f3f4f6;border:1px solid var(--border);display:block;margin:6px auto;box-sizing:border-box}
+  .ponto-popup-photo-empty{width:50%;max-width:50%;height:68px;margin:6px auto;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-weight:700;font-size:11px;box-sizing:border-box}
   .ponto-popup-meta{color:var(--muted);font-size:12px}
   .ponto-popup-address{display:block;margin-top:4px;color:#374151}
   .ponto-popup-history{border-top:1px solid var(--border);margin-top:10px;padding-top:8px}

@@ -1364,6 +1364,39 @@ body.dashboard-map-resize-dragging * {
   margin-bottom: 0;
 }
 
+.leaflet-popup-content .ponto-popup-photo {
+  width: 50%;
+  max-width: 50%;
+  height: 68px;
+  max-height: 68px;
+  border-radius: 10px;
+  object-fit: cover;
+  object-position: center;
+  background: #f3f4f6;
+  border: 1px solid var(--border, #e5e7eb);
+  display: block;
+  margin: 6px auto;
+  box-sizing: border-box;
+}
+
+.leaflet-popup-content .ponto-popup-photo-empty {
+  width: 50%;
+  max-width: 50%;
+  height: 68px;
+  margin: 6px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #f3f4f6;
+  border: 1px solid var(--border, #e5e7eb);
+  color: var(--muted, #6b7280);
+  font-weight: 700;
+  font-size: 11px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
 .ponto-popup-actions {
   display: flex;
   align-items: center;
