@@ -347,7 +347,18 @@ $metricCardClass = static function (bool $active): string {
               <span class="muted" style="font-size:12px;"> <?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></span>
             </td>
             <?php endif; ?>
-            <td><?= !empty($it['ativo']) ? '<span class="badge done">Ativo</span>' : '<span class="badge muted">Inativo</span>' ?></td>
+            <td><?php
+              $fluxoSt = trim((string) ($it['catalogo_fluxo_status'] ?? ''));
+              if ($fluxoSt === 'Criado') {
+                  echo '<span class="badge plain" title="Criado pelo gestor no chamado">Criado</span>';
+              } elseif ($fluxoSt !== '') {
+                  echo '<span class="badge plain">' . htmlspecialchars($fluxoSt) . '</span>';
+              } elseif (!empty($it['ativo'])) {
+                  echo '<span class="badge done">Ativo</span>';
+              } else {
+                  echo '<span class="badge muted">Inativo</span>';
+              }
+            ?></td>
             <td class="td-actions">
               <?php if (!$catalogoPainelSomenteLeitura): ?>
               <button

@@ -19,6 +19,7 @@ $statusOperadorMapa = ['Aberto', 'Em andamento', 'Aguardando Aprovação'];
 
 $chamadosAbertos = [];
 $mapPins = [];
+$chamadosAtivosSemGps = 0;
 if (db_ok() && $empresaId > 0 && $operadorId > 0) {
     $resChamados = repo_chamados_operador_list($empresaId, '', '', 1, 200, $operadorId);
     foreach ($resChamados['rows'] as $ch) {
@@ -39,12 +40,29 @@ if (db_ok() && $empresaId > 0 && $operadorId > 0) {
                 'lat' => (float) $lat,
                 'lng' => (float) $lng,
             ];
+        } else {
+            $chamadosAtivosSemGps++;
         }
     }
 }
 $loadLeaflet = db_ok() && $empresaId > 0;
 
-$dash = db_ok() && $empresaId > 0 ? repo_dashboard_admin_stats($empresaId) : null;
+$dash = db_ok() && $empresaId > 0 && $operadorId > 0
+    ? repo_dashboard_operador_stats($empresaId, $operadorId)
+    : null;
+
+$mapEmptyMsg = null;
+if (count($mapPins) === 0 && $loadLeaflet) {
+    if (count($chamadosAbertos) === 0) {
+        $mapEmptyMsg = 'Nenhum chamado em Aberto, Em andamento ou Aguardando Aprovação está atribuído a você. '
+            . 'Peça ao gestor para vincular técnicos no chamado (equipe / responsável).';
+    } elseif ($chamadosAtivosSemGps > 0) {
+        $mapEmptyMsg = 'Você tem ' . (int) $chamadosAtivosSemGps . ' chamado(s) atribuído(s) sem latitude e longitude. '
+            . 'Abra o chamado e informe a localização para aparecer no mapa.';
+    } else {
+        $mapEmptyMsg = 'Nenhum chamado atribuído a você tem coordenadas para exibir no mapa.';
+    }
+}
 
 $topTitle    = 'Painel';
 $topSubtitle = '';
@@ -143,6 +161,9 @@ include __DIR__ . '/../includes/head.php';
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
   window.CHAMADOS_MAP_PINS = <?= json_encode($mapPins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
+  <?php if ($mapEmptyMsg !== null): ?>
+  window.CHAMADOS_MAP_EMPTY_MSG = <?= json_encode($mapEmptyMsg, JSON_UNESCAPED_UNICODE) ?>;
+  <?php endif; ?>
 </script>
 <script src="<?= $basePath ?>assets/js/dashboard-map.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/dashboard-map.js') ?>"></script>
 <?php endif; ?>

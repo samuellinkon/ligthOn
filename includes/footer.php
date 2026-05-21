@@ -13,6 +13,7 @@ if (!isset($basePath)) $basePath = '../';
 <script src="<?= $basePath ?>assets/js/crm-export-loading.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-export-loading.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-custom-select.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-custom-select.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-custom-file.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-custom-file.js') ?>"></script>
+<script src="<?= $basePath ?>assets/js/crm-input-masks.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-input-masks.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-viacep.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-viacep.js') ?>"></script>
 <?php if (!empty($loadComposer)): ?>
 <script src="<?= $basePath ?>assets/js/composer.js"></script>

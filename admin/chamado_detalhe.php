@@ -14,6 +14,8 @@ if ($CRM_CHAMADO_PORTAL) {
     require_modulo_admin('chamados');
 }
 require_once __DIR__ . '/../includes/audit_log.php';
+require_once __DIR__ . '/../includes/chamado_geo.php';
+require_once __DIR__ . '/../includes/op_chamado_materiais_ui.php';
 
 $chamadoPortalMatrizId = $CRM_CHAMADO_PORTAL ? repo_cliente_matriz_raiz_id((int) ($user['cliente_id'] ?? 0)) : 0;
 
@@ -262,31 +264,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $codItem  = trim((string) ($_POST['item_devolutivo_codigo'] ?? ''));
             $qtdItem  = (float) str_replace(',', '.', (string) ($_POST['item_devolutivo_qtd'] ?? '1'));
             $obsItem  = trim((string) ($_POST['item_devolutivo_obs'] ?? ''));
-            if ($nomeItem === '') {
-                flash_set('err', 'Informe o nome do item devolutivo solicitado.');
+            if ($CRM_CHAMADO_PORTAL) {
+                flash_set('err', 'Esta ação não está disponível no portal do cliente.');
             } else {
-                require_once __DIR__ . '/../includes/notificacoes.php';
-                $tituloNotif = sprintf(
-                    'Solicitação de item devolutivo no chamado #%d: %s',
+                $rDev = repo_chamado_item_devolutivo_criar_direto(
                     $id,
-                    function_exists('mb_substr') ? mb_substr($nomeItem, 0, 80, 'UTF-8') : substr($nomeItem, 0, 80)
+                    $nomeItem,
+                    $codItem !== '' ? $codItem : null,
+                    $qtdItem,
+                    $obsItem !== '' ? $obsItem : null,
+                    'Criado'
                 );
-                $descNotif = trim($codItem !== '' ? 'Código: ' . $codItem . ' · ' : '') . 'Qtd: ' . $qtdItem
-                    . ($obsItem !== '' ? ' · ' . $obsItem : '');
-                $destGest = repo_notificacao_destinatarios_chamado($id, true);
-                foreach (array_unique($destGest) as $uidDest) {
-                    if ((int) $uidDest === (int) ($user['id'] ?? 0)) {
-                        continue;
-                    }
-                    repo_notificacao_insert((int) $uidDest, $id, null, $tituloNotif, $descNotif, 'chamado_item_devolutivo');
+                if (op_chamado_detalhe_is_ajax()) {
+                    op_chamado_mat_json_for_chamado($id, $rDev['ok'], $rDev['ok'] ? '' : $rDev['err']);
                 }
-                audit_log_registar('chamado.item_devolutivo.solicitar', 'chamado', $id, (int) ($ch['cliente_id'] ?? 0) ?: null, [
-                    'nome'   => $nomeItem,
-                    'codigo' => $codItem,
-                    'qtd'    => $qtdItem,
-                    'obs'    => $obsItem,
-                ]);
-                flash_set('ok', 'Solicitação de item devolutivo enviada ao gestor.');
+                flash_set(
+                    $rDev['ok'] ? 'ok' : 'err',
+                    $rDev['ok']
+                        ? 'Item devolutivo criado no catálogo (status Criado) e lançado como recolhido.'
+                        : $rDev['err']
+                );
             }
 
         } elseif ($acao === 'prioridade') {
@@ -407,12 +404,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mov     = (string) ($_POST['movimento'] ?? 'utilizado');
             $obs     = trim((string) ($_POST['observacao'] ?? ''));
             $r       = repo_chamado_item_adicionar($id, $itemId, $qtd, $mov, $obs !== '' ? $obs : null);
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_for_chamado($id, $r['ok'], $r['ok'] ? '' : $r['err']);
+            }
             flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item lançado no chamado.' : $r['err']);
 
         } elseif ($acao === 'chamado_item_qtd') {
             $lid = (int) ($_POST['linha_id'] ?? 0);
             $qtd = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
-            if ($lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_quantidade($lid, $id, $qtd)) {
+            $okQ = $lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_quantidade($lid, $id, $qtd);
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_for_chamado($id, $okQ, $okQ ? '' : 'Não foi possível atualizar a linha.');
+            }
+            if ($okQ) {
                 flash_set('ok', 'Quantidade atualizada.');
             } else {
                 flash_set('err', 'Não foi possível atualizar a linha.');
@@ -422,7 +426,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lid = (int) ($_POST['linha_id'] ?? 0);
             $qtd = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
             $obs = trim((string) ($_POST['observacao'] ?? ''));
-            if ($lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_linha($lid, $id, $qtd, $obs !== '' ? $obs : null)) {
+            $okE = $lid > 0 && $qtd > 0 && repo_chamado_item_atualizar_linha($lid, $id, $qtd, $obs !== '' ? $obs : null);
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_for_chamado($id, $okE, $okE ? '' : 'Não foi possível atualizar o lançamento.');
+            }
+            if ($okE) {
                 flash_set('ok', 'Item do atendimento atualizado.');
             } else {
                 flash_set('err', 'Não foi possível atualizar o lançamento.');
@@ -430,7 +438,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } elseif ($acao === 'chamado_item_del') {
             $lid = (int) ($_POST['linha_id'] ?? 0);
-            if ($lid > 0 && repo_chamado_item_remover($lid, $id)) {
+            $okD = $lid > 0 && repo_chamado_item_remover($lid, $id);
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_for_chamado($id, $okD, $okD ? '' : 'Não foi possível remover.');
+            }
+            if ($okD) {
                 flash_set('ok', 'Linha removida.');
             } else {
                 flash_set('err', 'Não foi possível remover.');
@@ -680,10 +692,20 @@ $topSubtitle = $chamado['titulo'];
 $topSearch   = $CRM_CHAMADO_PORTAL ? 'Buscar em meus chamados...' : 'Buscar em chamados...';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 $loadComposer = true;
-$loadLeaflet  = db_ok()
-    && isset($chamado['latitude'], $chamado['longitude'])
-    && $chamado['latitude'] !== null
-    && $chamado['longitude'] !== null;
+$locPreview   = db_ok()
+    ? chamado_resolver_localizacao_preview($chamado, $pontoChamado ?? null)
+    : [
+        'lat'              => null,
+        'lng'              => null,
+        'fonte'            => null,
+        'modo'             => 'none',
+        'geocode_attempts' => [],
+        'mapa_query'       => '',
+        'nav_query'        => '',
+        'show_preview'     => false,
+        'label_fonte'      => '',
+    ];
+$loadLeaflet = !empty($locPreview['show_preview']);
 
 $valorChamadoItens = db_ok() ? repo_chamado_itens_valor_total($id) : 0.0;
 
@@ -1194,15 +1216,15 @@ include __DIR__ . '/../includes/head.php';
           <div class="chamado-materiais-card__stats" aria-label="Resumo rápido">
             <div class="chamado-materiais-card__pill">
               <span>Utilizados</span>
-              <strong><?= (int) $nMatU ?></strong>
+              <strong data-ch-mat-count="utilizados"><?= (int) $nMatU ?></strong>
             </div>
             <div class="chamado-materiais-card__pill">
               <span>Recolhidos</span>
-              <strong><?= (int) $nMatD ?></strong>
+              <strong data-ch-mat-count="recolhidos"><?= (int) $nMatD ?></strong>
             </div>
-            <div class="chamado-materiais-card__pill" style="min-width:118px;">
+            <div class="chamado-materiais-card__pill chamado-materiais-card__pill--valor">
               <span>Valor (itens)</span>
-              <strong>R$ <?= number_format((float) $valorChamadoItens, 2, ',', '.') ?></strong>
+              <strong data-ch-mat-valor>R$ <?= number_format((float) $valorChamadoItens, 2, ',', '.') ?></strong>
             </div>
           </div>
         </div>
@@ -1227,61 +1249,54 @@ include __DIR__ . '/../includes/head.php';
               </div>
               <?php endif; ?>
             </div>
-            <?php if (empty($chamadoMateriaisUtil)): ?>
-              <div class="chamado-materiais-empty">
-                <p>Nenhum item utilizado lançado ainda.</p>
-                <small><?= $CRM_CHAMADO_PORTAL ? 'Os itens aplicados pelo atendimento aparecem aqui.' : 'Adicione produtos ou serviços aplicados neste atendimento.' ?></small>
-              </div>
-            <?php else: ?>
-              <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
-                <table class="chamado-materiais-table chamado-materiais-table--uso">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Tipo</th>
-                      <th class="text-right">Qtd</th>
-                      <?php if (!$CRM_CHAMADO_PORTAL): ?>
-                      <th class="text-right td-actions">Ações</th>
+            <div class="chamado-materiais-empty" data-ch-mat-empty="utilizado" <?= empty($chamadoMateriaisUtil) ? '' : 'hidden' ?>>
+              <p>Nenhum item utilizado lançado ainda.</p>
+              <small><?= $CRM_CHAMADO_PORTAL ? 'Os itens aplicados pelo atendimento aparecem aqui.' : 'Adicione produtos ou serviços aplicados neste atendimento.' ?></small>
+            </div>
+            <div class="table-wrap chamado-itens-table chamado-itens-table--admin" data-ch-mat-table-wrap="utilizado" <?= empty($chamadoMateriaisUtil) ? 'hidden' : '' ?>>
+              <table class="chamado-materiais-table chamado-materiais-table--uso">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Tipo</th>
+                    <th class="text-right">Qtd</th>
+                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <th class="text-right td-actions">Ações</th>
+                    <?php endif; ?>
+                  </tr>
+                </thead>
+                <tbody data-ch-mat-tbody="utilizado">
+                  <?php foreach ($chamadoMateriaisUtil as $lm): ?>
+                  <?php
+                    $qDisp = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
+                    $lblItem = (string) ($lm['item_nome'] ?? '');
+                    $codLm = trim((string) ($lm['item_codigo'] ?? ''));
+                  ?>
+                  <tr>
+                    <td class="chamado-mat-col-item">
+                      <strong><?= htmlspecialchars($lblItem) ?></strong>
+                      <?php if ($codLm !== ''): ?>
+                        <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLm) ?></div>
                       <?php endif; ?>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php foreach ($chamadoMateriaisUtil as $lm): ?>
-                    <?php
-                      $qDisp = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                      $lblItem = (string) ($lm['item_nome'] ?? '');
-                      $codLm = trim((string) ($lm['item_codigo'] ?? ''));
-                    ?>
-                    <tr>
-                      <td>
-                        <strong><?= htmlspecialchars($lblItem) ?></strong>
-                        <?php if ($codLm !== ''): ?>
-                          <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLm) ?></div>
-                        <?php endif; ?>
-                      </td>
-                      <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
-                      <td class="text-right"><?= $qDisp ?></td>
-                      <?php if (!$CRM_CHAMADO_PORTAL): ?>
-                      <td class="text-right td-actions">
-                        <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
-                          data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
-                          data-qty="<?= $qDisp ?>"
-                          data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
-                          data-item-label="<?= htmlspecialchars($lblItem, ENT_QUOTES, 'UTF-8') ?>"
-                          data-movimento="utilizado">Editar</button>
-                        <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
-                          <input type="hidden" name="acao" value="chamado_item_del">
-                          <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                          <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                        </form>
-                      </td>
-                      <?php endif; ?>
-                    </tr>
-                    <?php endforeach; ?>
-                  </tbody>
-                </table>
-              </div>
-            <?php endif; ?>
+                    </td>
+                    <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
+                    <td class="text-right"><?= $qDisp ?></td>
+                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <td class="text-right td-actions">
+                      <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
+                        data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
+                        data-qty="<?= $qDisp ?>"
+                        data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                        data-item-label="<?= htmlspecialchars($lblItem, ENT_QUOTES, 'UTF-8') ?>"
+                        data-movimento="utilizado">Editar</button>
+                      <button type="button" class="btn btn-danger btn-sm" data-ch-mat-del data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>">Excluir</button>
+                    </td>
+                    <?php endif; ?>
+                  </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section class="chamado-materiais-block chamado-materiais-block--dev" aria-labelledby="ch-mat-dev-title">
@@ -1291,65 +1306,58 @@ include __DIR__ . '/../includes/head.php';
               <div class="chamado-materiais-block__actions chamado-materiais-block__actions--stack">
                 <button type="button" class="btn btn-primary btn-sm js-cham-mat-open-pick" data-pick-mov="devolvido" data-catalog-tipo="produto"
                   <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo para recolhimento"' : '' ?>>Recolher produto</button>
-                <button type="button" class="btn btn-ghost btn-sm" data-ch-solicitar-devolutivo-open>Solicitar novo item devolutivo</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-ch-solicitar-devolutivo-open>Novo item devolutivo</button>
               </div>
               <?php endif; ?>
             </div>
-            <?php if (empty($chamadoMateriaisDev)): ?>
-              <div class="chamado-materiais-empty chamado-materiais-empty--muted">
-                <p>Nenhum item recolhido lançado ainda.</p>
-                <small><?= $CRM_CHAMADO_PORTAL ? 'Recolhimentos feitos pela equipe aparecem aqui.' : 'Registre materiais retirados, devolvidos ou recolhidos no atendimento.' ?></small>
-              </div>
-            <?php else: ?>
-              <div class="table-wrap chamado-itens-table chamado-itens-table--admin">
-                <table class="chamado-materiais-table chamado-materiais-table--dev">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Tipo</th>
-                      <th class="text-right">Qtd</th>
-                      <?php if (!$CRM_CHAMADO_PORTAL): ?>
-                      <th class="text-right td-actions">Ações</th>
+            <div class="chamado-materiais-empty chamado-materiais-empty--muted" data-ch-mat-empty="devolvido" <?= empty($chamadoMateriaisDev) ? '' : 'hidden' ?>>
+              <p>Nenhum item recolhido lançado ainda.</p>
+              <small><?= $CRM_CHAMADO_PORTAL ? 'Recolhimentos feitos pela equipe aparecem aqui.' : 'Registre materiais retirados, devolvidos ou recolhidos no atendimento.' ?></small>
+            </div>
+            <div class="table-wrap chamado-itens-table chamado-itens-table--admin" data-ch-mat-table-wrap="devolvido" <?= empty($chamadoMateriaisDev) ? 'hidden' : '' ?>>
+              <table class="chamado-materiais-table chamado-materiais-table--dev">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Tipo</th>
+                    <th class="text-right">Qtd</th>
+                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <th class="text-right td-actions">Ações</th>
+                    <?php endif; ?>
+                  </tr>
+                </thead>
+                <tbody data-ch-mat-tbody="devolvido">
+                  <?php foreach ($chamadoMateriaisDev as $lm): ?>
+                  <?php
+                    $qDispD = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
+                    $lblItemD = (string) ($lm['item_nome'] ?? '');
+                    $codLmD = trim((string) ($lm['item_codigo'] ?? ''));
+                  ?>
+                  <tr>
+                    <td class="chamado-mat-col-item">
+                      <strong><?= htmlspecialchars($lblItemD) ?></strong>
+                      <?php if ($codLmD !== ''): ?>
+                        <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLmD) ?></div>
                       <?php endif; ?>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php foreach ($chamadoMateriaisDev as $lm): ?>
-                    <?php
-                      $qDispD = htmlspecialchars(rtrim(rtrim(sprintf('%.4f', (float) ($lm['quantidade'] ?? 0)), '0'), '.'));
-                      $lblItemD = (string) ($lm['item_nome'] ?? '');
-                      $codLmD = trim((string) ($lm['item_codigo'] ?? ''));
-                    ?>
-                    <tr>
-                      <td>
-                        <strong><?= htmlspecialchars($lblItemD) ?></strong>
-                        <?php if ($codLmD !== ''): ?>
-                          <div class="td-mute" style="font-size:12px;">Cód. <?= htmlspecialchars($codLmD) ?></div>
-                        <?php endif; ?>
-                      </td>
-                      <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
-                      <td class="text-right"><?= $qDispD ?></td>
-                      <?php if (!$CRM_CHAMADO_PORTAL): ?>
-                      <td class="text-right td-actions">
-                        <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
-                          data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
-                          data-qty="<?= $qDispD ?>"
-                          data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
-                          data-item-label="<?= htmlspecialchars($lblItemD, ENT_QUOTES, 'UTF-8') ?>"
-                          data-movimento="devolvido">Editar</button>
-                        <form method="post" style="display:inline;" data-confirm="Remover esta linha?" data-confirm-danger>
-                          <input type="hidden" name="acao" value="chamado_item_del">
-                          <input type="hidden" name="linha_id" value="<?= (int) ($lm['id'] ?? 0) ?>">
-                          <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                        </form>
-                      </td>
-                      <?php endif; ?>
-                    </tr>
-                    <?php endforeach; ?>
-                  </tbody>
-                </table>
-              </div>
-            <?php endif; ?>
+                    </td>
+                    <td class="td-mute"><?= htmlspecialchars((string) ($lm['item_tipo'] ?? '')) ?></td>
+                    <td class="text-right"><?= $qDispD ?></td>
+                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <td class="text-right td-actions">
+                      <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
+                        data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
+                        data-qty="<?= $qDispD ?>"
+                        data-obs="<?= htmlspecialchars((string) ($lm['observacao'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                        data-item-label="<?= htmlspecialchars($lblItemD, ENT_QUOTES, 'UTF-8') ?>"
+                        data-movimento="devolvido">Editar</button>
+                      <button type="button" class="btn btn-danger btn-sm" data-ch-mat-del data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>">Excluir</button>
+                    </td>
+                    <?php endif; ?>
+                  </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <?php if (!$CRM_CHAMADO_PORTAL && empty($catalogoItensChamado)): ?>
@@ -1641,7 +1649,15 @@ include __DIR__ . '/../includes/head.php';
             <div class="info-row"><span>Status no cadastro</span>
               <strong><span class="badge <?= (($pontoChamado['status'] ?? '') === 'Ativo') ? 'success' : 'plain' ?>"><?= htmlspecialchars((string) ($pontoChamado['status'] ?? '—')) ?></span></strong>
             </div>
-            <?php if (!empty($pontoChamado['latitude']) && !empty($pontoChamado['longitude'])): ?>
+            <?php if (($locPreview['fonte'] ?? '') === 'ponto' && $locPreview['lat'] !== null && $locPreview['lng'] !== null): ?>
+            <div class="info-row"><span>Coordenadas (cadastro)</span>
+              <strong class="td-mute"><?= htmlspecialchars(number_format((float) $locPreview['lat'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $locPreview['lng'], 6, '.', '')) ?></strong>
+            </div>
+            <?php elseif (($locPreview['fonte'] ?? '') === 'chamado' && $locPreview['lat'] !== null && $locPreview['lng'] !== null): ?>
+            <div class="info-row"><span>Coordenadas (chamado)</span>
+              <strong class="td-mute"><?= htmlspecialchars(number_format((float) $locPreview['lat'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $locPreview['lng'], 6, '.', '')) ?></strong>
+            </div>
+            <?php elseif (!empty($pontoChamado['latitude']) && !empty($pontoChamado['longitude'])): ?>
             <div class="info-row"><span>Coordenadas (cadastro)</span>
               <strong class="td-mute"><?= htmlspecialchars((string) $pontoChamado['latitude']) ?>, <?= htmlspecialchars((string) $pontoChamado['longitude']) ?></strong>
             </div>
@@ -1759,7 +1775,7 @@ include __DIR__ . '/../includes/head.php';
       <div class="card">
         <div class="panel-head">
           <h4>Endereço e mapa</h4>
-          <span class="panel-sub">Aparece no mapa do dashboard quando latitude e longitude estão preenchidas</span>
+          <span class="panel-sub">Localização pelo poste cadastrado, coordenadas do chamado, CEP+endereço ou mapa por endereço</span>
         </div>
         <div class="panel-body">
           <div class="chamado-location-grid">
@@ -1791,11 +1807,20 @@ include __DIR__ . '/../includes/head.php';
               </div>
             </div>
             <div class="chamado-location-actions">
-              <?php if (!empty($loadLeaflet)): ?>
+              <?php if (!empty($loadLeaflet) && ($locPreview['nav_query'] ?? '') !== ''): ?>
                 <a class="btn btn-ghost" target="_blank" rel="noopener"
-                   href="https://www.google.com/maps?q=<?= urlencode((string) $chamado['latitude'] . ',' . (string) $chamado['longitude']) ?>">Abrir no Google Maps</a>
+                   href="https://www.google.com/maps/search/?api=1&amp;query=<?= rawurlencode((string) $locPreview['nav_query']) ?>">Abrir no Google Maps</a>
               <?php endif; ?>
             </div>
+            <?php if (($locPreview['label_fonte'] ?? '') !== '' && $locPreview['lat'] !== null && $locPreview['lng'] !== null): ?>
+            <p class="muted" style="margin:8px 0 0;font-size:12px;">
+              <?= htmlspecialchars((string) $locPreview['label_fonte']) ?> —
+              <strong><?= htmlspecialchars(number_format((float) $locPreview['lat'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $locPreview['lng'], 6, '.', '')) ?></strong>
+            </p>
+            <?php endif; ?>
+            <?php if (($locPreview['modo'] ?? '') === 'geocode'): ?>
+            <p class="muted" id="chamado-map-geocode-hint-admin" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
+            <?php endif; ?>
           </div>
           <?php if (!empty($loadLeaflet)): ?>
           <div id="chamado-loc-preview" style="margin-top:14px;">
@@ -1976,8 +2001,12 @@ document.addEventListener('DOMContentLoaded', function () {
     svTabId: 'chamado-loc-sv-tab',
     svLabelId: 'chamado-loc-sv-label',
     svMapBtnId: 'chamado-loc-sv-map-btn',
-    lat: <?= json_encode((float) $chamado['latitude']) ?>,
-    lng: <?= json_encode((float) $chamado['longitude']) ?>,
+    lat: <?= $locPreview['lat'] !== null ? json_encode($locPreview['lat']) : 'null' ?>,
+    lng: <?= $locPreview['lng'] !== null ? json_encode($locPreview['lng']) : 'null' ?>,
+    modo: <?= json_encode($locPreview['modo'] ?? 'none', JSON_UNESCAPED_UNICODE) ?>,
+    mapaQuery: <?= json_encode($locPreview['mapa_query'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+    attempts: <?= json_encode($locPreview['geocode_attempts'] ?? [], JSON_UNESCAPED_UNICODE) ?>,
+    hintId: 'chamado-map-geocode-hint-admin',
     scrollWheelZoom: false,
     zoomControl: true
   });
@@ -2130,8 +2159,11 @@ document.addEventListener('DOMContentLoaded', function () {
     setTimeout(function () { if (pickBusca) pickBusca.focus(); }, 50);
   }
 
-  document.querySelectorAll('.js-cham-mat-open-edit').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+  var matCard = document.querySelector('.chamado-materiais-card');
+  if (matCard) {
+    matCard.addEventListener('click', function (e) {
+      var btn = e.target.closest('.js-cham-mat-open-edit');
+      if (!btn) return;
       formEdit.hidden = false;
       var lid = document.getElementById('chamado-mat-edit-linha-id');
       var qe = document.getElementById('chamado-mat-qty-edit');
@@ -2145,7 +2177,7 @@ document.addEventListener('DOMContentLoaded', function () {
       openDrawer();
       setTimeout(function () { if (qe) qe.focus(); }, 50);
     });
-  });
+  }
 
   drawer.querySelectorAll('[data-cham-mat-close]').forEach(function (el) {
     el.addEventListener('click', closeDrawer);
@@ -2185,20 +2217,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  if (formPick) {
-    formPick.addEventListener('submit', function (e) {
-      if (!pickInpItemId || !pickInpItemId.value) {
-        e.preventDefault();
-        if (typeof window.appAlert === 'function') {
-          window.appAlert('Selecione um item do catálogo na lista.');
-        } else {
-          alert('Selecione um item do catálogo na lista.');
-        }
-      }
-    });
-  }
 })();
-
+</script>
+<script>
 (function () {
   var root = document.getElementById('equipe_picker_grid');
   var filtro = document.getElementById('filtro_equipe_chamado');
@@ -2382,6 +2403,17 @@ $devolutivoModalId        = 'ch-solicitar-devolutivo-modal';
 $devolutivoModalOpenAttr  = 'data-ch-solicitar-devolutivo-open';
 $devolutivoModalCloseAttr = 'data-ch-solicitar-devolutivo-close';
 $devolutivoFieldPrefix    = 'ch';
+$devolutivoModoGestor     = !$CRM_CHAMADO_PORTAL;
 require __DIR__ . '/../includes/partials/chamado_solicitar_devolutivo_modal.php';
 ?>
+<?php if (!$CRM_CHAMADO_PORTAL): ?>
+<script src="<?= htmlspecialchars($basePath) ?>assets/js/admin-chamado-materiais.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/admin-chamado-materiais.js') ?>"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (window.AdminChamadoMateriais) {
+    AdminChamadoMateriais.init({ canEdit: true });
+  }
+});
+</script>
+<?php endif; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

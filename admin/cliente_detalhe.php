@@ -293,7 +293,7 @@ include __DIR__ . '/../includes/head.php';
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="op_email">E-mail (login)</label>
-          <input type="email" id="op_email" name="email" class="input" required maxlength="150" autocomplete="email" placeholder="nome@organização.gov.br">
+          <input type="email" id="op_email" name="email" class="input" required maxlength="150" data-crm-mask="email" autocomplete="email" placeholder="nome@organização.gov.br">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="op_senha">Senha</label>
@@ -345,7 +345,7 @@ include __DIR__ . '/../includes/head.php';
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="cli_email">E-mail (login)</label>
-          <input type="email" id="cli_email" name="email" class="input" required maxlength="150" autocomplete="email" placeholder="nome@organização.gov.br">
+          <input type="email" id="cli_email" name="email" class="input" required maxlength="150" data-crm-mask="email" autocomplete="email" placeholder="nome@organização.gov.br">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label for="cli_senha">Senha</label>

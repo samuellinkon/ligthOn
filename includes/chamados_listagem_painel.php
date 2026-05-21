@@ -404,6 +404,7 @@ $maxExportRows = 20000;
 $maxPdfChamados = 120;
 
 if ($exportFmt === 'pdf_anexos') {
+    $fExportMedicao = 'resolvido_bm';
     require_once __DIR__ . '/crm_export_pdf_debug.php';
     crm_export_pdf_flush_output_buffers();
     ob_start();
@@ -427,11 +428,11 @@ if ($exportFmt === 'pdf_anexos') {
         header('Location: ' . $redirPosExport);
         exit;
     }
-    $totalPeriodo = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
+    $totalPeriodo = repo_chamados_admin_list($fExportMedicao, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
     $rowsEx       = adm_chamados_collect_export_rows(
         false,
         [],
-        $f,
+        $fExportMedicao,
         $q,
         $escopoLista,
         $periodoDe,
@@ -473,7 +474,7 @@ if ($exportFmt === 'pdf_anexos') {
         }
     }
     $resumoPdf = repo_chamados_admin_relatorio_resumo(
-        $f,
+        $fExportMedicao,
         $q,
         $escopoLista,
         $periodoDe,
@@ -651,6 +652,7 @@ if ($exportFmt === 'csv_itens') {
 }
 
 if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
+    $fExportMedicao = 'resolvido_bm';
     if (!db_ok()) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
@@ -705,7 +707,7 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
     }
 
     $kpMed = repo_chamados_medicao_export_kpis(
-        $f,
+        $fExportMedicao,
         $q,
         $escopoLista,
         $periodoDe,

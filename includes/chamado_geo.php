@@ -140,3 +140,235 @@ function chamado_geocode_attempts(array $ch): array
 
     return $out;
 }
+
+/**
+ * Valida par lat/lng (aceita float, int ou string).
+ */
+function chamado_geo_coords_validas(mixed $lat, mixed $lng): bool
+{
+    if ($lat === null || $lng === null || $lat === '' || $lng === '') {
+        return false;
+    }
+    $latStr = is_string($lat) ? trim(str_replace(',', '.', $lat)) : (string) $lat;
+    $lngStr = is_string($lng) ? trim(str_replace(',', '.', $lng)) : (string) $lng;
+    if (!is_numeric($latStr) || !is_numeric($lngStr)) {
+        return false;
+    }
+    $la = (float) $latStr;
+    $lo = (float) $lngStr;
+
+    return $la >= -90.0 && $la <= 90.0 && $lo >= -180.0 && $lo <= 180.0;
+}
+
+/**
+ * @return array{0: ?float, 1: ?float}
+ */
+function chamado_geo_row_latlng(?array $row): array
+{
+    if (!$row) {
+        return [null, null];
+    }
+    $la = $row['latitude'] ?? null;
+    $lo = $row['longitude'] ?? null;
+    if (!chamado_geo_coords_validas($la, $lo)) {
+        return [null, null];
+    }
+    $latStr = is_string($la) ? trim(str_replace(',', '.', $la)) : (string) $la;
+    $lngStr = is_string($lo) ? trim(str_replace(',', '.', $lo)) : (string) $lo;
+
+    return [(float) $latStr, (float) $lngStr];
+}
+
+/**
+ * Tentativas de geocode com CEP em destaque (prioridade 3).
+ *
+ * @return list<array{type:string,street?:string,city?:string,state?:string,q?:string}>
+ */
+function chamado_geocode_attempts_com_cep(array $ch): array
+{
+    $seen  = [];
+    $out   = [];
+    $pushQ = static function (string $q) use (&$seen, &$out): void {
+        $q = trim($q);
+        if ($q === '') {
+            return;
+        }
+        $key = mb_strtolower($q, 'UTF-8');
+        if (isset($seen[$key])) {
+            return;
+        }
+        $seen[$key] = true;
+        if (stripos($q, 'brasil') === false && stripos($q, 'brazil') === false) {
+            $q .= ', Brasil';
+        }
+        $out[] = ['type' => 'q', 'q' => $q];
+    };
+
+    $cepRaw = preg_replace('/\D/', '', (string) ($ch['os_cep'] ?? ''));
+    if (strlen($cepRaw) !== 8) {
+        return chamado_geocode_attempts($ch);
+    }
+    $cepFmt = substr($cepRaw, 0, 5) . '-' . substr($cepRaw, 5);
+
+    $log    = trim((string) ($ch['os_logradouro'] ?? ''));
+    $num    = trim((string) ($ch['os_numero'] ?? ''));
+    $bairro = trim((string) ($ch['os_bairro'] ?? ''));
+    $cidade = trim((string) ($ch['os_cidade'] ?? ''));
+    $uf     = strtoupper(preg_replace('/\./', '', trim((string) ($ch['os_uf'] ?? ''))));
+
+    if ($log !== '') {
+        $head = [$log];
+        if (chamado_geo_numero_valido($num)) {
+            $head[] = $num;
+        }
+        $parts = [implode(', ', $head), $cepFmt];
+        if ($bairro !== '') {
+            $parts[] = $bairro;
+        }
+        if ($cidade !== '' && $uf !== '') {
+            $parts[] = $cidade . ' - ' . $uf;
+        } elseif ($cidade !== '') {
+            $parts[] = $cidade;
+        }
+        $pushQ(implode(', ', $parts));
+    }
+
+    $pushQ($cepFmt . ', Brasil');
+
+    if ($log !== '' && $cidade !== '' && $uf !== '') {
+        $street = chamado_geo_numero_valido($num) ? trim($num . ' ' . $log) : $log;
+        $key    = 's:' . mb_strtolower($street . '|' . $cidade . '|' . $uf, 'UTF-8');
+        if (!isset($seen[$key])) {
+            $seen[$key] = true;
+            $out[]      = ['type' => 'structured', 'street' => $street, 'city' => $cidade, 'state' => $uf];
+        }
+    }
+
+    foreach (chamado_geocode_attempts($ch) as $attempt) {
+        if ($attempt['type'] === 'structured') {
+            $key = 's:' . mb_strtolower(
+                ($attempt['street'] ?? '') . '|' . ($attempt['city'] ?? '') . '|' . ($attempt['state'] ?? ''),
+                'UTF-8'
+            );
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $out[] = $attempt;
+            }
+        } else {
+            $q = trim((string) ($attempt['q'] ?? ''));
+            if ($q !== '') {
+                $pushQ($q);
+            }
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Resolve localização para preview (ponto → chamado → CEP+endereço → mapa por endereço).
+ *
+ * @return array{
+ *   lat: ?float,
+ *   lng: ?float,
+ *   fonte: ?string,
+ *   modo: string,
+ *   geocode_attempts: list<array>,
+ *   mapa_query: string,
+ *   nav_query: string,
+ *   show_preview: bool,
+ *   label_fonte: string
+ * }
+ */
+function chamado_resolver_localizacao_preview(array $chamado, ?array $ponto = null): array
+{
+    $empty = [
+        'lat'              => null,
+        'lng'              => null,
+        'fonte'            => null,
+        'modo'             => 'none',
+        'geocode_attempts' => [],
+        'mapa_query'       => '',
+        'nav_query'        => '',
+        'show_preview'     => false,
+        'label_fonte'      => '',
+    ];
+
+    [$pla, $plo] = chamado_geo_row_latlng($ponto);
+    if ($pla !== null && $plo !== null) {
+        $nav = number_format($pla, 7, '.', '') . ',' . number_format($plo, 7, '.', '');
+        $cod = trim((string) ($ponto['codigo_poste'] ?? ''));
+        if ($cod === '') {
+            $cod = trim((string) ($chamado['ponto_codigo_poste'] ?? ''));
+        }
+
+        return [
+            'lat'              => $pla,
+            'lng'              => $plo,
+            'fonte'            => 'ponto',
+            'modo'             => 'streetview',
+            'geocode_attempts' => [],
+            'mapa_query'       => '',
+            'nav_query'        => $nav,
+            'show_preview'     => true,
+            'label_fonte'      => $cod !== '' ? 'Poste ' . $cod : 'Ponto de iluminação cadastrado',
+        ];
+    }
+
+    [$cla, $clo] = chamado_geo_row_latlng($chamado);
+    if ($cla !== null && $clo !== null) {
+        $nav = number_format($cla, 7, '.', '') . ',' . number_format($clo, 7, '.', '');
+
+        return [
+            'lat'              => $cla,
+            'lng'              => $clo,
+            'fonte'            => 'chamado',
+            'modo'             => 'streetview',
+            'geocode_attempts' => [],
+            'mapa_query'       => '',
+            'nav_query'        => $nav,
+            'show_preview'     => true,
+            'label_fonte'      => 'Coordenadas do chamado',
+        ];
+    }
+
+    $enderecoOs   = chamado_geo_endereco_os($chamado);
+    $enderecoFull = trim((string) ($chamado['endereco_completo'] ?? ''));
+    $enderecoLimpo = $enderecoFull !== '' ? (chamado_geo_limpar_texto($enderecoFull) ?: $enderecoFull) : '';
+    $cep8         = strlen(preg_replace('/\D/', '', (string) ($chamado['os_cep'] ?? ''))) === 8;
+    $temEndereco  = $enderecoOs !== '' || $enderecoLimpo !== '';
+
+    if ($cep8 && $temEndereco) {
+        $nav = $enderecoOs !== '' ? $enderecoOs : $enderecoLimpo;
+
+        return [
+            'lat'              => null,
+            'lng'              => null,
+            'fonte'            => null,
+            'modo'             => 'geocode',
+            'geocode_attempts' => chamado_geocode_attempts_com_cep($chamado),
+            'mapa_query'       => '',
+            'nav_query'        => $nav,
+            'show_preview'     => true,
+            'label_fonte'      => '',
+        ];
+    }
+
+    if ($temEndereco) {
+        $mapaQuery = $enderecoOs !== '' ? $enderecoOs : $enderecoLimpo;
+
+        return [
+            'lat'              => null,
+            'lng'              => null,
+            'fonte'            => null,
+            'modo'             => 'mapa_endereco',
+            'geocode_attempts' => [],
+            'mapa_query'       => $mapaQuery,
+            'nav_query'        => $mapaQuery,
+            'show_preview'     => true,
+            'label_fonte'      => '',
+        ];
+    }
+
+    return $empty;
+}

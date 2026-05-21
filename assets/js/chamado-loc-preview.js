@@ -16,6 +16,8 @@
 
     var lat = opts.lat;
     var lng = opts.lng;
+    var modo = opts.modo || 'streetview';
+    var mapaQuery = (opts.mapaQuery || '').trim();
     var attempts = opts.attempts || [];
     var map;
     var svGeneration = 0;
@@ -70,6 +72,26 @@
       svFrame.src = 'https://www.google.com/maps?cbll=' + ll + '&cbp=11,0,0,0,0&layer=c&output=svembed';
       if (svTab) {
         svTab.href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll;
+      }
+      clearHint();
+    }
+
+    function showMapaEndereco(q) {
+      if (!svWrap || !svFrame) {
+        return;
+      }
+      svGeneration++;
+      mapEl.hidden = true;
+      svWrap.hidden = false;
+      if (svLabel) svLabel.textContent = 'Mapa (endereço)';
+      if (svTab) {
+        svTab.textContent = 'Abrir no Google Maps';
+        svTab.hidden = false;
+      }
+      var qEnc = encodeURIComponent(q);
+      svFrame.src = 'https://www.google.com/maps?q=' + qEnc + '&hl=pt-BR&output=embed';
+      if (svTab) {
+        svTab.href = 'https://www.google.com/maps/search/?api=1&query=' + qEnc;
       }
       clearHint();
     }
@@ -141,11 +163,15 @@
       });
     }
 
-    if (lat != null && lng != null) {
+    if (modo === 'streetview' && lat != null && lng != null) {
       showStreetView(lat, lng);
       return;
     }
-    if (!attempts.length) {
+    if (modo === 'mapa_endereco' && mapaQuery !== '') {
+      showMapaEndereco(mapaQuery);
+      return;
+    }
+    if (modo !== 'geocode' || !attempts.length) {
       clearHint();
       return;
     }

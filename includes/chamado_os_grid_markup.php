@@ -72,6 +72,7 @@ $chOsReadonlyAddr = !empty($ch_os_readonly_endereco);
         <div class="form-group">
           <label for="os_cpf">CPF</label>
           <input type="text" id="os_cpf" name="contribuinte_cpf" class="input" maxlength="20"
+                 data-crm-mask="cpf" inputmode="numeric" autocomplete="off"
                  placeholder="000.000.000-00" value="<?= $f('contribuinte_cpf') ?>">
         </div>
         <div class="form-group">
@@ -88,8 +89,16 @@ $chOsReadonlyAddr = !empty($ch_os_readonly_endereco);
         <div class="form-group">
           <label for="os_tel">Telefone</label>
           <input type="text" id="os_tel" name="contribuinte_telefone" class="input" maxlength="40"
+                 data-crm-mask="telefone" inputmode="tel" autocomplete="tel"
                  placeholder="(00) 00000-0000"
                  value="<?= $f('contribuinte_telefone') ?>">
+        </div>
+        <div class="form-group">
+          <label for="os_email">E-mail</label>
+          <input type="email" id="os_email" name="contribuinte_email" class="input" maxlength="160"
+                 data-crm-mask="email" autocomplete="email"
+                 placeholder="nome@exemplo.com.br"
+                 value="<?= $f('contribuinte_email') ?>">
         </div>
       </div>
     </div>
@@ -123,6 +132,7 @@ $chOsReadonlyAddr = !empty($ch_os_readonly_endereco);
           <div class="form-group os-addr-cep">
             <label for="os_cep">CEP</label>
             <input type="text" id="os_cep" name="os_cep" class="input" maxlength="12"
+                   data-crm-mask="cep" inputmode="numeric" autocomplete="postal-code"
                    placeholder="00000-000" value="<?= $f('os_cep') ?>">
           </div>
           <div class="form-group os-addr-logra">

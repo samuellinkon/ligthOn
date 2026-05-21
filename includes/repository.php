@@ -357,6 +357,14 @@ function repo_chamado_tem_coordenadas_validas(array $ch): bool
 }
 
 /**
+ * Condição SQL: chamados que entram no boletim BM, BM completo e relatório fotográfico.
+ */
+function repo_chamados_status_sql_medicao_bm(): string
+{
+    return "ch.status = 'Resolvido'";
+}
+
+/**
  * @return array{ok: bool, err: string}
  */
 function repo_validar_chamado_resolvido(int $id): array
@@ -2380,6 +2388,42 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
 }
 
 /**
+ * Métricas do painel do operador (apenas chamados atribuídos ao usuário).
+ *
+ * @return array{ch_abertos:int,ch_andamento:int,ch_urgentes:int,ch_resolvidos_7d:int}|null
+ */
+function repo_dashboard_operador_stats(int $empresaRaizId, int $operadorUserId): ?array
+{
+    if ($empresaRaizId <= 0 || $operadorUserId <= 0 || !db_ok()) {
+        return null;
+    }
+    $res = repo_chamados_operador_list($empresaRaizId, '', '', 1, 5000, $operadorUserId);
+    $abertos = $andamento = $urgentes = $res7d = 0;
+    foreach ($res['rows'] as $ch) {
+        $st = (string) ($ch['status'] ?? '');
+        if ($st === 'Aberto') {
+            $abertos++;
+        } elseif ($st === 'Em andamento') {
+            $andamento++;
+        }
+        if (in_array($st, ['Aberto', 'Em andamento', 'Aguardando Aprovação'], true)
+            && in_array((string) ($ch['prioridade'] ?? ''), ['Alta', 'Urgente'], true)) {
+            $urgentes++;
+        }
+        if (in_array($st, ['Resolvido', 'Fechado'], true)) {
+            $res7d++;
+        }
+    }
+
+    return [
+        'ch_abertos'       => $abertos,
+        'ch_andamento'     => $andamento,
+        'ch_urgentes'      => $urgentes,
+        'ch_resolvidos_7d' => $res7d,
+    ];
+}
+
+/**
  * Chamado pode ser atendido por operador da empresa $empresaRaizId.
  */
 function repo_chamado_acessivel_operador_empresa(int $chamadoId, int $empresaRaizId): bool
@@ -2644,6 +2688,8 @@ function _repo_chamados_admin_sql_where(
         $params[] = 'Aguardando Aprovação';
     } elseif ($filtro === 'resolvidos') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\')';
+    } elseif ($filtro === 'resolvido_bm') {
+        $where[] = repo_chamados_status_sql_medicao_bm();
     } elseif ($filtro === 'cancelados') {
         $where[]  = 'ch.status = ?';
         $params[] = 'Cancelado';
@@ -3205,7 +3251,7 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
         LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND ch.status <> 'Cancelado'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
         ORDER BY ch.aberto_em ASC, ch.id ASC
     ";
     $st = $pdo->prepare($sql);
@@ -3275,7 +3321,7 @@ function repo_chamados_itens_utilizados_periodo_linhas(int $empresaRaizId, strin
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND ci.movimento = \'utilizado\'
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND ch.status <> \'Cancelado\'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
         ORDER BY ref_mes ASC, ch.id ASC, ci.id ASC
     ';
     $st = $pdo->prepare($sql);
@@ -3356,7 +3402,7 @@ function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe
         ' . $tecJoin . '
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND ch.status <> \'Cancelado\'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
         ' . $movimentoSql . '
         ORDER BY ch.aberto_em DESC, ch.id DESC, FIELD(ci.movimento, \'utilizado\', \'devolvido\'), ci.id ASC
     ';
@@ -3458,7 +3504,7 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
         ' . $tecJoin . '
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
-          AND ch.status <> \'Cancelado\'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
           AND ci.movimento = ?
         ORDER BY ch.aberto_em DESC, ch.id DESC, ci.id ASC
     ';
@@ -3635,7 +3681,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         INNER JOIN cliente_itens it ON it.id = ci.item_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND ch.status <> 'Cancelado'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
         GROUP BY ci.movimento, it.tipo, it.codigo, it.nome, it.unidade
         ORDER BY FIELD(ci.movimento, 'utilizado', 'devolvido'), it.tipo ASC, it.nome ASC
     ";
@@ -3702,7 +3748,7 @@ function repo_medicao_bm_utilizado_quantidades_por_item(int $empresaRaizId, stri
         INNER JOIN cliente_itens it ON it.id = ci.item_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND ch.status <> 'Cancelado'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
           AND ci.movimento = 'utilizado'
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0
@@ -3763,7 +3809,7 @@ function repo_medicao_bm_utilizado_por_item_periodo_lancamento(int $empresaRaizI
         INNER JOIN cliente_itens it ON it.id = ci.item_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
-          AND ch.status <> 'Cancelado'
+          AND " . repo_chamados_status_sql_medicao_bm() . "
           AND ci.movimento = 'utilizado'
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0 OR SUM(ci.subtotal) <> 0
@@ -3950,7 +3996,7 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
                 GROUP BY ci.chamado_id
             ) agg ON agg.chamado_id = ch.id
             WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-              AND ch.status <> 'Cancelado'
+              AND " . repo_chamados_status_sql_medicao_bm() . "
             GROUP BY DATE_FORMAT(ch.aberto_em, '%Y-%m')
             ORDER BY ym DESC
             LIMIT 240";
@@ -5219,6 +5265,47 @@ function repo_cliente_itens_estoque_saldo_column_exists(): bool
     return $cache;
 }
 
+function repo_cliente_itens_catalogo_fluxo_status_column_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+
+        return false;
+    }
+    try {
+        $st    = $pdo->query("SHOW COLUMNS FROM cliente_itens LIKE 'catalogo_fluxo_status'");
+        $row   = $st ? $st->fetch(PDO::FETCH_ASSOC) : false;
+        $cache = $row !== false;
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+function repo_cliente_item_set_catalogo_fluxo_status(int $itemId, ?string $status): void
+{
+    if ($itemId <= 0 || !repo_cliente_itens_catalogo_fluxo_status_column_exists()) {
+        return;
+    }
+    $status = trim((string) $status);
+    $pdo    = db();
+    if (!$pdo) {
+        return;
+    }
+    try {
+        $st = $pdo->prepare('UPDATE cliente_itens SET catalogo_fluxo_status = ? WHERE id = ? LIMIT 1');
+        $st->execute([$status !== '' ? $status : null, $itemId]);
+    } catch (Throwable $e) {
+        error_log('[crm_prefeitura] repo_cliente_item_set_catalogo_fluxo_status: ' . $e->getMessage());
+    }
+}
+
 /**
  * Variação do estoque saldo conforme movimento no chamado (utilizado = saída, devolvido = entrada).
  */
@@ -5263,7 +5350,10 @@ function repo_cliente_itens_list(int $clienteId, bool $somenteAtivos = false): a
         return [];
     }
     $colEstoque = repo_cliente_itens_estoque_saldo_column_exists() ? 'estoque_saldo' : '0 AS estoque_saldo';
-    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', descricao, ativo, ordem,
+    $colFluxo   = repo_cliente_itens_catalogo_fluxo_status_column_exists()
+        ? 'catalogo_fluxo_status'
+        : 'NULL AS catalogo_fluxo_status';
+    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', descricao, ativo, ' . $colFluxo . ', ordem,
             DATE_FORMAT(criado_em, \'%Y-%m-%d %H:%i\') AS criado_em
             FROM cliente_itens WHERE cliente_id = ? OR empresa_id = ? OR cliente_id = ?';
     if ($somenteAtivos) {
@@ -5475,6 +5565,74 @@ function repo_cliente_servico_create(int $clienteId, string $nome): ?int
     $r = repo_cliente_item_salvar($clienteId, null, 'servico', $nome, null, 'UN', 0.0, null, 1);
 
     return $r['ok'] ? $r['id'] : null;
+}
+
+/**
+ * Gestor/admin: cria produto no catálogo (status de fluxo «Criado») e lança recolhimento no chamado.
+ *
+ * @return array{ok: bool, err: string, item_id: ?int, linha_id: ?int}
+ */
+function repo_chamado_item_devolutivo_criar_direto(
+    int $chamadoId,
+    string $nome,
+    ?string $codigo,
+    float $quantidade,
+    ?string $observacao,
+    string $fluxoStatus = 'Criado'
+): array {
+    $nome = trim($nome);
+    if ($chamadoId <= 0 || $nome === '') {
+        return ['ok' => false, 'err' => 'Informe o nome do item devolutivo.', 'item_id' => null, 'linha_id' => null];
+    }
+    if ($quantidade <= 0) {
+        return ['ok' => false, 'err' => 'Informe uma quantidade válida.', 'item_id' => null, 'linha_id' => null];
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return ['ok' => false, 'err' => 'Chamado não encontrado.', 'item_id' => null, 'linha_id' => null];
+    }
+    $clienteId = (int) ($ch['cliente_id'] ?? 0);
+    if ($clienteId <= 0) {
+        return ['ok' => false, 'err' => 'Cliente do chamado inválido.', 'item_id' => null, 'linha_id' => null];
+    }
+    $codigo = trim((string) $codigo);
+    $codigo = $codigo !== '' ? $codigo : null;
+    $obs    = trim((string) $observacao);
+    $obsVal = $obs !== '' ? $obs : null;
+
+    $rCat = repo_cliente_item_salvar(
+        $clienteId,
+        null,
+        'produto',
+        $nome,
+        $codigo,
+        'UN',
+        0.0,
+        null,
+        1,
+        0.0
+    );
+    if (!$rCat['ok'] || empty($rCat['id'])) {
+        return ['ok' => false, 'err' => (string) ($rCat['err'] ?? 'Não foi possível criar o item no catálogo.'), 'item_id' => null, 'linha_id' => null];
+    }
+    $itemId = (int) $rCat['id'];
+    repo_cliente_item_set_catalogo_fluxo_status($itemId, $fluxoStatus);
+
+    $rLinha = repo_chamado_item_adicionar($chamadoId, $itemId, $quantidade, 'devolvido', $obsVal);
+    if (!$rLinha['ok']) {
+        return ['ok' => false, 'err' => (string) ($rLinha['err'] ?? 'Item criado no catálogo, mas não foi possível lançar no chamado.'), 'item_id' => $itemId, 'linha_id' => null];
+    }
+
+    audit_log_registar('chamado.item_devolutivo.criar', 'chamado', $chamadoId, $clienteId > 0 ? $clienteId : null, [
+        'item_id'    => $itemId,
+        'nome'       => $nome,
+        'codigo'     => $codigo,
+        'qtd'        => $quantidade,
+        'obs'        => $obs,
+        'fluxo_status' => $fluxoStatus,
+    ]);
+
+    return ['ok' => true, 'err' => '', 'item_id' => $itemId, 'linha_id' => null];
 }
 
 function repo_cliente_item_excluir(int $clienteId, int $itemId): bool

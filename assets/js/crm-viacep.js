@@ -17,10 +17,16 @@
   var reqSeq = 0;
 
   function digitsOnly(s) {
+    if (typeof window.crmMaskCepDigits === 'function') {
+      return window.crmMaskCepDigits(s);
+    }
     return String(s || '').replace(/\D/g, '').slice(0, 8);
   }
 
   function formatCepDisplay(d) {
+    if (typeof window.crmMaskFormatCep === 'function') {
+      return window.crmMaskFormatCep(d);
+    }
     if (d.length <= 5) return d;
     return d.slice(0, 5) + '-' + d.slice(5);
   }

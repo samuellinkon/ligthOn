@@ -9,6 +9,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once $root . '/includes/config.php';
 require_once $root . '/includes/db.php';
+require_once $root . '/includes/repository.php';
 
 $sqlFile = $root . '/database/seed_chamados_ipojuca_20.sql';
 if (!is_file($sqlFile)) {
@@ -65,3 +66,30 @@ foreach ($rows as $r) {
     );
 }
 echo "\nTotal: " . count($rows) . " chamados ({$comPonto} com poste, {$semPonto} sem poste).\n";
+
+if (count($rows) > 0) {
+    $stCid = $pdo->query('SELECT cliente_id FROM chamados WHERE titulo LIKE \'Seed Ipojuca —%\' LIMIT 1');
+    $cidSeed = (int) ($stCid->fetchColumn() ?: 0);
+    $empresaId = $cidSeed > 0 ? repo_cliente_matriz_raiz_id($cidSeed) : 0;
+    if ($empresaId <= 0 && $cidSeed > 0) {
+        $empresaId = $cidSeed;
+    }
+    $operadores = $empresaId > 0 ? repo_operadores_empresa($empresaId) : [];
+    if (!empty($operadores)) {
+        $opId = (int) $operadores[0]['id'];
+        $vinc = 0;
+        foreach ($rows as $r) {
+            $chId = (int) ($r['id'] ?? 0);
+            if ($chId <= 0) {
+                continue;
+            }
+            $atrib = repo_chamado_atribuir_tecnicos($chId, [$opId], $empresaId);
+            if (!empty($atrib['ok'])) {
+                $vinc++;
+            }
+        }
+        echo "Técnicos: {$vinc} chamado(s) vinculado(s) ao operador #{$opId} ({$operadores[0]['nome']}).\n";
+    } else {
+        echo "Aviso: nenhum operador cadastrado na empresa #{$empresaId}; chamados ficaram sem técnico vinculado.\n";
+    }
+}

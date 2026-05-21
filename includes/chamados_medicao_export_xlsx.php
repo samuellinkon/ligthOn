@@ -1115,7 +1115,7 @@ function bm_med_workbook_build(array $ctx): array
         $sheet->mergeCells('A' . $rx . ':' . BM_MED_GIP_LAST_COL . $rx);
         $sheet->setCellValue(
             'A' . $rx,
-            'Nenhum lançamento «utilizado» no período (filtro pela data em chamado_itens.criado_em; defina período nos filtros da lista de chamados).'
+            'Nenhum lançamento «utilizado» no período em chamados com status Resolvido (data em chamado_itens.criado_em).'
         );
         $sheet->getStyle('A' . $rx)->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_TOP);
         ++$rx;

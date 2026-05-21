@@ -334,12 +334,16 @@ $topSearch   = '';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 
 $enderecoChamado = trim((string) ($chamado['endereco_completo'] ?? ''));
-$chamadoTemCoords = isset($chamado['latitude'], $chamado['longitude'])
-    && $chamado['latitude'] !== null
-    && $chamado['longitude'] !== null;
-$enderecoOsGeo    = chamado_geo_endereco_os($chamado);
-$geocodeAttempts  = $chamadoTemCoords ? [] : chamado_geocode_attempts($chamado);
-$loadLeaflet      = $chamadoTemCoords || $enderecoChamado !== '' || $enderecoOsGeo !== '';
+$pontoChamado    = null;
+$pidPonto        = (int) ($chamado['ponto_iluminacao_id'] ?? 0);
+if ($pidPonto > 0) {
+    $pontoChamado = repo_ponto_iluminacao($pidPonto);
+    if ($pontoChamado && (int) ($pontoChamado['cliente_id'] ?? 0) !== $chamadoClienteId) {
+        $pontoChamado = null;
+    }
+}
+$locPreview = chamado_resolver_localizacao_preview($chamado, $pontoChamado);
+$loadLeaflet = !empty($locPreview['show_preview']);
 
 include __DIR__ . '/../includes/head.php';
 $topbarHideTitle = true;
@@ -545,14 +549,11 @@ $topbarHideTitle = true;
 
           <?php
             $refLocal = $enderecoChamado;
-            $latMap = $chamadoTemCoords ? (float) $chamado['latitude'] : null;
-            $lngMap = $chamadoTemCoords ? (float) $chamado['longitude'] : null;
-            $navEndereco = $enderecoOsGeo !== ''
-                ? $enderecoOsGeo
-                : ($refLocal !== '' ? (chamado_geo_limpar_texto($refLocal) ?: $refLocal) : '');
-            $coordUrlAtend = $chamadoTemCoords
-                ? rawurlencode(number_format($latMap, 7, '.', '') . ',' . number_format($lngMap, 7, '.', ''))
-                : rawurlencode($navEndereco);
+            $latMap = $locPreview['lat'];
+            $lngMap = $locPreview['lng'];
+            $temCoordsEfetivas = $latMap !== null && $lngMap !== null;
+            $navEndereco = (string) ($locPreview['nav_query'] ?? '');
+            $coordUrlAtend = $navEndereco !== '' ? rawurlencode($navEndereco) : '';
             $mostrarMapaAtend = $loadLeaflet;
           ?>
           <div class="form-group op-form-group op-local-in-atend">
@@ -571,21 +572,24 @@ $topbarHideTitle = true;
             <?php if (!$jaFechado): ?>
               <input type="hidden" name="endereco_completo" value="<?= htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') ?>">
             <?php endif; ?>
-            <?php if ($chamadoTemCoords): ?>
+            <?php if ($temCoordsEfetivas): ?>
               <p class="muted op-local-coords" style="font-size:12px;margin:10px 0 0;line-height:1.5;">
-                Coordenadas: <strong><?= htmlspecialchars(number_format((float) $chamado['latitude'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $chamado['longitude'], 6, '.', '')) ?></strong>
+                <?php if (($locPreview['label_fonte'] ?? '') !== ''): ?>
+                  <?= htmlspecialchars((string) $locPreview['label_fonte']) ?> —
+                <?php endif; ?>
+                Coordenadas: <strong><?= htmlspecialchars(number_format($latMap, 6, '.', '')) ?>, <?= htmlspecialchars(number_format($lngMap, 6, '.', '')) ?></strong>
               </p>
             <?php endif; ?>
-            <?php if ($mostrarMapaAtend): ?>
+            <?php if ($mostrarMapaAtend && $coordUrlAtend !== ''): ?>
               <div class="op-actions op-ref-nav">
                 <a class="btn btn-primary op-btn-tall" target="_blank" rel="noopener"
                    href="https://www.google.com/maps/search/?api=1&amp;query=<?= $coordUrlAtend ?>">Google Maps</a>
-                <?php if ($chamadoTemCoords): ?>
+                <?php if ($temCoordsEfetivas): ?>
                 <a class="btn btn-secondary op-btn-tall" target="_blank" rel="noopener"
                    href="https://waze.com/ul?ll=<?= $coordUrlAtend ?>&amp;navigate=yes">Waze</a>
                 <?php endif; ?>
               </div>
-              <?php if (!$chamadoTemCoords && $refLocal !== ''): ?>
+              <?php if (($locPreview['modo'] ?? '') === 'geocode'): ?>
                 <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
               <?php endif; ?>
               <div id="op-loc-preview" class="op-ref-map">
@@ -1084,9 +1088,11 @@ document.addEventListener('DOMContentLoaded', function () {
     svLabelId: 'op-loc-sv-label',
     svMapBtnId: 'op-loc-sv-map-btn',
     hintId: 'chamado-map-geocode-hint',
-    lat: <?= $chamadoTemCoords ? json_encode((float) $chamado['latitude']) : 'null' ?>,
-    lng: <?= $chamadoTemCoords ? json_encode((float) $chamado['longitude']) : 'null' ?>,
-    attempts: <?= json_encode($geocodeAttempts, JSON_UNESCAPED_UNICODE) ?>,
+    lat: <?= $locPreview['lat'] !== null ? json_encode($locPreview['lat']) : 'null' ?>,
+    lng: <?= $locPreview['lng'] !== null ? json_encode($locPreview['lng']) : 'null' ?>,
+    modo: <?= json_encode($locPreview['modo'] ?? 'none', JSON_UNESCAPED_UNICODE) ?>,
+    mapaQuery: <?= json_encode($locPreview['mapa_query'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+    attempts: <?= json_encode($locPreview['geocode_attempts'] ?? [], JSON_UNESCAPED_UNICODE) ?>,
     scrollWheelZoom: false,
     zoomControl: true
   });

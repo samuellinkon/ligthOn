@@ -1378,6 +1378,11 @@ form.info-row {
   margin: 0;
 }
 
+.chamado-sol-dev-form .chamado-mat-modal__foot {
+  margin: 6px -18px -14px;
+  padding: 12px 18px;
+}
+
 .chamado-materiais-block--dev .chamado-materiais-block__title {
   color: var(--muted);
 }
@@ -1405,7 +1410,7 @@ form.info-row {
   opacity: 0.95;
 }
 
-/* Tabelas materiais: compactas; Item utilizados = 30% */
+/* Tabelas materiais: compactas; coluna Item estreita para evitar scroll-x */
 .chamado-materiais-card .chamado-materiais-table {
   table-layout: fixed;
   width: 100%;
@@ -1417,56 +1422,64 @@ form.info-row {
   font-size: 13px;
 }
 
+.chamado-materiais-card__pill--valor {
+  min-width: 118px;
+}
+
+.chamado-materiais-table .chamado-mat-col-item strong,
+.chamado-materiais-table .chamado-mat-col-item .td-mute {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chamado-materiais-table--uso th:first-child,
 .chamado-materiais-table--uso td:first-child {
-  width: 30%;
+  width: 18%;
   min-width: 0;
-  word-break: break-word;
 }
 
 .chamado-materiais-table--uso th:nth-child(2),
 .chamado-materiais-table--uso td:nth-child(2) {
-  width: 9%;
-  max-width: 5.5rem;
+  width: 8%;
+  max-width: 5rem;
   min-width: 0;
 }
 
 .chamado-materiais-table--uso th:nth-child(3),
-.chamado-materiais-table--uso td:nth-child(3),
-.chamado-materiais-table--uso th:nth-child(4),
-.chamado-materiais-table--uso td:nth-child(4),
-.chamado-materiais-table--uso th:nth-child(5),
-.chamado-materiais-table--uso td:nth-child(5) {
-  width: 10%;
+.chamado-materiais-table--uso td:nth-child(3) {
+  width: 8%;
 }
 
-.chamado-materiais-table--uso th:nth-child(6),
-.chamado-materiais-table--uso td:nth-child(6) {
-  width: 30%;
+.chamado-materiais-table--uso th:nth-child(4),
+.chamado-materiais-table--uso td:nth-child(4) {
+  width: auto;
+  min-width: 9.5rem;
 }
 
 /* Devolvidos: Item, Tipo, Qtd, Ações */
 .chamado-materiais-table--dev th:first-child,
 .chamado-materiais-table--dev td:first-child {
-  width: 38%;
+  width: 22%;
   min-width: 0;
-  word-break: break-word;
 }
 
 .chamado-materiais-table--dev th:nth-child(2),
 .chamado-materiais-table--dev td:nth-child(2) {
-  width: 14%;
+  width: 10%;
   min-width: 0;
 }
 
 .chamado-materiais-table--dev th:nth-child(3),
 .chamado-materiais-table--dev td:nth-child(3) {
-  width: 12%;
+  width: 8%;
 }
 
 .chamado-materiais-table--dev th:nth-child(4),
 .chamado-materiais-table--dev td:nth-child(4) {
-  width: 18%;
+  width: auto;
+  min-width: 9.5rem;
 }
 
 .chamado-materiais-table .td-actions {

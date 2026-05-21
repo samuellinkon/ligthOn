@@ -186,7 +186,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="email">E-mail</label>
-        <input type="email" id="email" name="email" class="input" required maxlength="150" placeholder="nome@organização.gov.br">
+        <input type="email" id="email" name="email" class="input" required maxlength="150" data-crm-mask="email" autocomplete="email" placeholder="nome@organização.gov.br">
       </div>
       <div class="form-group">
         <label for="perfil">Perfil</label>

@@ -57,10 +57,16 @@ function op_chamado_mat_json_for_chamado(int $chamadoId, bool $ok, string $err =
             $usados[] = $p;
         }
     }
+    $valorItens = repo_chamado_itens_valor_total($chamadoId);
     op_chamado_mat_json_send([
         'ok'         => $ok,
         'err'        => $err,
-        'stats'      => ['utilizados' => count($usados), 'recolhidos' => count($dev)],
+        'stats'      => [
+            'utilizados'      => count($usados),
+            'recolhidos'      => count($dev),
+            'valor_itens'     => $valorItens,
+            'valor_itens_fmt' => 'R$ ' . number_format($valorItens, 2, ',', '.'),
+        ],
         'utilizados' => $usados,
         'devolvidos' => $dev,
     ], $ok ? 200 : 400);

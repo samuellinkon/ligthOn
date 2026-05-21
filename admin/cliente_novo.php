@@ -184,17 +184,18 @@ include __DIR__ . '/../includes/head.php';
       <div class="form-group">
         <label for="email">E-mail</label>
         <input type="email" id="email" name="email" class="input" placeholder="contato@empresa.com" required
+               data-crm-mask="email" autocomplete="email"
                value="ouvidoria@ipojuca.pe.gov.br">
       </div>
       <div class="form-group">
         <label for="telefone">Telefone</label>
         <input type="tel" id="telefone" name="telefone" class="input" placeholder="(11) 98765-4321"
-               inputmode="tel" maxlength="15" autocomplete="tel" value="(81) 3551-1156">
+               data-crm-mask="telefone" inputmode="tel" maxlength="15" autocomplete="tel" value="(81) 3551-1156">
       </div>
       <div class="form-group">
         <label for="doc">CPF / CNPJ</label>
         <input type="text" id="doc" name="doc" class="input" placeholder="000.000.000-00 ou 00.000.000/0000-00"
-               inputmode="numeric" maxlength="18" autocomplete="off" value="11.294.386/0001-08">
+               data-crm-mask="cpf-cnpj" inputmode="numeric" maxlength="18" autocomplete="off" value="11.294.386/0001-08">
       </div>
       <div class="form-group">
         <label for="status">Status</label>
@@ -256,45 +257,6 @@ Endereço: Rua Cel. João de Souza Leão, Centro, Ipojuca/PE - CEP 55590-090.</t
 <script>
 (function () {
   'use strict';
-  function digits(s, max) {
-    return String(s == null ? '' : s).replace(/\D/g, '').slice(0, max);
-  }
-  function maskTelefoneBr(val) {
-    var d = digits(val, 11);
-    if (!d.length) return '';
-    if (d.length <= 2) return '(' + d;
-    if (d.length <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
-    if (d.length <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
-    return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7, 11);
-  }
-  function maskCpfCnpj(val) {
-    var d = digits(val, 14);
-    if (!d.length) return '';
-    if (d.length <= 3) return d;
-    if (d.length <= 6) return d.slice(0, 3) + '.' + d.slice(3);
-    if (d.length <= 9) return d.slice(0, 3) + '.' + d.slice(3, 6) + '.' + d.slice(6);
-    if (d.length <= 11) {
-      return d.slice(0, 3) + '.' + d.slice(3, 6) + '.' + d.slice(6, 9) + '-' + d.slice(9);
-    }
-    if (d.length <= 12) {
-      return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '/' + d.slice(8, 12);
-    }
-    return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '/' + d.slice(8, 12) + '-' + d.slice(12, 14);
-  }
-  function wireMask(input, maskFn) {
-    if (!input) return;
-    function apply() {
-      var masked = maskFn(input.value);
-      if (input.value !== masked) {
-        input.value = masked;
-      }
-    }
-    input.addEventListener('input', apply);
-    input.addEventListener('blur', apply);
-  }
-  wireMask(document.getElementById('telefone'), maskTelefoneBr);
-  wireMask(document.getElementById('doc'), maskCpfCnpj);
-
   var prefeituraBtn = document.getElementById('btn-preencher-prefeitura');
   var prefeituraDados = {
     nome: 'Prefeitura do Ipojuca',

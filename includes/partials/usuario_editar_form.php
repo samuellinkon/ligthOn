@@ -39,7 +39,7 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
     </div>
     <div class="form-group full">
       <label for="email">E-mail (login)</label>
-      <input type="email" id="email" name="email" class="input" required maxlength="150"
+      <input type="email" id="email" name="email" class="input" required maxlength="150" data-crm-mask="email" autocomplete="email"
              placeholder="nome@organização.gov.br"
              value="<?= htmlspecialchars((string) ($usuario['email'] ?? '')) ?>">
     </div>

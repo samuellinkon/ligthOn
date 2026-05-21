@@ -94,18 +94,21 @@ include __DIR__ . '/../includes/head.php';
       <div class="form-group">
         <label for="email">E-mail</label>
         <input type="email" id="email" name="email" class="input"
+               data-crm-mask="email" autocomplete="email"
                placeholder="contato@empresa.gov.br"
                value="<?= htmlspecialchars($cliente['email'] ?? '') ?>">
       </div>
       <div class="form-group">
         <label for="telefone">Telefone</label>
         <input type="tel" id="telefone" name="telefone" class="input"
+               data-crm-mask="telefone" inputmode="tel" autocomplete="tel"
                placeholder="(00) 00000-0000"
                value="<?= htmlspecialchars($cliente['telefone'] ?? '') ?>">
       </div>
       <div class="form-group">
         <label for="doc">CPF / CNPJ</label>
         <input type="text" id="doc" name="doc" class="input"
+               data-crm-mask="cpf-cnpj" inputmode="numeric" autocomplete="off"
                placeholder="CPF ou CNPJ"
                value="<?= htmlspecialchars($cliente['doc'] ?? '') ?>">
       </div>

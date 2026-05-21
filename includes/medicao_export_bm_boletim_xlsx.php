@@ -630,7 +630,7 @@ function medicao_export_bm_boletim_xlsx_send(
     $r = $firstDataRow;
     if ($itensCh === []) {
         medicao_bm_boletim_aplicar_estilo_linha($sheet, $bodyStyle, $r);
-        $sheet->setCellValue('B' . $r, 'Nenhum item utilizado em chamados neste mês (apenas movimento «utilizado» nos chamados não cancelados).');
+        $sheet->setCellValue('B' . $r, 'Nenhum item utilizado em chamados resolvidos neste mês (movimento «utilizado»; status Resolvido).');
         $lastDataRow = $firstDataRow;
         $r++;
     } else {
@@ -1434,7 +1434,7 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $r0 = $headerRow + 1;
     if ($linhasRows === []) {
         $sheet->mergeCells('A' . $r0 . ':' . $lastColLetter . $r0);
-        $sheet->setCellValue('A' . $r0, 'Nenhum item para esta combinação (importação BM vazia e sem materiais utilizados no período).');
+        $sheet->setCellValue('A' . $r0, 'Nenhum item para esta combinação (importação BM vazia e sem materiais utilizados em chamados resolvidos no período).');
         $lastDataRow = $r0;
     } else {
         foreach ($linhasRows as $i => $row) {

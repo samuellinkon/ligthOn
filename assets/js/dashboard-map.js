@@ -9,7 +9,10 @@
   var visibleCount = document.getElementById('chamados-map-visible-count');
   if (!el || typeof L === 'undefined') return;
   if (!Array.isArray(pins) || pins.length === 0) {
-    el.innerHTML = '<div class="dashboard-map-empty">Nenhum chamado com latitude e longitude no período.</div>';
+    var emptyMsg = (typeof window.CHAMADOS_MAP_EMPTY_MSG === 'string' && window.CHAMADOS_MAP_EMPTY_MSG)
+      ? window.CHAMADOS_MAP_EMPTY_MSG
+      : 'Nenhum chamado com latitude e longitude no período.';
+    el.innerHTML = '<div class="dashboard-map-empty">' + escapeHtml(emptyMsg) + '</div>';
     return;
   }
 

@@ -82,7 +82,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="form-group full">
         <label for="email">E-mail</label>
-        <input type="email" id="email" name="email" class="input" required maxlength="150"
+        <input type="email" id="email" name="email" class="input" required maxlength="150" data-crm-mask="email" autocomplete="email"
                placeholder="nome@organização.gov.br"
                value="<?= htmlspecialchars((string) ($user['email'] ?? '')) ?>">
       </div>

@@ -190,6 +190,7 @@ CREATE TABLE cliente_itens (
     estoque_saldo    DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
     descricao        VARCHAR(500) NULL DEFAULT NULL,
     ativo            TINYINT(1) NOT NULL DEFAULT 1,
+    catalogo_fluxo_status VARCHAR(32) NULL DEFAULT NULL,
     ordem            INT NOT NULL DEFAULT 0,
     criado_em        DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
