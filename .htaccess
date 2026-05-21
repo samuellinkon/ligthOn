@@ -1,0 +1,47 @@
+# OnLight CRM — subdomínio (ex.: https://ipojuca.onlight.online/)
+# Raiz do site = pasta onde estão index.php, login.php, admin/, etc.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # HTTPS (Hostinger / proxy)
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Arquivo ou pasta real: não reescrever
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # URLs amigáveis (sem .php) — raiz
+    RewriteRule ^login/?$ login.php [L,QSA]
+    RewriteRule ^logout/?$ logout.php [L,QSA]
+    RewriteRule ^esqueci-senha/?$ esqueci_senha.php [L,QSA]
+    RewriteRule ^esqueci_senha/?$ esqueci_senha.php [L,QSA]
+    RewriteRule ^redefinir-senha/?$ redefinir_senha.php [L,QSA]
+    RewriteRule ^redefinir_senha/?$ redefinir_senha.php [L,QSA]
+
+    # Painéis: /admin/clientes → admin/clientes.php (etc.)
+    RewriteRule ^admin/?$ admin/index.php [L,QSA]
+    RewriteCond %{DOCUMENT_ROOT}/admin/$1.php -f
+    RewriteRule ^admin/([a-zA-Z0-9_-]+)/?$ admin/$1.php [L,QSA]
+
+    RewriteRule ^cliente/?$ cliente/index.php [L,QSA]
+    RewriteCond %{DOCUMENT_ROOT}/cliente/$1.php -f
+    RewriteRule ^cliente/([a-zA-Z0-9_-]+)/?$ cliente/$1.php [L,QSA]
+
+    RewriteRule ^operador/?$ operador/index.php [L,QSA]
+    RewriteCond %{DOCUMENT_ROOT}/operador/$1.php -f
+    RewriteRule ^operador/([a-zA-Z0-9_-]+)/?$ operador/$1.php [L,QSA]
+</IfModule>
+
+# Bloquear listagem de diretórios
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

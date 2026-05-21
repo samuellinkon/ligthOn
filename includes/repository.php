@@ -960,10 +960,11 @@ function repo_pontos_iluminacao_imagens_principais(array $pontoIds): array
     try {
         $placeholders = implode(',', array_fill(0, count($pontoIds), '?'));
         $st = $pdo->prepare("
-            SELECT id, ponto_iluminacao_id, nome_original, `principal`
+            SELECT id, ponto_iluminacao_id, nome_original, nome_arquivo, `principal`
             FROM ponto_iluminacao_imagens
             WHERE ponto_iluminacao_id IN ($placeholders)
-            ORDER BY ponto_iluminacao_id ASC, `principal` DESC, ordem ASC, id ASC
+              AND `principal` = 1
+            ORDER BY ponto_iluminacao_id ASC, id DESC
         ");
         $st->execute($pontoIds);
         $out = [];
@@ -975,6 +976,7 @@ function repo_pontos_iluminacao_imagens_principais(array $pontoIds): array
             $out[$pontoId] = [
                 'id' => (int) ($r['id'] ?? 0),
                 'nome_original' => (string) ($r['nome_original'] ?? ''),
+                'nome_arquivo' => (string) ($r['nome_arquivo'] ?? ''),
                 'principal' => (int) ($r['principal'] ?? 0),
             ];
         }
@@ -1041,9 +1043,10 @@ function repo_pontos_iluminacao_chamados_historico(array $pontoIds, int $limiteP
 /**
  * @return list<array<string,mixed>>
  */
-function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false): array
+function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false, string $status = 'Ativo'): array
 {
-    $rows = repo_pontos_iluminacao_list($clienteId, $escopoEmpresa, '', 'Ativo');
+    $statusFiltro = in_array($status, ['Ativo', 'Inativo'], true) ? $status : '';
+    $rows = repo_pontos_iluminacao_list($clienteId, $escopoEmpresa, '', $statusFiltro);
     $out = [];
     foreach ($rows as $r) {
         if (($r['latitude'] ?? null) === null || ($r['longitude'] ?? null) === null) {
@@ -1077,8 +1080,20 @@ function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false
     foreach ($out as &$ponto) {
         $pontoId = (int) ($ponto['id'] ?? 0);
         $img = $imagens[$pontoId] ?? null;
-        $ponto['foto_url'] = $img ? ('ponto_iluminacao_imagem.php?id=' . (int) ($img['id'] ?? 0)) : '';
-        $ponto['foto_nome'] = $img ? (string) ($img['nome_original'] ?? '') : '';
+        $fotoUrl = '';
+        $fotoNome = '';
+        if ($img && $pontoId > 0) {
+            $nomeFs = basename((string) ($img['nome_arquivo'] ?? ''));
+            $pathFs = $nomeFs !== ''
+                ? upload_dir_ponto_iluminacao($pontoId) . DIRECTORY_SEPARATOR . $nomeFs
+                : '';
+            if ($pathFs !== '' && is_file($pathFs) && is_readable($pathFs)) {
+                $fotoUrl = 'ponto_iluminacao_imagem.php?id=' . (int) ($img['id'] ?? 0);
+                $fotoNome = (string) ($img['nome_original'] ?? '');
+            }
+        }
+        $ponto['foto_url'] = $fotoUrl;
+        $ponto['foto_nome'] = $fotoNome;
         $ponto['chamados_historico'] = $historicos[$pontoId] ?? [];
     }
     unset($ponto);

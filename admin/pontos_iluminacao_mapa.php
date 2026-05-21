@@ -75,11 +75,15 @@ include __DIR__ . '/../includes/head.php';
 <style>
   #pontos-iluminacao-map{height:620px;border-radius:18px;border:1px solid var(--border);overflow:hidden;background:#eef1f7}
   .pontos-map-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-weight:700;text-align:center;padding:24px}
-  .ponto-marker{display:block;width:10px;height:10px;border-radius:50%;border:1px solid #713f12;box-shadow:0 1px 4px rgba(0,0,0,.3);background:#f59e0b;transform-origin:center center;transition:transform .15s ease,background .15s ease,border-color .15s ease,box-shadow .15s ease}
+  .ponto-marker{display:block;width:10px;height:10px;border-radius:50%;border:1px solid #15803d;box-shadow:0 1px 4px rgba(0,0,0,.3);background:#22c55e;transform-origin:center center;transition:transform .15s ease,background .15s ease,border-color .15s ease,box-shadow .15s ease}
+  .ponto-marker--ativo{border-color:#15803d;background:#22c55e}
+  .ponto-marker--inativo{border-color:#64748b;background:#94a3b8}
   .ponto-marker--alert{border-color:#7f1d1d;background:#dc2626}
   .leaflet-marker-icon:hover{z-index:10050!important}
-  .leaflet-marker-icon:hover .ponto-marker{transform:scale(1.38);background:#fef08a!important;border-color:#ca8a04!important;box-shadow:0 2px 10px rgba(202,138,4,.45)}
-  .leaflet-marker-icon:hover .ponto-marker--alert{background:#fde047!important;border-color:#a16207!important}
+  .leaflet-marker-icon:hover .ponto-marker{transform:scale(1.38)}
+  .leaflet-marker-icon:hover .ponto-marker--ativo{background:#4ade80!important;border-color:#166534!important}
+  .leaflet-marker-icon:hover .ponto-marker--inativo{background:#cbd5e1!important;border-color:#475569!important}
+  .leaflet-marker-icon:hover .ponto-marker--alert{background:#f87171!important;border-color:#991b1b!important}
   .ponto-popup{width:300px;max-width:72vw}
   .ponto-popup-photo{width:50%;max-width:50%;height:68px;max-height:68px;border-radius:10px;object-fit:cover;object-position:center;background:#f3f4f6;border:1px solid var(--border);display:block;margin:6px auto;box-sizing:border-box}
   .ponto-popup-photo-empty{width:50%;max-width:50%;height:68px;margin:6px auto;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-weight:700;font-size:11px;box-sizing:border-box}
@@ -146,6 +150,7 @@ include __DIR__ . '/../includes/head.php';
 <script>
 window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
 </script>
+<script src="<?= $basePath ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/ponto-marker-status.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/pontos-iluminacao-map.js') ?>"></script>
 
 </main>

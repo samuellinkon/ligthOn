@@ -14,6 +14,9 @@
 </script>
 <script src="<?= $basePath ?>assets/js/dashboard-map.js?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/dashboard-map.js') ?>"></script>
 <?php endif; ?>
+<?php if ($loadPontosMap || $loadMapaCombinado): ?>
+<script src="<?= $basePath ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/ponto-marker-status.js') ?>"></script>
+<?php endif; ?>
 <?php if ($loadPontosMap): ?>
 <script>
   window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pontosPinsPass, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;

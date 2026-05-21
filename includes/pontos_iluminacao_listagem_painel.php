@@ -47,14 +47,26 @@ $totalInativosStats = count(array_filter($pontosTodosEscopo, static function (ar
 }));
 
 $pontos = repo_pontos_iluminacao_list($pontosPainelEscopoId, true, $q, $status);
+if ($filtroMapa === 'chamados') {
+    $pontos = array_values(array_filter($pontos, static function (array $p): bool {
+        return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
+    }));
+}
 
-$pinsTodos = repo_pontos_iluminacao_mapa($pontosPainelEscopoId, true);
+$pinsTodos = repo_pontos_iluminacao_mapa($pontosPainelEscopoId, true, $status);
 $pinsMapa  = $pinsTodos;
 if ($filtroMapa === 'chamados') {
     $pinsMapa = array_values(array_filter($pinsTodos, static function (array $p): bool {
         return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
     }));
 }
+$pontoIdsLista = [];
+foreach ($pontos as $pRow) {
+    $pontoIdsLista[(int) ($pRow['id'] ?? 0)] = true;
+}
+$pinsMapa = array_values(array_filter($pinsMapa, static function (array $p) use ($pontoIdsLista): bool {
+    return isset($pontoIdsLista[(int) ($p['id'] ?? 0)]);
+}));
 $bairrosMapa = [];
 foreach ($pinsMapa as $p) {
     $bairro = trim((string) ($p['bairro'] ?? ''));
@@ -91,10 +103,50 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
     return http_build_query($p);
 };
 
+$metricaAtiva = 'total';
+if ($filtroMapa === 'chamados') {
+    $metricaAtiva = 'chamados';
+} elseif ($status === 'Ativo') {
+    $metricaAtiva = 'ativo';
+} elseif ($status === 'Inativo') {
+    $metricaAtiva = 'inativo';
+}
+
+$pontosMetricHref = static function (string $chave) use ($pontosPainelFormAction, $pontosListaQs, $metricaAtiva): string {
+    if ($metricaAtiva === $chave) {
+        $qs = $pontosListaQs(['filtro' => null, 'status' => null]);
+    } elseif ($chave === 'total') {
+        $qs = $pontosListaQs(['filtro' => null, 'status' => null]);
+    } elseif ($chave === 'chamados') {
+        $qs = $pontosListaQs(['filtro' => 'chamados', 'status' => null]);
+    } elseif ($chave === 'ativo') {
+        $qs = $pontosListaQs(['filtro' => null, 'status' => 'Ativo']);
+    } elseif ($chave === 'inativo') {
+        $qs = $pontosListaQs(['filtro' => null, 'status' => 'Inativo']);
+    } else {
+        $qs = $pontosListaQs([]);
+    }
+
+    return $pontosPainelFormAction . ($qs !== '' ? '?' . $qs : '');
+};
+
+$pontosMetricCardClass = static function (bool $active): string {
+    return 'card metric metric-card--link' . ($active ? ' metric-card--active' : '');
+};
+
+$mapaSubtituloFiltro = 'Todos os pontos com coordenadas';
+if ($metricaAtiva === 'chamados') {
+    $mapaSubtituloFiltro = 'Somente postes com chamado em aberto';
+} elseif ($metricaAtiva === 'ativo') {
+    $mapaSubtituloFiltro = 'Somente postes ativos';
+} elseif ($metricaAtiva === 'inativo') {
+    $mapaSubtituloFiltro = 'Somente postes inativos';
+}
+
 ?>
 <section class="content pontos-iluminacao-lista-layout">
   <div class="cards-metrics" style="margin-bottom:20px;">
-    <div class="card metric">
+    <a class="<?= htmlspecialchars($pontosMetricCardClass($metricaAtiva === 'total'), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($pontosMetricHref('total'), ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div>
           <div class="metric-label">Total de pontos</div>
@@ -102,9 +154,9 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
         </div>
         <div class="icon-box purple">PT</div>
       </div>
-      <div class="metric-change info">Parque no escopo da empresa</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change info">Parque no escopo da empresa — clique para filtrar</div>
+    </a>
+    <a class="<?= htmlspecialchars($pontosMetricCardClass($metricaAtiva === 'chamados'), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($pontosMetricHref('chamados'), ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div>
           <div class="metric-label">Em chamados abertos</div>
@@ -112,9 +164,9 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
         </div>
         <div class="icon-box red">!</div>
       </div>
-      <div class="metric-change warning">Postes com chamado em aberto</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change warning">Postes com chamado em aberto — clique para filtrar</div>
+    </a>
+    <a class="<?= htmlspecialchars($pontosMetricCardClass($metricaAtiva === 'ativo'), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($pontosMetricHref('ativo'), ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div>
           <div class="metric-label">Ativos</div>
@@ -122,9 +174,9 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
         </div>
         <div class="icon-box green">✓</div>
       </div>
-      <div class="metric-change success">Em operação</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change success">Em operação — clique para filtrar</div>
+    </a>
+    <a class="<?= htmlspecialchars($pontosMetricCardClass($metricaAtiva === 'inativo'), ENT_QUOTES, 'UTF-8') ?>" href="<?= htmlspecialchars($pontosMetricHref('inativo'), ENT_QUOTES, 'UTF-8') ?>">
       <div class="metric-top">
         <div>
           <div class="metric-label">Inativos</div>
@@ -132,14 +184,14 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
         </div>
         <div class="icon-box neutral">—</div>
       </div>
-      <div class="metric-change">Fora de uso / desativados</div>
-    </div>
+      <div class="metric-change">Fora de uso / desativados — clique para filtrar</div>
+    </a>
   </div>
 
   <div class="card" id="mapa-pontos">
     <div class="panel-head">
       <h4>Mapa de acompanhamento</h4>
-      <span class="panel-sub"><?= count($pinsMapa) ?> de <?= count($pinsTodos) ?> ponto(s) ativo(s) com coordenadas · vermelho = chamados abertos</span>
+      <span class="panel-sub"><?= count($pinsMapa) ?> de <?= count($pinsTodos) ?> ponto(s) no mapa · <?= htmlspecialchars($mapaSubtituloFiltro) ?></span>
     </div>
     <div class="panel-body">
       <div class="pontos-mapa-toolbar" aria-label="Vistas do mapa">
@@ -153,6 +205,11 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
         <?php if ($pontosPainelMostrarRotas && $pontosPainelHrefRotas !== ''): ?>
         <a href="<?= htmlspecialchars($pontosPainelHrefRotas) ?>" class="btn btn-sm btn-primary">Rotas</a>
         <?php endif; ?>
+      </div>
+      <div class="pontos-mapa-legenda" aria-label="Legenda do mapa">
+        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--ativo" aria-hidden="true"></span> Ativo</span>
+        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--alert" aria-hidden="true"></span> Com chamado aberto</span>
+        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--inativo" aria-hidden="true"></span> Inativo</span>
       </div>
       <div class="dashboard-pontos-tools" aria-label="Ferramentas do mapa">
         <div>
@@ -194,9 +251,9 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
       <div class="form-group">
         <label for="status">Status</label>
         <select id="status" name="status" class="select">
-          <option value="">Todos</option>
-          <option value="Ativo" <?= $status === 'Ativo' ? 'selected' : '' ?>>Ativos</option>
-          <option value="Inativo" <?= $status === 'Inativo' ? 'selected' : '' ?>>Inativos</option>
+          <option value="" <?= $status === '' ? 'selected' : '' ?>>Todos<?= $filtroMapa === 'chamados' ? ' (com chamado aberto)' : '' ?></option>
+          <option value="Ativo" <?= $status === 'Ativo' ? 'selected' : '' ?>>Ativos<?= $filtroMapa === 'chamados' ? ' (com chamado aberto)' : '' ?></option>
+          <option value="Inativo" <?= $status === 'Inativo' ? 'selected' : '' ?>>Inativos<?= $filtroMapa === 'chamados' ? ' (com chamado aberto)' : '' ?></option>
         </select>
       </div>
       <div class="filters-form-actions">
@@ -252,4 +309,5 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
 <script>
   window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pinsMapa, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
 </script>
-<script src="<?= htmlspecialchars($basePath ?? '../') ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/pontos-iluminacao-map.js') ?>"></script>
+<script src="<?= htmlspecialchars($basePath ?? '../') ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/../assets/js/ponto-marker-status.js') ?>"></script>
+<script src="<?= htmlspecialchars($basePath ?? '../') ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/../assets/js/pontos-iluminacao-map.js') ?>"></script>

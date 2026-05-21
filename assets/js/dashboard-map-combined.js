@@ -40,11 +40,16 @@
     return { pin: p, marker: m };
   });
 
+  var markerClassPt = typeof window.crmPontoMarkerClass === 'function'
+    ? window.crmPontoMarkerClass
+    : function (pin) {
+        return 'ponto-marker ponto-marker--ativo';
+      };
+
   var itemsPt = pinsPt.map(function (p) {
-    var alert = Number(p.chamados_abertos || 0) > 0;
     var icon = L.divIcon({
       className: '',
-      html: '<span class="ponto-marker' + (alert ? ' ponto-marker--alert' : '') + '"></span>',
+      html: '<span class="' + markerClassPt(p) + '"></span>',
       iconSize: [10, 10],
       iconAnchor: [5, 5],
       popupAnchor: [0, -8],

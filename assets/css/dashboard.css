@@ -1290,9 +1290,9 @@ body.dashboard-map-resize-dragging * {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  border: 1px solid #713f12;
+  border: 1px solid #15803d;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  background: #f59e0b;
+  background: #22c55e;
   transform-origin: center center;
   transition:
     transform 0.15s ease,
@@ -1300,23 +1300,62 @@ body.dashboard-map-resize-dragging * {
     border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
+.ponto-marker--ativo {
+  border-color: #15803d;
+  background: #22c55e;
+}
+.ponto-marker--inativo {
+  border-color: #64748b;
+  background: #94a3b8;
+}
 .ponto-marker--alert {
   border-color: #7f1d1d;
   background: #dc2626;
 }
-/* Hover no mapa: destaque amarelo claro + leve aumento (postes / pontos) */
+.pontos-mapa-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pontos-mapa-legenda-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pontos-mapa-legenda-item .ponto-marker {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+/* Hover no mapa: destaque + leve aumento (postes / pontos) */
 .leaflet-marker-icon:hover {
   z-index: 10050 !important;
 }
 .leaflet-marker-icon:hover .ponto-marker {
   transform: scale(1.38);
-  background: #fef08a !important;
-  border-color: #ca8a04 !important;
-  box-shadow: 0 2px 10px rgba(202, 138, 4, 0.45);
+}
+.leaflet-marker-icon:hover .ponto-marker--ativo {
+  background: #4ade80 !important;
+  border-color: #166534 !important;
+  box-shadow: 0 2px 10px rgba(34, 197, 94, 0.45);
+}
+.leaflet-marker-icon:hover .ponto-marker--inativo {
+  background: #cbd5e1 !important;
+  border-color: #475569 !important;
+  box-shadow: 0 2px 10px rgba(100, 116, 139, 0.35);
 }
 .leaflet-marker-icon:hover .ponto-marker--alert {
-  background: #fde047 !important;
-  border-color: #a16207 !important;
+  background: #f87171 !important;
+  border-color: #991b1b !important;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.45);
 }
 .dashboard-pontos-tools {
   display: grid;
