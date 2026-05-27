@@ -69,13 +69,23 @@
     pickPreviewMeta.textContent = '';
   }
 
+  function moneyFmt(n) {
+    var f = parseFloat(String(n).replace(',', '.'));
+    if (isNaN(f) || f <= 0) return '—';
+    return 'R$ ' + f.toFixed(2).replace('.', ',');
+  }
+
   function rowHtml(item, canEdit) {
     var lid = item.id;
     var nome = esc(item.nome || '');
     var cod = (item.codigo || '').trim();
     var codH = cod ? '<div class="td-mute" style="font-size:12px;">Cód. ' + esc(cod) + '</div>' : '';
+    var desc = (item.descricao || '').trim();
+    var tipAttr = desc ? ' title="' + esc(item.nome + ' — ' + desc) + '"' : '';
     var qtd = esc(qtdFmt(item.quantidade));
     var tipo = esc(item.tipo || '');
+    var vu = moneyFmt(item.valor_unitario);
+    var vt = moneyFmt(item.subtotal);
     var mov = item.movimento === 'devolvido' ? 'devolvido' : 'utilizado';
     var obsAttr = esc(item.observacao || '');
     var lblAttr = esc(item.nome || '');
@@ -101,13 +111,21 @@
     }
     return (
       '<tr>' +
-      '<td class="chamado-mat-col-item"><strong>' +
+      '<td class="chamado-mat-col-item"' +
+      tipAttr +
+      '><strong>' +
       nome +
       '</strong>' +
       codH +
       '</td>' +
       '<td class="td-mute">' +
       tipo +
+      '</td>' +
+      '<td class="text-right td-mute">' +
+      vu +
+      '</td>' +
+      '<td class="text-right">' +
+      vt +
       '</td>' +
       '<td class="text-right">' +
       qtd +

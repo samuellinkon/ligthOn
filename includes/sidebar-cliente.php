@@ -53,13 +53,6 @@ foreach ($items as $it) {
   </nav>
 
   <div class="sidebar-footer">
-    <div class="user-box">
-      <div class="avatar"><?= htmlspecialchars($CLIENTE['iniciais']) ?></div>
-      <div>
-        <div class="user-name"><?= htmlspecialchars($CLIENTE['nome']) ?></div>
-        <div class="user-role"><?= htmlspecialchars($CLIENTE['empresa'] ?: $CLIENTE['tipo']) ?></div>
-      </div>
-    </div>
     <a href="<?= $basePath ?>logout.php" class="logout" data-confirm="Deseja realmente sair?">Sair</a>
   </div>
 </aside>

@@ -333,7 +333,15 @@
               });
           };
           if (typeof global.appConfirm === 'function') {
-            global.appConfirm('Remover este item?', 'Itens do chamado', doDel);
+            global
+              .appConfirm({
+                message: 'Remover este item?',
+                title: 'Itens do chamado',
+                danger: true,
+              })
+              .then(function (ok) {
+                if (ok) doDel();
+              });
           } else if (global.confirm('Remover este item?')) {
             doDel();
           }

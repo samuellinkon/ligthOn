@@ -187,7 +187,8 @@ CREATE TABLE cliente_itens (
     codigo           VARCHAR(64) NULL DEFAULT NULL,
     unidade          VARCHAR(20) NOT NULL DEFAULT 'UN',
     valor_unitario   DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
-    estoque_saldo    DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
+    estoque_saldo       DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
+    estoque_capacidade  DECIMAL(14,4) NULL DEFAULT NULL,
     descricao        VARCHAR(500) NULL DEFAULT NULL,
     ativo            TINYINT(1) NOT NULL DEFAULT 1,
     catalogo_fluxo_status VARCHAR(32) NULL DEFAULT NULL,
@@ -273,7 +274,7 @@ CREATE TABLE chamados (
     aprovado_gestor_user_id         INT UNSIGNED NULL,
     checklist_realizado             TEXT NULL,
     prioridade         ENUM('Baixa','Normal','Alta','Urgente') NOT NULL DEFAULT 'Normal',
-    status               ENUM('Aberto','Em andamento','Aguardando Aprovação','Resolvido','Fechado','Cancelado') NOT NULL DEFAULT 'Aberto',
+    status               ENUM('Aberto','Em andamento','Aguardando Aprovação','Resolvido','Validado','Fechado','Cancelado') NOT NULL DEFAULT 'Aberto',
     responsavel            VARCHAR(80) DEFAULT NULL,
     aberto_em              DATETIME DEFAULT CURRENT_TIMESTAMP,
     ativo                  TINYINT(1) NOT NULL DEFAULT 1,
@@ -548,6 +549,36 @@ CREATE TABLE medicao_import_linhas (
     ordem                 INT NOT NULL DEFAULT 0,
     FOREIGN KEY (import_id) REFERENCES medicao_imports(id) ON DELETE CASCADE,
     INDEX idx_medicao_import_linhas_import (import_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE medicao_custos (
+    id                      INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    cliente_matriz_id       INT UNSIGNED NOT NULL,
+    ref_ym                  CHAR(7) NOT NULL COMMENT 'AAAA-MM',
+    item_id                 INT UNSIGNED NULL,
+    item_codigo             VARCHAR(32) NOT NULL DEFAULT '',
+    descricao               VARCHAR(255) NOT NULL,
+    unidade                 VARCHAR(20) NOT NULL DEFAULT 'UN',
+    quantidade              DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
+    valor_unitario          DECIMAL(12,4) NOT NULL DEFAULT 0.0000,
+    valor_total             DECIMAL(14,4) NOT NULL DEFAULT 0.0000,
+    status                  ENUM('Pendente','Aprovado','Rejeitado') NOT NULL DEFAULT 'Pendente',
+    observacao              TEXT NULL,
+    rejeitado_motivo        TEXT NULL,
+    criado_por_user_id      INT UNSIGNED NULL,
+    criado_em               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    aprovado_em             DATETIME NULL,
+    aprovado_por_user_id    INT UNSIGNED NULL,
+    rejeitado_em            DATETIME NULL,
+    rejeitado_por_user_id   INT UNSIGNED NULL,
+    INDEX idx_medicao_custos_matriz_ym (cliente_matriz_id, ref_ym),
+    INDEX idx_medicao_custos_matriz_ym_status (cliente_matriz_id, ref_ym, status),
+    INDEX idx_medicao_custos_ym (ref_ym),
+    CONSTRAINT fk_medicao_custos_cliente FOREIGN KEY (cliente_matriz_id) REFERENCES clientes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_medicao_custos_item FOREIGN KEY (item_id) REFERENCES cliente_itens(id) ON DELETE SET NULL,
+    CONSTRAINT fk_medicao_custos_criado_por FOREIGN KEY (criado_por_user_id) REFERENCES usuarios(id) ON DELETE SET NULL,
+    CONSTRAINT fk_medicao_custos_aprovado_por FOREIGN KEY (aprovado_por_user_id) REFERENCES usuarios(id) ON DELETE SET NULL,
+    CONSTRAINT fk_medicao_custos_rejeitado_por FOREIGN KEY (rejeitado_por_user_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -----------------------------------------------------

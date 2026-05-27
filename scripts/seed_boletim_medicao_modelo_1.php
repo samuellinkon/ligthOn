@@ -1,6 +1,6 @@
 <?php
 /**
- * Gera/atualiza assets/templates/boletim_medicao_modelo_1.xlsx com capa + tabela institucional GIP (A–P).
+ * Gera/atualiza assets/templates/boletim_medicao_modelo_1.xlsx com capa + tabela institucional (A–P).
  * Executar após alterar o layout em includes/chamados_medicao_export_xlsx.php.
  *
  * Uso: php scripts/seed_boletim_medicao_modelo_1.php

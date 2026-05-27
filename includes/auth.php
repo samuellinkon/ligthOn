@@ -51,6 +51,49 @@ function mock_login(string $email, string $senha): ?array
 }
 
 /**
+ * Destino após login válido. Verifica se o painel existe no disco (evita 404 no servidor
+ * quando a pasta cliente/ ou operador/ não foi enviada no deploy).
+ *
+ * @return array{path: string, err: string}
+ */
+function auth_painel_destino_apos_login(array $u): array
+{
+    $root = dirname(__DIR__);
+    $p    = (string) ($u['perfil'] ?? '');
+
+    if (in_array($p, ['admin', 'gestor'], true)) {
+        $path = 'admin/index.php';
+        if (!is_file($root . '/' . $path)) {
+            return ['path' => '', 'err' => 'Painel administrativo (admin/) não encontrado no servidor.'];
+        }
+
+        return ['path' => $path, 'err' => ''];
+    }
+
+    if ($p === 'operador') {
+        foreach (['operador/chamados.php', 'operador/index.php'] as $cand) {
+            if (is_file($root . '/' . $cand)) {
+                return ['path' => $cand, 'err' => ''];
+            }
+        }
+
+        return ['path' => '', 'err' => 'Painel do operador (pasta operador/) não encontrado no servidor.'];
+    }
+
+    $path = 'cliente/index.php';
+    if (!is_file($root . '/' . $path)) {
+        return [
+            'path' => '',
+            'err'  => 'O portal da prefeitura (pasta cliente/) não está no servidor. '
+                . 'O login foi aceite, mas falta publicar a pasta cliente/ — envie os 30 ficheiros .php '
+                . 'como fez para admin/ e operador/ (FTP, Git ou gestor de ficheiros da Hostinger).',
+        ];
+    }
+
+    return ['path' => $path, 'err' => ''];
+}
+
+/**
  * Encerra a sessão.
  */
 function mock_logout(): void
@@ -104,6 +147,16 @@ function require_auth(?string $perfil = null, string $basePath = '../'): array
     if ($perfil && ($u['perfil'] ?? '') !== $perfil) {
         header('Location: ' . $basePath . 'login.php?erro=perfil');
         exit;
+    }
+
+    if ($perfil === 'cliente' && db_ok() && (($u['perfil'] ?? '') === 'cliente')) {
+        $cidAuth = (int) ($u['cliente_id'] ?? 0);
+        if ($cidAuth <= 0) {
+            flash_set('err', 'Esta conta não está vinculada a um cadastro do portal. O administrador deve associar «Acesso portal (cliente)» no seu utilizador.');
+            mock_logout();
+            header('Location: ' . $basePath . 'login.php');
+            exit;
+        }
     }
 
     return $u;

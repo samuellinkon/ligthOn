@@ -13,6 +13,7 @@ if (!isset($NOTIF_PAINEL) || !is_array($NOTIF_PAINEL)) {
 
 require_once __DIR__ . '/repository.php';
 require_once __DIR__ . '/flash.php';
+require_once __DIR__ . '/notificacao_ui.php';
 
 $uid        = (int) ($NOTIF_PAINEL['uid'] ?? 0);
 $selfFile   = (string) ($NOTIF_PAINEL['self'] ?? 'notificacoes.php');
@@ -168,19 +169,23 @@ include __DIR__ . '/head.php';
                   ? htmlspecialchars($selfFile . '?abrir=' . $nid)
                   : htmlspecialchars((string) ($n['link'] ?? '#'));
               ?>
-          <li class="notif-page__item<?= $lida ? '' : ' is-unread' ?>">
+          <?php
+              $tipoUi = notificacao_ui_tipo($n);
+              $tituloUi = notificacao_ui_titulo($n);
+              $descUi = notificacao_ui_descricao($n);
+              $dataUi = notificacao_ui_data_relativa((string) ($n['data_criacao'] ?? ''));
+              ?>
+          <li class="notif-page__item notif-page__item--<?= htmlspecialchars($tipoUi) ?><?= $lida ? '' : ' is-unread' ?>">
             <a class="notif-page__link" href="<?= $href ?>">
               <div class="notif-page__link-main">
-                <span class="notif-page__title"><?= htmlspecialchars((string) ($n['titulo'] ?? '')) ?></span>
+                <span class="notif-page__title"><?= htmlspecialchars($tituloUi) ?></span>
                 <?php if (!$lida): ?>
                   <span class="badge notif-page__badge">Não lida</span>
                 <?php endif; ?>
               </div>
-              <?php if (!empty($n['descricao'])): ?>
-                <p class="notif-page__desc"><?= htmlspecialchars((string) $n['descricao']) ?></p>
-              <?php endif; ?>
+              <p class="notif-page__desc"><?= htmlspecialchars($descUi) ?></p>
               <div class="notif-page__meta-line">
-                <?= htmlspecialchars((string) ($n['data_criacao'] ?? '')) ?>
+                <?= htmlspecialchars($dataUi) ?>
                 <?php if ((int) ($n['chamado_id'] ?? 0) > 0): ?>
                   · Chamado #<?= (int) $n['chamado_id'] ?>
                 <?php endif; ?>

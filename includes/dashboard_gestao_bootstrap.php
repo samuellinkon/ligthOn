@@ -32,14 +32,13 @@ switch ($mapPeriodo) {
         $mapDe = $mapAte = $ontem->format('Y-m-d');
         break;
     case 'semana':
-        $segunda = $todayDash->modify('monday this week');
-        $mapDe = $segunda->format('Y-m-d');
-        $mapAte = $todayDash->format('Y-m-d');
+        $mapDe = $todayDash->modify('monday this week')->format('Y-m-d');
+        $mapAte = $todayDash->modify('sunday this week')->format('Y-m-d');
         break;
     case 'mes':
     default:
-        $mapDe = $todayDash->format('Y-m-01');
-        $mapAte = $todayDash->format('Y-m-d');
+        $mapDe = $todayDash->modify('first day of this month')->format('Y-m-d');
+        $mapAte = $todayDash->modify('last day of this month')->format('Y-m-d');
         break;
 }
 
@@ -71,20 +70,6 @@ if ($dashMapaAba === 'pontos' && !$modulePontosMap && $moduleChamadosMap) {
     $dashMapaAba = 'chamados';
 }
 
-$mapPins = $moduleChamadosMap
-    ? repo_chamados_mapa_pins($mapDe, $mapAte, $escopoDash > 0 ? $escopoDash : null)
-    : [];
-$statusChamadosMap = [];
-foreach ($mapPins as $pinChamado) {
-    $statusPin = trim((string) ($pinChamado['status'] ?? ''));
-    if ($statusPin !== '') {
-        $statusChamadosMap[$statusPin] = true;
-    }
-}
-$statusChamadosMap = array_keys($statusChamadosMap);
-natcasesort($statusChamadosMap);
-$statusChamadosMap = array_values($statusChamadosMap);
-
 $pontoMapFiltro = strtolower(trim((string) ($_GET['ponto_filtro'] ?? '')));
 if (!in_array($pontoMapFiltro, ['', 'chamados'], true)) {
     $pontoMapFiltro = '';
@@ -97,7 +82,7 @@ $bairrosPontosDash      = [];
 $totalPontosComChamados = 0;
 $empresasDashOptions    = [];
 
-if ($modulePontosMap) {
+if ($modulePontosMap || $moduleChamadosMap) {
     if ($dashPainel === 'cliente') {
         $scopeIdPontos = $escopoDash;
     } else {
@@ -163,6 +148,64 @@ if ($modulePontosMap) {
     }
 }
 
+$mapChamadosScope = null;
+if ($escopoDash !== null && $escopoDash > 0) {
+    $mapChamadosScope = $escopoDash;
+} elseif ($scopeIdPontos > 0) {
+    $mapChamadosScope = $scopeIdPontos;
+}
+
+$mapChamadosData = $moduleChamadosMap
+    ? repo_chamados_mapa_data($mapDe, $mapAte, $mapChamadosScope)
+    : ['pins' => [], 'stats' => ['total_periodo' => 0, 'ready' => 0, 'pending_geocode' => 0, 'sem_localizacao' => 0]];
+$mapPins      = $mapChamadosData['pins'];
+$mapPinsStats = $mapChamadosData['stats'];
+
+$statusChamadosMap = [];
+foreach ($mapPins as $pinChamado) {
+    $statusPin = trim((string) ($pinChamado['status'] ?? ''));
+    if ($statusPin !== '') {
+        $statusChamadosMap[$statusPin] = true;
+    }
+}
+$statusChamadosMap = array_keys($statusChamadosMap);
+natcasesort($statusChamadosMap);
+$statusChamadosMap = array_values($statusChamadosMap);
+
+$mapPeriodoLabel = date('d/m/Y', strtotime($mapDe)) . ' a ' . date('d/m/Y', strtotime($mapAte));
+$mapEmptyMsg     = null;
+$mapLoadingMsg   = null;
+if ($moduleChamadosMap) {
+    $mapPendingCount = (int) ($mapPinsStats['pending_geocode'] ?? 0);
+    if ($mapPendingCount > 0 && $mapPins !== []) {
+        $mapLoadingMsg = 'Localizando ' . $mapPendingCount . ' chamado(s) pelo endereço no mapa…';
+    }
+    if ($mapPins === []) {
+        $totalPeriodo = (int) ($mapPinsStats['total_periodo'] ?? 0);
+        if ($totalPeriodo === 0) {
+            $mapEmptyMsg = sprintf(
+                'Nenhum chamado no período %s. Tente «Hoje», «Semana» ou confira a data de abertura (aberto_em / data da OS).',
+                $mapPeriodoLabel
+            );
+        } else {
+            $semLoc = (int) ($mapPinsStats['sem_localizacao'] ?? 0);
+            $mapEmptyMsg = sprintf(
+                '%d chamado(s) no período %s, mas nenhum com coordenadas ou endereço para localizar no mapa. Cadastre endereço na OS ou vincule um poste com latitude/longitude.',
+                $totalPeriodo,
+                $mapPeriodoLabel
+            );
+            if ($semLoc > 0 && $semLoc < $totalPeriodo) {
+                $mapEmptyMsg = sprintf(
+                    '%d chamado(s) no período %s sem localização utilizável (%d sem endereço/coords). Os demais podem estar fora do escopo do mapa.',
+                    $semLoc,
+                    $mapPeriodoLabel,
+                    $semLoc
+                );
+            }
+        }
+    }
+}
+
 if ($dashMapaAba === 'ambos') {
     if (!$dashMapaCombinadoHabilitado || !$moduleChamadosMap || !$modulePontosMap || $scopeIdPontos <= 0) {
         $dashMapaAba = $moduleChamadosMap ? 'chamados' : ($modulePontosMap ? 'pontos' : 'chamados');
@@ -174,6 +217,9 @@ $loadPontosMap            = $modulePontosMap && $scopeIdPontos > 0 && $dashMapaA
 $loadMapaCombinado        = $moduleChamadosMap && $modulePontosMap && $scopeIdPontos > 0 && $dashMapaAba === 'ambos';
 $loadLeaflet              = $loadLeafletChamados || $loadPontosMap || $loadMapaCombinado;
 $loadLeafletMarkerCluster = $loadLeaflet;
+
+$dashHrefChamados       = 'chamados.php';
+$dashHrefChamadosAbertos = 'chamados.php?f=Aberto';
 
 $dashQsPreserve = static function (array $override = []) use ($mapPeriodo, $escopoDash, $scopeIdPontos, $pontoMapFiltro, $dashMapaAba, $modoClienteUnicoAdmin, $dashPainel): string {
     $qs = ['map_periodo' => $mapPeriodo, 'dash_mapa' => $dashMapaAba];

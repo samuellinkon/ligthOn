@@ -176,6 +176,7 @@ include __DIR__ . '/../includes/head.php';
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
 <script>
 window.PONTOS_ILUMINACAO_ROUTE = <?= json_encode([
     'origem' => $origem,

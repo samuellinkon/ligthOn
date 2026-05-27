@@ -68,6 +68,113 @@ function chamados_pdf_legenda_curta(string $nome, int $max = 72): string
 }
 
 /**
+ * Célula HTML de uma foto no relatório (Dompdf).
+ *
+ * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool} $resolveAnexoImagemSrc
+ * @param callable(int): string $anexoUrl
+ */
+function chamados_pdf_photo_fig_html(
+    array $a,
+    int $cid,
+    bool $embedImagesBase64,
+    string $projectRootFs,
+    callable $h,
+    callable $resolveAnexoImagemSrc,
+    callable $anexoUrl,
+    string $imgMaxHeight = '22mm'
+): string {
+    $aid = (int) ($a['id'] ?? 0);
+    $got = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
+    $leg = 'Foto';
+
+    ob_start();
+    ?>
+<figure class="photo-grid__fig">
+  <div class="photo-grid__imgwrap">
+    <?php if ($got['ok'] && $got['src'] !== ''): ?>
+    <img src="<?= $h($got['src']) ?>" alt="<?= $h($leg) ?>" style="max-height:<?= $h($imgMaxHeight) ?>;" />
+    <?php else: ?>
+    <span class="muted" style="font-size:8px;">Imagem não incorporada.</span>
+    <?php endif; ?>
+  </div>
+</figure>
+    <?php
+
+    return (string) ob_get_clean();
+}
+
+/**
+ * Até 3 fotos em 2 linhas (2 quadrantes + 1 largo), ou 2x2 se houver 4 imagens.
+ *
+ * @param list<array<string,mixed>> $imgs
+ * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool} $resolveAnexoImagemSrc
+ * @param callable(int): string $anexoUrl
+ */
+function chamados_pdf_photo_quadrants_html(
+    array $imgs,
+    int $cid,
+    bool $embedImagesBase64,
+    string $projectRootFs,
+    callable $h,
+    callable $resolveAnexoImagemSrc,
+    callable $anexoUrl
+): string {
+    if ($imgs === []) {
+        return '';
+    }
+    if (count($imgs) > 3) {
+        $imgs = array_slice($imgs, 0, 3);
+    }
+    $n = count($imgs);
+
+    $fig = static function (array $a, string $maxH = '22mm') use (
+        $cid,
+        $embedImagesBase64,
+        $projectRootFs,
+        $h,
+        $resolveAnexoImagemSrc,
+        $anexoUrl
+    ): string {
+        return chamados_pdf_photo_fig_html(
+            $a,
+            $cid,
+            $embedImagesBase64,
+            $projectRootFs,
+            $h,
+            $resolveAnexoImagemSrc,
+            $anexoUrl,
+            $maxH
+        );
+    };
+
+    ob_start();
+    ?>
+<table class="photo-quad" width="100%">
+    <?php if ($n === 1): ?>
+  <tr class="photo-quad__row">
+    <td class="photo-quad__cell" colspan="2"><?= $fig($imgs[0], '38mm') ?></td>
+  </tr>
+    <?php elseif ($n === 2): ?>
+  <tr class="photo-quad__row">
+    <td class="photo-quad__cell"><?= $fig($imgs[0]) ?></td>
+    <td class="photo-quad__cell"><?= $fig($imgs[1]) ?></td>
+  </tr>
+    <?php elseif ($n === 3): ?>
+  <tr class="photo-quad__row">
+    <td class="photo-quad__cell"><?= $fig($imgs[0]) ?></td>
+    <td class="photo-quad__cell"><?= $fig($imgs[1]) ?></td>
+  </tr>
+  <tr class="photo-quad__row">
+    <td class="photo-quad__cell photo-quad__cell--wide" colspan="2"><?= $fig($imgs[2], '26mm') ?></td>
+  </tr>
+    <?php endif; ?>
+</table>
+    <?php
+
+    return (string) ob_get_clean();
+}
+
+/**
  * Documento HTML para impressão ou PDF (relatório institucional de chamados + anexos).
  *
  * @param list<array{chamado: array<string,mixed>, anexos: list<array<string,mixed>>}> $items
@@ -455,43 +562,61 @@ function chamados_periodo_anexos_export_html(
     }
 
     .section-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--bm-brand);
-      margin: 14px 0 8px;
-      padding-bottom: 3px;
+      margin: 8px 0 5px;
+      padding-bottom: 2px;
       border-bottom: 1px solid var(--bm-line);
     }
 
-    .chamado-doc {
-      page-break-before: always;
+    /* Dois chamados por folha (após a capa). */
+    .chamado-page {
+      page-break-after: always;
     }
-    .chamado-doc-first {
+    .chamado-page:last-child {
+      page-break-after: auto;
+    }
+
+    .chamado-doc {
       page-break-before: auto;
+      page-break-inside: avoid;
+    }
+    .chamado-doc + .chamado-doc {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--bm-line);
     }
 
     .ch-card {
       border: 1px solid var(--bm-line);
       border-left: 4px solid var(--bm-brand);
-      border-radius: 8px;
+      border-radius: 6px;
       background: var(--bm-bg-alt);
-      padding: 12px 14px;
-      margin-bottom: 10px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
       page-break-inside: avoid;
     }
     .ch-card__head {
       display: table;
       width: 100%;
-      margin-bottom: 8px;
+      margin-bottom: 0;
     }
     .ch-card__id {
-      font-size: 16px;
+      font-size: 11px;
       font-weight: 700;
       color: var(--bm-brand);
-      margin: 0 0 6px;
+      margin: 0;
     }
+    .ch-card__meta {
+      font-size: 9px;
+      line-height: 1.35;
+      color: var(--bm-text);
+      margin: 2px 0 0;
+    }
+    .ch-card__meta .muted { color: var(--bm-muted); }
     .ch-card__badges { margin-bottom: 6px; }
 
     .badge {
@@ -533,43 +658,39 @@ function chamados_periodo_anexos_export_html(
       color: var(--bm-text);
       vertical-align: top;
     }
-    .ch-card__txt { font-size: 9.5px; color: var(--bm-muted); margin-top: 8px; line-height: 1.4; }
-
-    .photo-grid { width: 100%; margin: 6px 0 10px; table-layout: fixed; }
-    .photo-grid__row { page-break-inside: avoid; }
-    .photo-grid__cell {
+    .photo-quad { width: 100%; margin: 3px 0 0; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
+    .photo-quad__row { page-break-inside: avoid; }
+    .photo-quad__cell {
       width: 50%;
       vertical-align: top;
-      padding: 5px;
+      padding: 0;
     }
-    .photo-grid--cols3 .photo-grid__cell { width: 33.33%; }
+    .photo-quad__cell--wide { width: 100%; }
     .photo-grid__fig {
       margin: 0;
       border: 1px solid var(--bm-line-strong);
-      border-radius: 8px;
-      padding: 6px;
+      border-radius: 5px;
+      padding: 3px;
       background: var(--bm-white);
-      box-shadow: 0 1px 4px rgba(31,41,55,0.07);
       page-break-inside: avoid;
     }
     .photo-grid__imgwrap {
       text-align: center;
-      min-height: 20mm;
+      min-height: 10mm;
+      line-height: 0;
     }
-    .photo-grid img {
+    .photo-grid__imgwrap img {
       max-width: 100%;
-      max-height: 46mm;
       height: auto;
       width: auto;
       display: block;
       margin: 0 auto;
     }
-    .photo-grid__cap {
+    .chamado-doc__outros {
       font-size: 8px;
       color: var(--bm-muted);
-      margin-top: 6px;
+      margin: 2px 0 0;
       line-height: 1.3;
-      word-wrap: break-word;
     }
 
     .anexo-list {
@@ -673,41 +794,39 @@ function chamados_periodo_anexos_export_html(
     <?php endif; ?>
 
     <?php
-    $firstChamadoPdf = true;
-    foreach ($items as $pack):
+    $chamadosPorPagina = 2;
+    $paginasChamados   = $items !== [] ? array_chunk($items, $chamadosPorPagina) : [];
+    foreach ($paginasChamados as $packPagina):
+        ?>
+    <div class="chamado-page">
+        <?php
+        foreach ($packPagina as $pack):
         $ch     = $pack['chamado'];
         $anexos = $pack['anexos'];
         $cid    = (int) ($ch['id'] ?? 0);
-        $chClass = 'chamado-doc' . ($firstChamadoPdf ? ' chamado-doc-first' : '');
-        $firstChamadoPdf = false;
         $dataCh   = trim((string) ($ch['data'] ?? ''));
-        $statusLb = trim((string) ($ch['status'] ?? ''));
-        $prioLb   = trim((string) ($ch['prioridade'] ?? ''));
         $endereco = trim((string) ($ch['endereco_completo'] ?? ''));
         $tecnico  = trim((string) ($ch['tecnico_nome'] ?? ''));
-        $tituloCh = trim((string) ($ch['titulo'] ?? ''));
-        $clienteL = trim((string) ($ch['cliente'] ?? ''));
-        $stSlug   = chamados_pdf_badge_slug($statusLb !== '' ? $statusLb : '—');
-        $prSlug   = chamados_pdf_badge_slug($prioLb !== '' ? $prioLb : '—');
         ?>
-    <section class="<?= $h($chClass) ?>">
+    <section class="chamado-doc">
       <div class="ch-card">
         <div class="ch-card__head">
           <div class="ch-card__id">Chamado #<?= $h((string) $cid) ?></div>
         </div>
-        <table class="ch-card__grid">
-          <tr><th>Data</th><td><?= $h($dataCh !== '' ? $dataCh : '—') ?></td></tr>
-          <?php if ($endereco !== ''): ?><tr><th>Endereço</th><td><?= $h($endereco) ?></td></tr><?php endif; ?>
-          <?php if ($tecnico !== ''): ?><tr><th>Equipe / técnico</th><td><?= $h($tecnico) ?></td></tr><?php endif; ?>
-        </table>
-        <?php if ($tituloCh !== ''): ?>
-        <div class="ch-card__txt"><strong>Assunto:</strong> <?= $h($tituloCh) ?></div>
-        <?php endif; ?>
+        <p class="ch-card__meta">
+          <?php if ($dataCh !== ''): ?><span><?= $h($dataCh) ?></span><?php endif; ?>
+          <?php if ($endereco !== ''): ?>
+            <?php if ($dataCh !== ''): ?><span class="muted"> · </span><?php endif; ?>
+            <span><?= $h($endereco) ?></span>
+          <?php endif; ?>
+          <?php if ($tecnico !== ''): ?>
+            <span class="muted"> · </span><span class="muted"><?= $h($tecnico) ?></span>
+          <?php endif; ?>
+        </p>
       </div>
 
-      <p class="section-title">Evidências e anexos</p>
       <?php if ($anexos === []): ?>
-      <p class="muted" style="font-size:10px;font-style:italic;margin:0;">Sem anexos neste chamado.</p>
+      <p class="muted" style="font-size:8px;font-style:italic;margin:2px 0 0;">Sem fotos.</p>
       <?php else: ?>
         <?php
         $imgs = [];
@@ -719,124 +838,28 @@ function chamados_periodo_anexos_export_html(
                 $outros[] = $a;
             }
         }
-        $nImg = count($imgs);
-        $cols = $nImg >= 6 ? 3 : 2;
+        echo chamados_pdf_photo_quadrants_html(
+            $imgs,
+            $cid,
+            $embedImagesBase64,
+            $projectRootFs,
+            $h,
+            $resolveAnexoImagemSrc,
+            $anexoUrl
+        );
+        if ($outros !== []) {
+            $nOut = count($outros);
+            echo '<p class="chamado-doc__outros">' . $h(
+                $nOut === 1
+                    ? '1 outro ficheiro (ver CRM).'
+                    : (string) $nOut . ' outros ficheiros (ver CRM).'
+            ) . '</p>';
+        }
         ?>
-        <?php if ($nImg > 0): ?>
-        <table class="photo-grid<?= $cols === 3 ? ' photo-grid--cols3' : '' ?>" width="100%">
-          <?php
-          $rows = array_chunk($imgs, $cols);
-          foreach ($rows as $rowItems):
-              $nR = count($rowItems);
-              ?>
-          <tr class="photo-grid__row">
-            <?php
-            if ($nR === 1 && $cols === 2):
-                $a    = $rowItems[0];
-                $aid  = (int) ($a['id'] ?? 0);
-                $nome = (string) ($a['nome_original'] ?? '');
-                $tam  = (int) ($a['tamanho'] ?? 0);
-                $href = $anexoUrl($aid);
-                $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                $leg  = 'Foto';
-                ?>
-            <td class="photo-grid__cell" colspan="2">
-              <figure class="photo-grid__fig">
-                <div class="photo-grid__imgwrap">
-                  <?php if ($got['ok'] && $got['src'] !== ''): ?>
-                  <img src="<?= $h($got['src']) ?>" alt="<?= $h($leg) ?>" />
-                  <?php else: ?>
-                  <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
-                  <?php endif; ?>
-                </div>
-                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
-              </figure>
-            </td>
-            <?php
-            elseif ($nR === 1 && $cols === 3):
-                $a    = $rowItems[0];
-                $aid  = (int) ($a['id'] ?? 0);
-                $nome = (string) ($a['nome_original'] ?? '');
-                $tam  = (int) ($a['tamanho'] ?? 0);
-                $href = $anexoUrl($aid);
-                $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                $leg  = 'Foto';
-                ?>
-            <td class="photo-grid__cell" colspan="3">
-              <figure class="photo-grid__fig">
-                <div class="photo-grid__imgwrap">
-                  <?php if ($got['ok'] && $got['src'] !== ''): ?>
-                  <img src="<?= $h($got['src']) ?>" alt="<?= $h($leg) ?>" />
-                  <?php else: ?>
-                  <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
-                  <?php endif; ?>
-                </div>
-                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
-              </figure>
-            </td>
-            <?php
-            else:
-                foreach ($rowItems as $a):
-                    $aid  = (int) ($a['id'] ?? 0);
-                    $nome = (string) ($a['nome_original'] ?? '');
-                    $tam  = (int) ($a['tamanho'] ?? 0);
-                    $href = $anexoUrl($aid);
-                    $got  = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
-                    $leg  = 'Foto';
-                    ?>
-            <td class="photo-grid__cell">
-              <figure class="photo-grid__fig">
-                <div class="photo-grid__imgwrap">
-                  <?php if ($got['ok'] && $got['src'] !== ''): ?>
-                  <img src="<?= $h($got['src']) ?>" alt="<?= $h($leg) ?>" />
-                  <?php else: ?>
-                  <span class="muted" style="font-size:9px;">Imagem não incorporada.</span>
-                  <?php endif; ?>
-                </div>
-                <figcaption class="photo-grid__cap" style="font-size:9px;">&nbsp;</figcaption>
-              </figure>
-            </td>
-                <?php
-                endforeach;
-                for ($k = $nR; $k < $cols; $k++):
-                    ?>
-            <td class="photo-grid__cell"></td>
-                <?php
-                endfor;
-            endif;
-              ?>
-          </tr>
-          <?php endforeach; ?>
-        </table>
-        <?php endif; ?>
-
-        <?php if ($outros !== []): ?>
-        <p class="section-title" style="margin-top:8px;">Outros ficheiros</p>
-        <ul class="anexo-list">
-          <?php foreach ($outros as $a):
-              $aid  = (int) ($a['id'] ?? 0);
-              $nome = (string) ($a['nome_original'] ?? '');
-              $mime = (string) ($a['mime'] ?? '');
-              $tam  = (int) ($a['tamanho'] ?? 0);
-              $href = $anexoUrl($aid);
-              $ext  = $extAnexo($a);
-              $ehPdf = ($ext === 'pdf') || (stripos($mime, 'pdf') !== false);
-              ?>
-          <li>
-            <strong><?= $h($nome !== '' ? $nome : 'Anexo #' . (string) $aid) ?></strong>
-            (<?= $h($ext !== '' ? strtoupper($ext) : '—') ?>, <?= $h($fmtBytes($tam)) ?>)
-            — <a href="<?= $href ?>">abrir no CRM</a>
-              <?php if ($ehPdf && $aid > 0 && in_array($aid, $anexoPdfIdsIncorporados, true)): ?>
-            <div class="callout">PDF incorporado no final deste relatório (ficheiro único).</div>
-              <?php elseif ($ehPdf): ?>
-            <div class="callout">PDF não fundido — use o link com sessão no CRM.</div>
-              <?php endif; ?>
-          </li>
-          <?php endforeach; ?>
-        </ul>
-        <?php endif; ?>
       <?php endif; ?>
     </section>
+        <?php endforeach; ?>
+    </div>
     <?php endforeach; ?>
   </div>
 

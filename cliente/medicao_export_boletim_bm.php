@@ -68,4 +68,17 @@ audit_log_registar('medicao.exportar_boletim_bm', 'medicao', null, $clienteId > 
 ]);
 
 require_once __DIR__ . '/../includes/medicao_export_bm_boletim_xlsx.php';
-medicao_export_bm_boletim_v2_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $periodoDe, $periodoAte);
+try {
+    medicao_export_bm_boletim_v2_xlsx_send($clienteId, $mesRaw, $clienteMatriz, $periodoDe, $periodoAte);
+} catch (Throwable $e) {
+    if (function_exists('app_debug_mode') && app_debug_mode()) {
+        error_log('medicao_export_boletim_bm (cliente): ' . $e->getMessage());
+    }
+    $msg = 'Falha ao gerar o boletim BM. Tente novamente.';
+    if (function_exists('app_debug_mode') && app_debug_mode()) {
+        $msg .= ' ' . $e->getMessage();
+    }
+    flash_set('err', $msg);
+    header('Location: medicao.php');
+    exit;
+}

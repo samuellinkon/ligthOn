@@ -38,9 +38,10 @@ if ($method === 'GET') {
         exit;
     }
     if ($action === 'list') {
+        $limit = (int) ($_GET['limit'] ?? 40);
         echo json_encode([
             'ok'    => true,
-            'items' => repo_notificacoes_list_for_user($uid, 40),
+            'items' => repo_notificacoes_list_for_user($uid, $limit),
         ], JSON_UNESCAPED_UNICODE);
 
         exit;

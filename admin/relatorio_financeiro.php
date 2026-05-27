@@ -183,18 +183,18 @@ include __DIR__ . '/../includes/head.php';
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>#</th>
-            <th>Prefeitura</th>
-            <th>Descrição / serviço</th>
-            <th>Tipo</th>
-            <th>OS</th>
-            <th>Vencimento</th>
-            <th>Status</th>
-            <th class="text-right">Valor</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('#', 'id', ['type' => 'number']); ?>
+            <?php crm_sort_th('Prefeitura', 'prefeitura'); ?>
+            <?php crm_sort_th('Descrição / serviço', 'descricao'); ?>
+            <?php crm_sort_th('Tipo', 'tipo'); ?>
+            <?php crm_sort_th('OS', 'os', ['type' => 'number']); ?>
+            <?php crm_sort_th('Vencimento', 'vencimento', ['type' => 'date']); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Valor', 'valor', ['type' => 'number', 'right' => true]); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
@@ -204,8 +204,21 @@ include __DIR__ . '/../includes/head.php';
           </tr>
           <?php else: ?>
           <?php foreach ($contasDet as $c): ?>
-          <?php $oid = isset($c['os_id']) ? (int) $c['os_id'] : 0; ?>
-          <tr>
+          <?php
+            $oid = isset($c['os_id']) ? (int) $c['os_id'] : 0;
+            $vencRaw = (string) ($c['vencimento'] ?? '');
+            $vencIso = $vencRaw !== '' ? date('Y-m-d', strtotime($vencRaw)) : '';
+          ?>
+          <tr <?= crm_sort_row_attr([
+              'id'         => (string) (int) ($c['id'] ?? 0),
+              'prefeitura' => (string) ($c['cliente'] ?? ''),
+              'descricao'  => (string) ($c['descricao'] ?? ''),
+              'tipo'       => (string) (function_exists('rf_tipo_label') ? rf_tipo_label($c) : ($c['tipo'] ?? '')),
+              'os'         => (string) $oid,
+              'vencimento' => $vencIso,
+              'status'     => (string) ($c['status'] ?? ''),
+              'valor'      => (string) (float) ($c['valor'] ?? 0),
+          ]) ?>>
             <td class="td-id">
               <a href="conta_detalhe.php?id=<?= (int) $c['id'] ?>">#<?= (int) $c['id'] ?></a>
             </td>
@@ -252,14 +265,14 @@ include __DIR__ . '/../includes/head.php';
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>Prefeitura</th>
-            <th>Tipo</th>
-            <th>Status</th>
-            <th>Qtd.</th>
-            <th class="text-right">Valor</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('Prefeitura', 'prefeitura'); ?>
+            <?php crm_sort_th('Tipo', 'tipo'); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Qtd.', 'qtd', ['type' => 'number']); ?>
+            <?php crm_sort_th('Valor', 'valor', ['type' => 'number', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
@@ -269,7 +282,13 @@ include __DIR__ . '/../includes/head.php';
           </tr>
           <?php else: ?>
           <?php foreach ($linhas as $r): ?>
-          <tr>
+          <tr <?= crm_sort_row_attr([
+              'prefeitura' => (string) ($r['cliente'] ?? ''),
+              'tipo'       => (string) (function_exists('rf_tipo_label') ? rf_tipo_label($r) : ($r['tipo'] ?? '')),
+              'status'     => (string) ($r['status'] ?? ''),
+              'qtd'        => (string) (int) ($r['qtd'] ?? 0),
+              'valor'      => (string) (float) ($r['valor'] ?? 0),
+          ]) ?>>
             <td>
               <a href="cliente_detalhe.php?id=<?= (int) ($r['cliente_id'] ?? 0) ?>" style="color:inherit;text-decoration:none;">
                 <div class="cell-client">

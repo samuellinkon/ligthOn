@@ -14,7 +14,7 @@ require_once __DIR__ . '/medicao_csv_import.php';
  *   linhas: list<array<string, mixed>>
  * }
  */
-function medicao_xlsx_parse_bm_upload(string $path, ?string $refYm = null): array
+function medicao_xlsx_parse_bm_upload(string $path, ?string $refYm = null, ?string $preferSheet = null): array
 {
     $empty = [
         'ok'                 => false,
@@ -52,7 +52,7 @@ function medicao_xlsx_parse_bm_upload(string $path, ?string $refYm = null): arra
         ? medicao_xlsx_parse_shared_strings_xml($ssXml)
         : [];
 
-    $sheetPath = medicao_xlsx_pick_worksheet_path($zip);
+    $sheetPath = medicao_xlsx_pick_worksheet_path($zip, $preferSheet);
     if ($sheetPath === null) {
         $zip->close();
         return array_merge($empty, ['erro' => 'Nenhuma folha de cálculo encontrada no .xlsx.']);
@@ -69,6 +69,75 @@ function medicao_xlsx_parse_bm_upload(string $path, ?string $refYm = null): arra
     $rows    = medicao_xlsx_grid_to_rows($grid);
 
     return medicao_parse_bm_from_rows($rows, $refYm);
+}
+
+/**
+ * Lê arquivo enviado (.xlsx ou .csv) como matriz de linhas.
+ *
+ * @return array{ok:bool,erro:string,rows:list<list<string>>}
+ */
+function medicao_upload_file_to_rows(string $path, string $ext, ?string $preferSheet = null): array
+{
+    $empty = ['ok' => false, 'erro' => '', 'rows' => []];
+    $ext   = strtolower($ext);
+    if ($ext === 'xlsx') {
+        if (!class_exists(ZipArchive::class)) {
+            return array_merge($empty, ['erro' => 'Extensão PHP zip necessária para .xlsx.']);
+        }
+        $zip = new ZipArchive();
+        if ($zip->open($path) !== true) {
+            return array_merge($empty, ['erro' => 'Não foi possível abrir o .xlsx.']);
+        }
+        $strings = [];
+        $ssXml   = $zip->getFromName('xl/sharedStrings.xml');
+        if ($ssXml !== false && $ssXml !== '') {
+            $strings = medicao_xlsx_parse_shared_strings_xml($ssXml);
+        }
+        $sheetPath = medicao_xlsx_pick_worksheet_path($zip, $preferSheet);
+        if ($sheetPath === null) {
+            $zip->close();
+
+            return array_merge($empty, ['erro' => 'Nenhuma folha encontrada.']);
+        }
+        $sheetXml = $zip->getFromName($sheetPath);
+        $zip->close();
+        if ($sheetXml === false || $sheetXml === '') {
+            return array_merge($empty, ['erro' => 'Folha vazia.']);
+        }
+        $grid = medicao_xlsx_sheet_to_sparse_grid($sheetXml, $strings);
+
+        return ['ok' => true, 'erro' => '', 'rows' => medicao_xlsx_grid_to_rows($grid)];
+    }
+
+    if ($ext === 'csv') {
+        $parse = medicao_csv_parse_bm_planilha($path, null);
+        if (!$parse['ok']) {
+            return array_merge($empty, ['erro' => $parse['erro']]);
+        }
+        $full = file_get_contents($path);
+        if ($full === false) {
+            return array_merge($empty, ['erro' => 'CSV ilegível.']);
+        }
+        if (str_starts_with($full, "\xEF\xBB\xBF")) {
+            $full = substr($full, 3);
+        }
+        $delimiter = medicao_csv_sniff_delimiter_best(substr($full, 0, min(524288, strlen($full))));
+        $rows      = [];
+        $fp        = fopen('php://memory', 'r+b');
+        if ($fp === false) {
+            return array_merge($empty, ['erro' => 'Memória indisponível.']);
+        }
+        fwrite($fp, $full);
+        rewind($fp);
+        while (($row = fgetcsv($fp, 0, $delimiter, '"', '\\')) !== false) {
+            $rows[] = array_map(static fn ($c): string => is_string($c) ? trim(str_replace("\xc2\xa0", ' ', $c)) : '', $row);
+        }
+        fclose($fp);
+
+        return ['ok' => true, 'erro' => '', 'rows' => $rows];
+    }
+
+    return array_merge($empty, ['erro' => 'Formato não suportado.']);
 }
 
 function medicao_xlsx_parse_shared_strings_xml(string $xml): array
@@ -176,6 +245,14 @@ function medicao_xlsx_sheet_name_score(string $name, bool $hidden): int
         return -500;
     }
     $u = mb_strtoupper($name, 'UTF-8');
+    $uAscii = str_replace(['Ç', 'Ã', 'Õ', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Â', 'Ê', 'Ô'], ['C', 'A', 'O', 'A', 'E', 'I', 'O', 'U', 'A', 'E', 'O'], $u);
+    $isMedicaoBm = (str_contains($uAscii, 'MEDIC') || str_contains($u, 'MEDI'))
+        && !str_contains($u, 'DETALHADO')
+        && !str_contains($u, 'ESPELHO')
+        && (str_contains($u, 'BM') || preg_match('/\d+/', $u));
+    if ($isMedicaoBm) {
+        return 250;
+    }
     if (str_contains($u, 'MATRIZ') && !str_contains($u, 'DETALHADO')) {
         return 5;
     }
@@ -194,7 +271,7 @@ function medicao_xlsx_sheet_name_score(string $name, bool $hidden): int
     return 10;
 }
 
-function medicao_xlsx_pick_worksheet_path(ZipArchive $zip): ?string
+function medicao_xlsx_pick_worksheet_path(ZipArchive $zip, ?string $preferSheet = null): ?string
 {
     $wb = $zip->getFromName('xl/workbook.xml');
     if ($wb === false || $wb === '') {
@@ -210,6 +287,10 @@ function medicao_xlsx_pick_worksheet_path(ZipArchive $zip): ?string
         return null;
     }
 
+    $prefer = $preferSheet !== null && $preferSheet !== ''
+        ? mb_strtoupper(trim($preferSheet), 'UTF-8')
+        : null;
+
     $bestPath  = null;
     $bestScore = PHP_INT_MIN;
     foreach ($sheets as $sh) {
@@ -219,6 +300,16 @@ function medicao_xlsx_pick_worksheet_path(ZipArchive $zip): ?string
             continue;
         }
         $sc = medicao_xlsx_sheet_name_score($sh['name'], $sh['hidden']);
+        if ($prefer !== null) {
+            $nameU = mb_strtoupper($sh['name'], 'UTF-8');
+            if ($prefer === 'MEDICAO' || $prefer === 'MEDIÇÃO') {
+                if (str_contains($nameU, 'MEDI') && !str_contains($nameU, 'DETALHADO')) {
+                    $sc += 1000;
+                }
+            } elseif (str_contains($nameU, $prefer)) {
+                $sc += 1000;
+            }
+        }
         if ($sc > $bestScore) {
             $bestScore = $sc;
             $bestPath  = $path;

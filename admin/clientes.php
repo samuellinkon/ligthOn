@@ -252,19 +252,24 @@ include __DIR__ . '/../includes/head.php';
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>Órgão</th>
-            <th>Contato</th>
-            <th>Chamados</th>
-            <th>Status</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('Órgão', 'orgao'); ?>
+            <?php crm_sort_th('Contato', 'contato'); ?>
+            <?php crm_sort_th('Chamados', 'chamados', ['type' => 'number']); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($listaClientes as $c): ?>
-          <tr>
+          <tr <?= crm_sort_row_attr([
+              'orgao'    => (string) ($c['empresa'] ?? ''),
+              'contato'  => trim((string) ($c['email'] ?? '') . ' ' . (string) ($c['nome'] ?? '')),
+              'chamados' => (string) (int) ($c['chamados'] ?? 0),
+              'status'   => (string) ($c['status'] ?? ''),
+          ]) ?>>
             <td>
               <a href="cliente_detalhe.php?id=<?= (int) $c['id'] ?>" style="text-decoration:none; color:inherit;">
                 <div class="cell-client">

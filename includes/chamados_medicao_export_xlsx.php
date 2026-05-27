@@ -5,6 +5,7 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -12,24 +13,25 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 require_once __DIR__ . '/medicao_helpers.php';
 require_once __DIR__ . '/medicao_export_bm_boletim_xlsx.php';
+require_once __DIR__ . '/medicao_custo_repo.php';
 
-/** Última coluna da grelha GIP institucional (16 colunas A–P). */
-const BM_MED_GIP_LAST_COL = 'P';
+/** Última coluna da grelha institucional do boletim (16 colunas A–P). */
+const BM_MED_INST_LAST_COL = 'P';
 
 /** Alturas (pt) — Boletim com detalhes dos chamados. */
-const BM_MED_GIP_ROW_TITLE        = 40.0;
-const BM_MED_GIP_ROW_INFO_MIN     = 28.0;
-const BM_MED_GIP_ROW_CAPA_GRID    = 36.0;
-const BM_MED_GIP_ROW_SERVICE      = 32.0;
-const BM_MED_GIP_ROW_TABLE_HDR    = 38.0;
-const BM_MED_GIP_ROW_DATA         = 26.0;
-const BM_MED_GIP_ROW_DATA_MAX     = 30.0;
-const BM_MED_GIP_ZOOM             = 88;
+const BM_MED_INST_ROW_TITLE        = 40.0;
+const BM_MED_INST_ROW_INFO_MIN     = 28.0;
+const BM_MED_INST_ROW_CAPA_GRID    = 36.0;
+const BM_MED_INST_ROW_SERVICE      = 32.0;
+const BM_MED_INST_ROW_TABLE_HDR    = 38.0;
+const BM_MED_INST_ROW_DATA         = 26.0;
+const BM_MED_INST_ROW_DATA_MAX     = 30.0;
+const BM_MED_INST_ZOOM             = 88;
 
 require_once __DIR__ . '/chamados_medicao_tpl1.php';
 
 /** @return array<string, float> Larguras mínimas A–P */
-function bm_med_gip_larguras_minimas(): array
+function bm_med_inst_larguras_minimas(): array
 {
     return [
         'A' => 14.0,
@@ -51,9 +53,9 @@ function bm_med_gip_larguras_minimas(): array
     ];
 }
 
-function bm_med_gip_aplicar_larguras_colunas(Worksheet $sheet): void
+function bm_med_inst_aplicar_larguras_colunas(Worksheet $sheet): void
 {
-    foreach (bm_med_gip_larguras_minimas() as $col => $minW) {
+    foreach (bm_med_inst_larguras_minimas() as $col => $minW) {
         $dim = $sheet->getColumnDimension($col);
         $dim->setAutoSize(false);
         $cur = $dim->getWidth();
@@ -61,7 +63,7 @@ function bm_med_gip_aplicar_larguras_colunas(Worksheet $sheet): void
     }
 }
 
-function bm_med_gip_texto_linhas_estimadas(string $text, int $charsPorLinha): int
+function bm_med_inst_texto_linhas_estimadas(string $text, int $charsPorLinha): int
 {
     if ($text === '' || $charsPorLinha < 1) {
         return 1;
@@ -72,7 +74,7 @@ function bm_med_gip_texto_linhas_estimadas(string $text, int $charsPorLinha): in
     return max(1, $n);
 }
 
-function bm_med_gip_altura_linha_dados(Worksheet $sheet, int $r): float
+function bm_med_inst_altura_linha_dados(Worksheet $sheet, int $r): float
 {
     $linhas = 1;
     foreach (
@@ -85,13 +87,13 @@ function bm_med_gip_altura_linha_dados(Worksheet $sheet, int $r): float
         if (!is_string($v) || trim($v) === '') {
             continue;
         }
-        $linhas = max($linhas, bm_med_gip_texto_linhas_estimadas(trim($v), $cpp));
+        $linhas = max($linhas, bm_med_inst_texto_linhas_estimadas(trim($v), $cpp));
     }
     if ($linhas <= 1) {
-        return BM_MED_GIP_ROW_DATA;
+        return BM_MED_INST_ROW_DATA;
     }
 
-    return min(BM_MED_GIP_ROW_DATA_MAX, max(BM_MED_GIP_ROW_DATA, 22.0 + ($linhas - 1) * 5.0));
+    return min(BM_MED_INST_ROW_DATA_MAX, max(BM_MED_INST_ROW_DATA, 22.0 + ($linhas - 1) * 5.0));
 }
 
 /**
@@ -99,7 +101,7 @@ function bm_med_gip_altura_linha_dados(Worksheet $sheet, int $r): float
  *
  * @param list<int> $bodyRows
  */
-function bm_med_gip_aplicar_layout_final(
+function bm_med_inst_aplicar_layout_final(
     Worksheet $sheet,
     int $thRow,
     array $bodyRows,
@@ -107,19 +109,19 @@ function bm_med_gip_aplicar_layout_final(
     ?int $totRow = null,
     ?int $footRow = null
 ): void {
-    $last = BM_MED_GIP_LAST_COL;
+    $last = BM_MED_INST_LAST_COL;
 
-    bm_med_gip_aplicar_larguras_colunas($sheet);
+    bm_med_inst_aplicar_larguras_colunas($sheet);
 
-    $sheet->getRowDimension(1)->setRowHeight(BM_MED_GIP_ROW_TITLE);
+    $sheet->getRowDimension(1)->setRowHeight(BM_MED_INST_ROW_TITLE);
     if ((int) $sheet->getHighestRow() >= 2) {
-        $sheet->getRowDimension(2)->setRowHeight(BM_MED_GIP_ROW_INFO_MIN);
+        $sheet->getRowDimension(2)->setRowHeight(BM_MED_INST_ROW_INFO_MIN);
     }
     if ((int) $sheet->getHighestRow() >= 3) {
-        $sheet->getRowDimension(3)->setRowHeight(BM_MED_GIP_ROW_CAPA_GRID);
+        $sheet->getRowDimension(3)->setRowHeight(BM_MED_INST_ROW_CAPA_GRID);
     }
     if ((int) $sheet->getHighestRow() >= 4) {
-        $sheet->getRowDimension(4)->setRowHeight(BM_MED_GIP_ROW_SERVICE);
+        $sheet->getRowDimension(4)->setRowHeight(BM_MED_INST_ROW_SERVICE);
     }
 
     for ($capR = 1; $capR <= min(4, $thRow - 1); ++$capR) {
@@ -138,7 +140,7 @@ function bm_med_gip_aplicar_layout_final(
     }
 
     if ($thRow > 0) {
-        $sheet->getRowDimension($thRow)->setRowHeight(BM_MED_GIP_ROW_TABLE_HDR);
+        $sheet->getRowDimension($thRow)->setRowHeight(BM_MED_INST_ROW_TABLE_HDR);
         $sheet->getStyle('A' . $thRow . ':' . $last . $thRow)->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_CENTER)
             ->setVertical(Alignment::VERTICAL_CENTER)
@@ -151,17 +153,17 @@ function bm_med_gip_aplicar_layout_final(
         if ($r <= 0) {
             continue;
         }
-        $sheet->getRowDimension($r)->setRowHeight(bm_med_gip_altura_linha_dados($sheet, $r));
+        $sheet->getRowDimension($r)->setRowHeight(bm_med_inst_altura_linha_dados($sheet, $r));
     }
 
     if ($emptyMsgRow !== null && $emptyMsgRow > 0) {
-        $sheet->getRowDimension($emptyMsgRow)->setRowHeight(BM_MED_GIP_ROW_INFO_MIN);
+        $sheet->getRowDimension($emptyMsgRow)->setRowHeight(BM_MED_INST_ROW_INFO_MIN);
     }
     if ($totRow !== null && $totRow > 0) {
-        $sheet->getRowDimension($totRow)->setRowHeight(BM_MED_GIP_ROW_DATA);
+        $sheet->getRowDimension($totRow)->setRowHeight(BM_MED_INST_ROW_DATA);
     }
     if ($footRow !== null && $footRow > 0) {
-        $sheet->getRowDimension($footRow)->setRowHeight(BM_MED_GIP_ROW_INFO_MIN);
+        $sheet->getRowDimension($footRow)->setRowHeight(BM_MED_INST_ROW_INFO_MIN);
     }
 
     if ($bodyRows !== []) {
@@ -212,7 +214,7 @@ function bm_med_gip_aplicar_layout_final(
         }
     }
 
-    $sheet->getSheetView()->setZoomScale(BM_MED_GIP_ZOOM);
+    $sheet->getSheetView()->setZoomScale(BM_MED_INST_ZOOM);
     $sheet->freezePane('A' . ($thRow + 1));
     $sheet->getPageSetup()
         ->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
@@ -267,8 +269,8 @@ function bm_med_data_dia_br(?string $raw): string
     return $t ? date('d/m/Y', $t) : trim($raw);
 }
 
-/** Cabeçalhos exactos do modelo GIP (colunas A–P). Coluna B: ID do chamado. */
-function bm_med_headers_gip(): array
+/** Cabeçalhos exactos do layout institucional (colunas A–P). Coluna B: ID do chamado. */
+function bm_med_headers_inst(): array
 {
     return [
         'DATA',
@@ -347,17 +349,24 @@ function bm_med_tipo_servico_institucional(array $ln): string
 }
 
 /**
- * Coluna B (ID): número do chamado na BD (sem campo GIP dedicado).
+ * Coluna B (ID): número do chamado na BD.
  *
  * @param array<string,mixed> $ln Linha consolidada (template) com dados de geo/endereço
  */
-function bm_med_linha_institucional_gip(
+/** Linha do detalhamento institucional compõe totais de medição/BM (somente utilizado). */
+function bm_med_detalhe_linha_compoe_custo(array $ln): bool
+{
+    return strtolower(trim((string) ($ln['movimento'] ?? 'utilizado'))) === 'utilizado';
+}
+
+function bm_med_linha_institucional(
     \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet,
     int $r,
     array $ln,
     int $chamadoId
 ): void {
     $cidTxt = $chamadoId > 0 ? (string) $chamadoId : '';
+    $nomeItem = trim((string) ($ln['item_nome'] ?? ''));
     $sheet->setCellValue('A' . $r, bm_med_data_dia_br((string) ($ln['item_criado_em'] ?? '')));
     $sheet->setCellValue('B' . $r, $cidTxt);
     $lat = bm_med_coord_s($ln);
@@ -375,7 +384,7 @@ function bm_med_linha_institucional_gip(
     $sheet->setCellValue('I' . $r, bm_med_tipo_item_pt((string) ($ln['item_tipo'] ?? '')));
     $sheet->setCellValue('J' . $r, bm_med_tipo_servico_institucional($ln));
     $sheet->setCellValue('K' . $r, trim((string) ($ln['item_codigo'] ?? '')));
-    $sheet->setCellValue('L' . $r, trim((string) ($ln['item_nome'] ?? '')));
+    $sheet->setCellValue('L' . $r, $nomeItem);
     $sheet->setCellValue('M' . $r, (float) ($ln['quantidade'] ?? 0));
     $sheet->setCellValue('N' . $r, trim((string) ($ln['catalogo_unidade'] ?? '')));
     $sheet->setCellValue('O' . $r, (float) ($ln['valor_unitario'] ?? 0));
@@ -456,6 +465,7 @@ function bm_med_agrupar_detalhamento_chamados_consolidado(array $det): array
             $tpl['observacao']     = $obsStr;
             $itens[]               = $tpl;
         }
+        usort($itens, 'medicao_bm_boletim_cmp_detalhe_linha');
         $out[] = [
             'chamado_id'           => $cid,
             'meta'                 => $bucket['meta'],
@@ -463,6 +473,10 @@ function bm_med_agrupar_detalhamento_chamados_consolidado(array $det): array
             'itens'                => $itens,
         ];
     }
+
+    usort($out, static function (array $a, array $b): int {
+        return ((int) ($a['chamado_id'] ?? 0)) <=> ((int) ($b['chamado_id'] ?? 0));
+    });
 
     return $out;
 }
@@ -484,7 +498,7 @@ function bm_med_border(): array
 }
 
 /**
- * Soma dos subtotais (coluna VALOR TOTAL) dos lançamentos do detalhamento.
+ * Soma dos subtotais (coluna VALOR TOTAL) dos lançamentos do detalhamento — só movimento utilizado.
  *
  * @param list<array<string,mixed>> $det
  */
@@ -492,10 +506,153 @@ function bm_med_somar_valor_total_detalhe(array $det): float
 {
     $soma = 0.0;
     foreach ($det as $ln) {
+        if (!bm_med_detalhe_linha_compoe_custo($ln)) {
+            continue;
+        }
         $soma += (float) ($ln['subtotal'] ?? 0);
     }
 
     return round(max(0.0, $soma), 2);
+}
+
+/**
+ * Soma das quantidades (coluna M) do detalhamento — só movimento utilizado.
+ *
+ * @param list<array<string,mixed>> $det
+ */
+function bm_med_somar_qtd_detalhe_utilizado(array $det): float
+{
+    $soma = 0.0;
+    foreach ($det as $ln) {
+        if (!bm_med_detalhe_linha_compoe_custo($ln)) {
+            continue;
+        }
+        $soma += (float) ($ln['quantidade'] ?? 0);
+    }
+
+    return round(max(0.0, $soma), 4);
+}
+
+/**
+ * Converte linhas da importação BM (medicao_import_linhas) para o formato do detalhamento institucional.
+ *
+ * @param list<array<string,mixed>> $bmLinhas
+ *
+ * @return list<array<string,mixed>>
+ */
+function bm_med_detalhe_linhas_from_bm_import(array $bmLinhas, string $refYm = ''): array
+{
+    $dataRef = date('Y-m-d H:i');
+    if (preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        $ts = strtotime($refYm . '-15 12:00:00');
+        if ($ts !== false) {
+            $dataRef = date('Y-m-d H:i', $ts);
+        }
+    }
+    $out = [];
+    foreach ($bmLinhas as $il) {
+        if (!is_array($il)) {
+            continue;
+        }
+        $q   = (float) ($il['qtd_medido_periodo'] ?? 0);
+        $vu  = (float) ($il['preco_unitario'] ?? 0);
+        $sub = (float) ($il['valor_medido_periodo'] ?? 0);
+        if ($q == 0.0 && $sub == 0.0) {
+            continue;
+        }
+        if ($sub == 0.0 && $vu > 0.0) {
+            $sub = round($q * $vu, 4);
+        }
+        $out[] = [
+            'chamado_id'            => 0,
+            'chamado_item_id'       => (int) ($il['linha_id'] ?? 0),
+            'item_criado_em'        => $dataRef,
+            'item_codigo'           => trim((string) ($il['item_codigo'] ?? '')),
+            'item_nome'             => trim((string) ($il['descricao'] ?? '')),
+            'item_tipo'             => 'produto',
+            'catalogo_unidade'      => trim((string) ($il['unidade'] ?? '')) !== '' ? trim((string) $il['unidade']) : 'UN',
+            'quantidade'            => $q,
+            'valor_unitario'        => $vu > 0.0 ? $vu : ($q > 0.0 ? round($sub / $q, 4) : 0.0),
+            'subtotal'              => $sub,
+            'movimento'             => 'utilizado',
+            'tecnico_nomes'         => 'Importação BM',
+            'ponto_codigo_poste'    => '',
+            'ch_os_bairro'          => '',
+            'ch_os_logradouro'      => '',
+            'ch_os_numero'          => '',
+            'ch_latitude'           => '',
+            'ch_longitude'          => '',
+            'pi_bairro'             => '',
+            'pi_latitude'           => '',
+            'pi_longitude'          => '',
+            'chamado_problema_tipo' => '',
+            'servico_categoria_tipo'=> '',
+            'endereco_completo'     => '',
+            'observacao'            => '',
+            'item_id_catalogo'      => 0,
+        ];
+    }
+
+    return $out;
+}
+
+/**
+ * Custos adicionais aprovados no mês → linhas do detalhamento institucional (chamado_id = 0).
+ *
+ * @return list<array<string,mixed>>
+ */
+function bm_med_detalhe_linhas_from_custos_aprovados(int $matrizId, string $refYm): array
+{
+    if (!repo_medicao_custos_table_exists() || $matrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        return [];
+    }
+    $ts = strtotime($refYm . '-15 12:00:00');
+    $dataRef = $ts !== false ? date('Y-m-d H:i', $ts) : date('Y-m-d H:i');
+    $out     = [];
+    foreach (repo_medicao_custos_aprovados_bm($matrizId, $refYm) as $c) {
+        $q   = (float) ($c['quantidade'] ?? 0);
+        $vu  = (float) ($c['valor_unitario'] ?? 0);
+        $sub = (float) ($c['valor_total'] ?? 0);
+        if ($sub <= 0.0 && $q <= 0.0) {
+            continue;
+        }
+        if ($sub <= 0.0 && $vu > 0.0 && $q > 0.0) {
+            $sub = round($q * $vu, 2);
+        }
+        $cod  = medicao_custo_bm_codigo_exibir($c);
+        $desc = trim((string) ($c['descricao'] ?? ''));
+        $nome = ($desc !== '' ? $desc : 'Custo adicional') . ' (custo adicional)';
+        $out[] = [
+            'chamado_id'             => 0,
+            'chamado_item_id'        => (int) ($c['id'] ?? 0),
+            'item_criado_em'         => $dataRef,
+            'item_codigo'            => $cod,
+            'item_nome'              => $nome,
+            'item_tipo'              => 'servico',
+            'catalogo_unidade'       => trim((string) ($c['unidade'] ?? '')) !== '' ? trim((string) $c['unidade']) : 'UN',
+            'quantidade'             => $q,
+            'valor_unitario'         => $vu,
+            'subtotal'               => $sub,
+            'movimento'              => 'utilizado',
+            'tecnico_nomes'          => '—',
+            'ponto_codigo_poste'     => '',
+            'ch_os_bairro'           => '',
+            'ch_os_logradouro'       => '',
+            'ch_os_numero'           => '',
+            'ch_latitude'            => '',
+            'ch_longitude'           => '',
+            'pi_bairro'              => '',
+            'pi_latitude'            => '',
+            'pi_longitude'           => '',
+            'chamado_problema_tipo'  => 'Custo adicional',
+            'servico_categoria_tipo' => 'Custo adicional (aprovado)',
+            'endereco_completo'      => '',
+            'observacao'             => 'Status: Aprovado',
+            'item_id_catalogo'       => (int) ($c['item_id'] ?? 0),
+        ];
+    }
+
+    return $out;
 }
 
 /**
@@ -537,7 +694,7 @@ function bm_med_capa_boletim_montar(
         ->setVertical(Alignment::VERTICAL_CENTER)
         ->setWrapText(false)
         ->setShrinkToFit(false);
-    $sheet->getRowDimension($r)->setRowHeight(BM_MED_GIP_ROW_TITLE);
+    $sheet->getRowDimension($r)->setRowHeight(BM_MED_INST_ROW_TITLE);
 
     ++$r;
     $subLinha1 = 'Medição ' . $mesTxt . ' — ' . ($matrizLb !== '' ? $matrizLb : 'Contratante');
@@ -554,7 +711,7 @@ function bm_med_capa_boletim_montar(
         ->setWrapText(false)
         ->setShrinkToFit(false)
         ->setIndent(1);
-    $sheet->getRowDimension($r)->setRowHeight(BM_MED_GIP_ROW_INFO_MIN);
+    $sheet->getRowDimension($r)->setRowHeight(BM_MED_INST_ROW_INFO_MIN);
 
     ++$r;
     $sheet->mergeCells("A{$r}:D{$r}");
@@ -564,19 +721,16 @@ function bm_med_capa_boletim_montar(
     );
     $sheet->mergeCells("E{$r}:H{$r}");
     $sheet->setCellValue("E{$r}", "Prefeitura / tomador\n" . $matrizLb);
-    $sheet->mergeCells("I{$r}:L{$r}");
-    $sheet->setCellValue("I{$r}", "Contrato\n—");
-    $sheet->mergeCells("M{$r}:{$lastLt}{$r}");
+    $sheet->mergeCells("I{$r}:{$lastLt}{$r}");
     $sheet->setCellValue(
-        "M{$r}",
+        "I{$r}",
         "Referência / emissão\n" . $periodoTxt . "\n\nGerado em\n" . $emitido
     );
     $destaqueMedicao = $st['highlight_financial_box'];
     $destaqueMedicao['alignment'] = medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT);
     $sheet->getStyle("A{$r}:D{$r}")->applyFromArray($destaqueMedicao);
     $sheet->getStyle("E{$r}:H{$r}")->applyFromArray($st['capa_grid_cell']);
-    $sheet->getStyle("I{$r}:L{$r}")->applyFromArray($st['capa_grid_cell']);
-    $sheet->getStyle("M{$r}:{$lastLt}{$r}")->applyFromArray($st['capa_grid_cell_plain']);
+    $sheet->getStyle("I{$r}:{$lastLt}{$r}")->applyFromArray($st['capa_grid_cell_plain']);
     $sheet->getStyle("A{$r}:{$lastLt}{$r}")->applyFromArray($st['section_outline_soft']);
     $sheet->getStyle("A{$r}:D{$r}")->getAlignment()
         ->setVertical(Alignment::VERTICAL_CENTER)
@@ -588,7 +742,7 @@ function bm_med_capa_boletim_montar(
         ->setWrapText(true)
         ->setShrinkToFit(false)
         ->setIndent(1);
-    $sheet->getRowDimension($r)->setRowHeight(BM_MED_GIP_ROW_CAPA_GRID);
+    $sheet->getRowDimension($r)->setRowHeight(BM_MED_INST_ROW_CAPA_GRID);
 
     ++$r;
     $sheet->mergeCells("A{$r}:{$lastLt}{$r}");
@@ -602,7 +756,7 @@ function bm_med_capa_boletim_montar(
         ->setVertical(Alignment::VERTICAL_CENTER)
         ->setWrapText(false)
         ->setShrinkToFit(false);
-    $sheet->getRowDimension($r)->setRowHeight(BM_MED_GIP_ROW_SERVICE);
+    $sheet->getRowDimension($r)->setRowHeight(BM_MED_INST_ROW_SERVICE);
 
     ++$r;
     $sheet->mergeCells("A{$r}:{$lastLt}{$r}");
@@ -793,6 +947,55 @@ function bm_med_kpis_grid(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $s, int 
 }
 
 /**
+ * Formatos numéricos por coluna numa linha de dados (corrige herança do modelo XLSX após duplicateStyle).
+ */
+function bm_med_inst_aplicar_formatos_linha_dados(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $row): void
+{
+    if ($row <= 0) {
+        return;
+    }
+    $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_TEXT);
+    $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.0000000');
+    $sheet->getStyle('D' . $row)->getNumberFormat()->setFormatCode('#,##0.0000000');
+    $sheet->getStyle('M' . $row)->getNumberFormat()->setFormatCode('#,##0.###');
+    $sheet->getStyle('O' . $row)->getNumberFormat()->setFormatCode('"R$" #,##0.00');
+    $sheet->getStyle('P' . $row)->getNumberFormat()->setFormatCode('"R$" #,##0.00');
+}
+
+/**
+ * @param list<int> $bodyRowNums
+ */
+function bm_med_inst_aplicar_formatos_linhas_dados(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, array $bodyRowNums): void
+{
+    foreach ($bodyRowNums as $br) {
+        bm_med_inst_aplicar_formatos_linha_dados($sheet, (int) $br);
+    }
+}
+
+/**
+ * Estilo sucata por cima do zebra (após template e bm_med_planilha_aplicar_estilos).
+ *
+ * @param array<string,mixed> $instStyleCtx
+ */
+function bm_med_inst_aplicar_estilo_sucata_final(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, array $instStyleCtx): void
+{
+    $sucataRows = isset($instStyleCtx['sucata_rows']) && is_array($instStyleCtx['sucata_rows'])
+        ? array_values(array_map('intval', $instStyleCtx['sucata_rows']))
+        : [];
+    if ($sucataRows === []) {
+        return;
+    }
+    $last = (string) ($instStyleCtx['last_letter'] ?? BM_MED_INST_LAST_COL);
+    foreach ($sucataRows as $sr) {
+        if ($sr <= 0) {
+            continue;
+        }
+        medicao_bm_boletim_aplicar_estilo_linha_sucata($sheet, $sr, $last);
+        bm_med_inst_aplicar_formatos_linha_dados($sheet, $sr);
+    }
+}
+
+/**
  * Corpo BM (zebra, grelha), destaques de contrato, detalhe de chamados e rodapé — não altera valores nem fórmulas.
  *
  * @param array{
@@ -806,9 +1009,9 @@ function bm_med_kpis_grid(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $s, int 
  *   empty_bm_msg_row?:int,
  *   footer_row:int,
  *   footer_last_col:string,
- *   gip_header_row?:int,
- *   gip_empty_msg_row?:int,
- *   gip_tot_row?:int,
+ *   inst_header_row?:int,
+ *   inst_empty_msg_row?:int,
+ *   inst_tot_row?:int,
  *   det?:array{
  *     d_last:string,
  *     title_row:int,
@@ -827,16 +1030,16 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
     $st   = medicao_bm_boletim_style_arrays_tipografia();
     $mode = (string) ($p['mode'] ?? 'bm');
 
-    if ($mode === 'gip') {
+    if ($mode === 'inst') {
         $last    = (string) $p['last_letter'];
         $brs     = isset($p['body_rows']) && is_array($p['body_rows']) ? array_values(array_map('intval', $p['body_rows'])) : [];
-        $hdr     = (int) ($p['gip_header_row'] ?? 0);
+        $hdr     = (int) ($p['inst_header_row'] ?? 0);
         $fRow    = (int) $p['footer_row'];
         $fLc     = (string) $p['footer_last_col'];
 
         if ($hdr > 0) {
             $sheet->getStyle('A' . $hdr . ':' . $last . $hdr)->applyFromArray($st['header_table']);
-            $sheet->getRowDimension($hdr)->setRowHeight(BM_MED_GIP_ROW_TABLE_HDR);
+            $sheet->getRowDimension($hdr)->setRowHeight(BM_MED_INST_ROW_TABLE_HDR);
             $sheet->getStyle('A' . $hdr . ':' . $last . $hdr)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_CENTER)
                 ->setVertical(Alignment::VERTICAL_CENTER)
@@ -844,8 +1047,8 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
                 ->setShrinkToFit(false);
         }
 
-        if (!empty($p['gip_empty_msg_row'])) {
-            $er = (int) $p['gip_empty_msg_row'];
+        if (!empty($p['inst_empty_msg_row'])) {
+            $er = (int) $p['inst_empty_msg_row'];
             $sheet->getStyle('A' . $er . ':' . $last . $er)->applyFromArray($st['title_sub_flat']);
             $sheet->getStyle('A' . $er . ':' . $last . $er)->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_CENTER);
         }
@@ -857,6 +1060,9 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
                 $stripe = ($i % 2 === 0) ? MEDICAO_BM_WHITE : MEDICAO_BM_BG_ALT;
                 $rowSt   = array_merge($st['body_row'], ['fill' => medicao_bm_boletim_style_fill_solid($stripe)]);
                 $sheet->getStyle('A' . $br . ':' . $last . $br)->applyFromArray($rowSt);
+                $rowFont = $sheet->getStyle('A' . $br . ':' . $last . $br)->getFont();
+                $rowFont->setItalic(false);
+                $rowFont->getColor()->setRGB(MEDICAO_BM_TEXT_MAIN);
             }
             $sheet->getStyle('A' . $rIni . ':' . $last . $rFim)->applyFromArray($st['body_table_border_soft']);
             $txtLeft = [
@@ -904,16 +1110,12 @@ function bm_med_planilha_aplicar_estilos_marca_dados(
                 ->setWrapText(false)
                 ->setShrinkToFit(false);
             foreach ($brs as $br) {
-                $sheet->getStyle('C' . $br)->getNumberFormat()->setFormatCode('#,##0.0000000');
-                $sheet->getStyle('D' . $br)->getNumberFormat()->setFormatCode('#,##0.0000000');
-                $sheet->getStyle('M' . $br)->getNumberFormat()->setFormatCode('#,##0.###');
-                $sheet->getStyle('O' . $br)->getNumberFormat()->setFormatCode('"R$" #,##0.00');
-                $sheet->getStyle('P' . $br)->getNumberFormat()->setFormatCode('"R$" #,##0.00');
+                bm_med_inst_aplicar_formatos_linha_dados($sheet, $br);
             }
         }
 
-        if (!empty($p['gip_tot_row'])) {
-            $tot = (int) $p['gip_tot_row'];
+        if (!empty($p['inst_tot_row'])) {
+            $tot = (int) $p['inst_tot_row'];
             $sheet->getStyle('A' . $tot . ':' . $last . $tot)->applyFromArray($st['total_band']);
             $sheet->getStyle('M' . $tot)->applyFromArray($st['total_value']);
             $sheet->getStyle('P' . $tot)->applyFromArray($st['total_value']);
@@ -1041,11 +1243,11 @@ function chamados_medicao_export_xlsx_send(
 }
 
 /**
- * Monta o workbook do boletim institucional (modelo GIP): capa A–P + tabela A–P por lançamentos consolidados.
+ * Monta o workbook do boletim institucional: capa A–P + tabela A–P por lançamentos consolidados.
  *
  * @param array<string,mixed> $ctx
  *
- * @return array{ss: Spreadsheet, sheet: \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet, thRow: int, body_rows: list<int>, gip_style_ctx: array<string,mixed>}
+ * @return array{ss: Spreadsheet, sheet: \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet, thRow: int, body_rows: list<int>, inst_style_ctx: array<string,mixed>}
  */
 function bm_med_workbook_build(array $ctx): array
 {
@@ -1053,9 +1255,9 @@ function bm_med_workbook_build(array $ctx): array
         require_once __DIR__ . '/config.php';
     }
 
-    $lastLetter = BM_MED_GIP_LAST_COL;
+    $lastLetter = BM_MED_INST_LAST_COL;
     $st         = medicao_bm_boletim_style_arrays_tipografia();
-    $hdrs       = bm_med_headers_gip();
+    $hdrs       = bm_med_headers_inst();
 
     $periodoTxt = trim((string) ($ctx['periodo_label'] ?? '')) ?: '—';
     $usuario    = trim((string) ($ctx['usuario_nome'] ?? '')) ?: '—';
@@ -1064,7 +1266,15 @@ function bm_med_workbook_build(array $ctx): array
     $det = isset($ctx['detalhe_itens_linhas']) && is_array($ctx['detalhe_itens_linhas'])
         ? array_values($ctx['detalhe_itens_linhas'])
         : [];
+    if ($det === [] && !empty($ctx['bm_linhas']) && is_array($ctx['bm_linhas'])) {
+        $det = bm_med_detalhe_linhas_from_bm_import($ctx['bm_linhas'], (string) ($ctx['ref_ym'] ?? ''));
+    }
     $refYm = preg_match('/^\d{4}-\d{2}$/', (string) ($ctx['ref_ym'] ?? '')) ? (string) $ctx['ref_ym'] : '';
+    $matrizIdCustos = (int) ($ctx['matriz_cliente_id'] ?? 0);
+    if ($matrizIdCustos > 0 && $refYm !== '') {
+        $det = array_merge($det, bm_med_detalhe_linhas_from_custos_aprovados($matrizIdCustos, $refYm));
+    }
+    $det = array_values(array_filter($det, 'bm_med_detalhe_linha_compoe_custo'));
     $nrBol = $refYm !== '' ? str_replace('-', '', $refYm) : date('Ym');
 
     $ss = new Spreadsheet();
@@ -1105,17 +1315,17 @@ function bm_med_workbook_build(array $ctx): array
         ++$ci;
     }
 
-    $rx       = $thRow + 1;
-    $bodyRows = [];
-    $detGrp   = bm_med_agrupar_detalhamento_chamados_consolidado($det);
-    $gipEmptyMsgRow = null;
+    $rx         = $thRow + 1;
+    $bodyRows   = [];
+    $detGrp     = bm_med_agrupar_detalhamento_chamados_consolidado($det);
+    $instEmptyMsgRow = null;
 
     if ($detGrp === []) {
-        $gipEmptyMsgRow = $rx;
-        $sheet->mergeCells('A' . $rx . ':' . BM_MED_GIP_LAST_COL . $rx);
+        $instEmptyMsgRow = $rx;
+        $sheet->mergeCells('A' . $rx . ':' . BM_MED_INST_LAST_COL . $rx);
         $sheet->setCellValue(
             'A' . $rx,
-            'Nenhum lançamento «utilizado» no período em chamados com status Resolvido (data em chamado_itens.criado_em).'
+            'Nenhum item utilizado em chamados Validado no período nem custo adicional aprovado no mês.'
         );
         $sheet->getStyle('A' . $rx)->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_TOP);
         ++$rx;
@@ -1123,7 +1333,10 @@ function bm_med_workbook_build(array $ctx): array
         foreach ($detGrp as $grp) {
             $cid = (int) $grp['chamado_id'];
             foreach ($grp['itens'] as $ln) {
-                bm_med_linha_institucional_gip($sheet, $rx, $ln, $cid);
+                if (!bm_med_detalhe_linha_compoe_custo($ln)) {
+                    continue;
+                }
+                bm_med_linha_institucional($sheet, $rx, $ln, $cid);
                 $bodyRows[] = $rx;
                 ++$rx;
             }
@@ -1134,51 +1347,48 @@ function bm_med_workbook_build(array $ctx): array
     $dataLast  = $bodyRows !== [] ? max($bodyRows) : null;
 
     $tRowTot = $rx;
+    $totQtdUtil = bm_med_somar_qtd_detalhe_utilizado($det);
+    $totValUtil = bm_med_somar_valor_total_detalhe($det);
     $sheet->mergeCells('A' . $tRowTot . ':L' . $tRowTot);
-    $sheet->setCellValue('A' . $tRowTot, 'TOTAIS');
-    if ($dataFirst !== null && $dataLast !== null && $dataLast >= $dataFirst) {
-        $sheet->setCellValue('M' . $tRowTot, '=SUM(M' . $dataFirst . ':M' . $dataLast . ')');
-        $sheet->setCellValue('P' . $tRowTot, '=SUM(P' . $dataFirst . ':P' . $dataLast . ')');
-    } else {
-        $sheet->setCellValue('M' . $tRowTot, 0.0);
-        $sheet->setCellValue('P' . $tRowTot, 0.0);
-    }
+    $sheet->setCellValue('A' . $tRowTot, 'TOTAIS (utilizado)');
+    $sheet->setCellValue('M' . $tRowTot, $totQtdUtil);
+    $sheet->setCellValue('P' . $tRowTot, $totValUtil);
     $sheet->getStyle('M' . $tRowTot)->getNumberFormat()->setFormatCode('#,##0.###');
     $sheet->getStyle('P' . $tRowTot)->getNumberFormat()->setFormatCode('"R$" #,##0.00');
     $sheet->getStyle('A' . $tRowTot . ':L' . $tRowTot)->getAlignment()
         ->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER)->setIndent(1);
 
     $foot = $tRowTot + 1;
-    $sheet->mergeCells('A' . $foot . ':' . BM_MED_GIP_LAST_COL . $foot);
+    $sheet->mergeCells('A' . $foot . ':' . BM_MED_INST_LAST_COL . $foot);
     $sheet->setCellValue(
         'A' . $foot,
-        'Documento gerado pelo sistema ' . $brand . ' · Boletim de medição (modelo GIP) · Gerado por: ' . $usuario
+        'Documento gerado pelo sistema ' . $brand . ' · Boletim de medição · Gerado por: ' . $usuario
     );
     $sheet->getStyle('A' . $foot)->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_CENTER);
 
     if ($dataFirst !== null && $dataLast !== null && $dataLast >= $dataFirst) {
-        $sheet->setAutoFilter('A' . $thRow . ':' . BM_MED_GIP_LAST_COL . $dataLast);
+        $sheet->setAutoFilter('A' . $thRow . ':' . BM_MED_INST_LAST_COL . $dataLast);
     }
 
-    bm_med_gip_aplicar_larguras_colunas($sheet);
+    bm_med_inst_aplicar_larguras_colunas($sheet);
 
-    $gipStyleCtx = [
-        'mode'               => 'gip',
+    $instStyleCtx = [
+        'mode'               => 'inst',
         'last_letter'        => $lastLetter,
-        'gip_header_row'     => $thRow,
+        'inst_header_row'     => $thRow,
         'body_rows'          => $bodyRows,
-        'gip_empty_msg_row'  => $gipEmptyMsgRow,
-        'gip_tot_row'        => $tRowTot,
+        'inst_empty_msg_row'  => $instEmptyMsgRow,
+        'inst_tot_row'        => $tRowTot,
         'footer_row'         => $foot,
-        'footer_last_col'    => BM_MED_GIP_LAST_COL,
+        'footer_last_col'    => BM_MED_INST_LAST_COL,
     ];
-    bm_med_planilha_aplicar_estilos_marca_dados($sheet, $gipStyleCtx);
+    bm_med_planilha_aplicar_estilos_marca_dados($sheet, $instStyleCtx);
 
-    bm_med_gip_aplicar_layout_final(
+    bm_med_inst_aplicar_layout_final(
         $sheet,
         $thRow,
         $bodyRows,
-        $gipEmptyMsgRow,
+        $instEmptyMsgRow,
         $tRowTot,
         $foot
     );
@@ -1190,7 +1400,7 @@ function bm_med_workbook_build(array $ctx): array
         'sheet'         => $sheet,
         'thRow'         => $thRow,
         'body_rows'     => $bodyRows,
-        'gip_style_ctx' => $gipStyleCtx,
+        'inst_style_ctx' => $instStyleCtx,
     ];
 }
 
@@ -1201,29 +1411,33 @@ function bm_med_export_main(array $ctx): void
     if (is_file($tplPath) && !bm_med_tpl1_validate($tplPath)) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
-        echo 'O ficheiro modelo assets/templates/boletim_medicao_modelo_1.xlsx existe mas não é válido para o boletim GIP. '
-            . 'Substitua-o pelo modelo gerado (php scripts/seed_boletim_medicao_modelo_1.php) ou por um .xlsx com folha «MEDIÇÃO» e cabeçalho da tabela (DATA / ID ou legado PROTOCOLO GIP).';
+        echo 'O ficheiro modelo assets/templates/boletim_medicao_modelo_1.xlsx existe mas não é válido para o boletim de medição. '
+            . 'Substitua-o pelo modelo gerado (php scripts/seed_boletim_medicao_modelo_1.php) ou por um .xlsx com folha «MEDIÇÃO» e cabeçalho da tabela (DATA / ID ou PROTOCOLO).';
         exit;
     }
 
     $built = bm_med_workbook_build($ctx);
+    $ctxInst = $built['inst_style_ctx'] ?? [];
     if (is_readable($tplPath) && bm_med_tpl1_validate($tplPath)) {
         bm_med_tpl1_overlay_surface($built['sheet'], $tplPath);
         bm_med_tpl1_apply_sample_body_row_style_from_template($built['sheet'], $tplPath, $built['body_rows'] ?? []);
-        if (!empty($built['gip_style_ctx']) && is_array($built['gip_style_ctx'])) {
-            bm_med_planilha_aplicar_estilos_marca_dados($built['sheet'], $built['gip_style_ctx']);
+        if (is_array($ctxInst) && $ctxInst !== []) {
+            bm_med_planilha_aplicar_estilos_marca_dados($built['sheet'], $ctxInst);
         }
     }
 
-    $ctxGip = $built['gip_style_ctx'] ?? [];
-    if (is_array($ctxGip) && !empty($ctxGip['gip_header_row'])) {
-        bm_med_gip_aplicar_layout_final(
+    if (is_array($ctxInst) && !empty($ctxInst['body_rows']) && is_array($ctxInst['body_rows'])) {
+        bm_med_inst_aplicar_formatos_linhas_dados($built['sheet'], $ctxInst['body_rows']);
+    }
+
+    if (is_array($ctxInst) && !empty($ctxInst['inst_header_row'])) {
+        bm_med_inst_aplicar_layout_final(
             $built['sheet'],
-            (int) $ctxGip['gip_header_row'],
-            isset($ctxGip['body_rows']) && is_array($ctxGip['body_rows']) ? $ctxGip['body_rows'] : [],
-            !empty($ctxGip['gip_empty_msg_row']) ? (int) $ctxGip['gip_empty_msg_row'] : null,
-            !empty($ctxGip['gip_tot_row']) ? (int) $ctxGip['gip_tot_row'] : null,
-            !empty($ctxGip['footer_row']) ? (int) $ctxGip['footer_row'] : null
+            (int) $ctxInst['inst_header_row'],
+            isset($ctxInst['body_rows']) && is_array($ctxInst['body_rows']) ? $ctxInst['body_rows'] : [],
+            !empty($ctxInst['inst_empty_msg_row']) ? (int) $ctxInst['inst_empty_msg_row'] : null,
+            !empty($ctxInst['inst_tot_row']) ? (int) $ctxInst['inst_tot_row'] : null,
+            !empty($ctxInst['footer_row']) ? (int) $ctxInst['footer_row'] : null
         );
     }
 
@@ -1234,3 +1448,4 @@ function bm_med_export_main(array $ctx): void
     header('Cache-Control: max-age=0');
     (new Xlsx($built['ss']))->save('php://output');
 }
+

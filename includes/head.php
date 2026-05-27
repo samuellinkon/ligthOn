@@ -10,6 +10,7 @@ if (!isset($basePath)) {
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/app_runtime.php';
+require_once __DIR__ . '/tabela_sort_ui.php';
 
 if (!isset($pageTitle)) {
     $pageTitle = defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'Painel';
@@ -64,11 +65,23 @@ $cssBust = static function (string $file): int {
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="" />
   <?php endif; ?>
+  <?php if (!empty($loadLeafletMarkerCluster) || !empty($loadPontosMap) || !empty($loadMapaCombinado)): ?>
+  <link rel="stylesheet" href="<?= $basePath ?>assets/css/map-popup.css?v=<?= $cssBust('map-popup.css') ?>">
+  <?php endif; ?>
+  <?php if (!empty($loadLeafletChamados) || !empty($loadMapaCombinado)): ?>
+  <link rel="stylesheet" href="<?= $basePath ?>assets/css/call-popup.css?v=<?= $cssBust('call-popup.css') ?>">
+  <?php endif; ?>
+  <?php if (!empty($loadMedicaoCustos)): ?>
+  <link rel="stylesheet" href="<?= $basePath ?>assets/css/medicao-custos.css?v=<?= $cssBust('medicao-custos.css') ?>">
+  <?php endif; ?>
+  <?php if (!empty($loadMedicaoMeses)): ?>
+  <link rel="stylesheet" href="<?= $basePath ?>assets/css/medicao-meses.css?v=<?= $cssBust('medicao-meses.css') ?>">
+  <?php endif; ?>
   <?php if (!empty($operadorPwa)): ?>
   <link rel="manifest" href="<?= htmlspecialchars($basePath) ?>operador/manifest.webmanifest" />
   <meta name="theme-color" content="#1e3a8a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <?php endif; ?>
 </head>
-<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?>>
+<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?><?= !empty($pageBodyAttrs) ? (string) $pageBodyAttrs : '' ?>>
 <div class="sidebar-overlay"></div>

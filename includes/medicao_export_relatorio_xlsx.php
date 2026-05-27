@@ -14,7 +14,7 @@ function medicao_relatorio_detalhado_header_row(): array
 {
     return [
         'DATA',
-        'PROTOCOLO GIP',
+        'PROTOCOLO',
         'COORDENADA S',
         'COORDENADA W',
         'PLAQUETA / BARRAMENTO',
@@ -40,7 +40,7 @@ function medicao_relatorio_detalhado_header_row(): array
  * @param list<array<string,mixed>> $impLinhas      medicao_import_linhas
  * @return list<list<string>> linhas incluindo cabeçalho na linha 0
  */
-function medicao_relatorio_detalhado_sheet_rows(array $linhasChamados, array $impLinhas, string $mesRef): array
+function medicao_relatorio_detalhado_sheet_rows(array $linhasChamados, array $impLinhas, string $mesRef, int $matrizId = 0): array
 {
     $out   = [];
     $out[] = medicao_relatorio_detalhado_header_row();
@@ -62,7 +62,7 @@ function medicao_relatorio_detalhado_sheet_rows(array $linhasChamados, array $im
             $vm  = (float) ($ch['valor_materiais'] ?? 0);
             $vs  = (float) ($ch['valor_servicos_itens'] ?? 0);
             $vd  = (float) ($ch['valor_devolvidos'] ?? 0);
-            $vLiq = $vm + $vs - $vd;
+            $vLiq = $vm + $vs;
             $vUni = $qtd > 0 ? $vLiq / $qtd : $vLiq;
             $lat = array_key_exists('latitude', $ch) && $ch['latitude'] !== null && $ch['latitude'] !== '' ? (float) $ch['latitude'] : null;
             $lng = array_key_exists('longitude', $ch) && $ch['longitude'] !== null && $ch['longitude'] !== '' ? (float) $ch['longitude'] : null;
@@ -123,6 +123,40 @@ function medicao_relatorio_detalhado_sheet_rows(array $linhasChamados, array $im
             medicao_relatorio_fmt_numero_br($vUni, 2),
             medicao_relatorio_fmt_numero_br($vTot, 2),
         ];
+    }
+
+    if ($matrizId > 0 && function_exists('repo_medicao_custos_aprovados_bm')) {
+        $dataPadraoCustos = $dataPadraoBm;
+        foreach (repo_medicao_custos_aprovados_bm($matrizId, $mesRef) as $c) {
+            $cod  = function_exists('medicao_custo_bm_codigo_exibir')
+                ? medicao_custo_bm_codigo_exibir($c)
+                : (string) ($c['item_codigo'] ?? '');
+            $desc = trim((string) ($c['descricao'] ?? ''));
+            $qtd  = (float) ($c['quantidade'] ?? 0);
+            $vu   = (float) ($c['valor_unitario'] ?? 0);
+            $vt   = (float) ($c['valor_total'] ?? 0);
+            $out[] = [
+                $dataPadraoCustos,
+                'CUSTO-' . (int) ($c['id'] ?? 0),
+                '',
+                '',
+                '',
+                '',
+                '',
+                '—',
+                'Custo adicional (aprovado)',
+                medicao_relatorio_fmt_numero_br($vt, 2),
+                medicao_relatorio_fmt_numero_br(0.0, 2),
+                medicao_relatorio_fmt_numero_br(0.0, 2),
+                '—',
+                'Aprovado',
+                $cod,
+                $desc !== '' ? $desc : 'Custo adicional',
+                medicao_relatorio_fmt_numero_br($qtd, 4),
+                medicao_relatorio_fmt_numero_br($vu, 2),
+                medicao_relatorio_fmt_numero_br($vt, 2),
+            ];
+        }
     }
 
     return $out;

@@ -44,7 +44,6 @@ $codFiltro = trim((string) ($_GET['cod'] ?? ''));
 $estoqueBaixoFiltro = isset($_GET['estoque_baixo']) && (string) $_GET['estoque_baixo'] === '1';
 
 $catalogoTemEstoque = repo_cliente_itens_estoque_saldo_column_exists();
-$catalogoEstoqueBaixoLimiar = 10.0;
 $catalogoEstoqueFmt = static function (float $n): string {
     $t = rtrim(rtrim(number_format($n, 4, ',', '.'), '0'), ',');
 
@@ -62,15 +61,12 @@ $totalProdutos = count(array_filter($todosItens, static fn ($it) => ($it['tipo']
 $totalServicos = count(array_filter($todosItens, static fn ($it) => ($it['tipo'] ?? '') === 'servico'));
 $totalAtivos   = count(array_filter($todosItens, static fn ($it) => !empty($it['ativo'])));
 $totalEstoqueBaixo = $catalogoTemEstoque
-    ? count(array_filter(
-        $todosItens,
-        static fn ($it) => !empty($it['ativo']) && (float) ($it['estoque_saldo'] ?? 0) < $catalogoEstoqueBaixoLimiar
-    ))
+    ? count(array_filter($todosItens, 'catalogo_item_estoque_baixo'))
     : 0;
 
-$itens = array_values(array_filter($todosItens, static function (array $it) use ($tipoFiltro, $statusFiltro, $q, $codFiltro, $estoqueBaixoFiltro, $catalogoTemEstoque, $catalogoEstoqueBaixoLimiar): bool {
+$itens = array_values(array_filter($todosItens, static function (array $it) use ($tipoFiltro, $statusFiltro, $q, $codFiltro, $estoqueBaixoFiltro, $catalogoTemEstoque): bool {
     if ($estoqueBaixoFiltro && $catalogoTemEstoque) {
-        if (empty($it['ativo']) || (float) ($it['estoque_saldo'] ?? 0) >= $catalogoEstoqueBaixoLimiar) {
+        if (!catalogo_item_estoque_baixo($it)) {
             return false;
         }
     }
@@ -283,24 +279,19 @@ $metricCardClass = static function (bool $active): string {
 
 
     <div class="table-wrap">
-      <table id="catalogo-itens-table" class="catalogo-excel-table">
+      <table id="catalogo-itens-table" class="catalogo-excel-table" data-crm-sortable>
         <thead>
-          <tr class="catalogo-excel-table__head-sort">
-            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="tipo"><span class="catalogo-excel-sort__label">Tipo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="nome"><span class="catalogo-excel-sort__label">Nome</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="codigo"><span class="catalogo-excel-sort__label">Código</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="unidade"><span class="catalogo-excel-sort__label">Un.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th scope="col" class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="valor"><span class="catalogo-excel-sort__label">Valor unit.</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+          <tr class="catalogo-excel-table__head-sort crm-table-head-sort">
+            <?php crm_sort_th('Tipo', 'tipo'); ?>
+            <?php crm_sort_th('Nome', 'nome'); ?>
+            <?php crm_sort_th('Código', 'codigo'); ?>
+            <?php crm_sort_th('Un.', 'unidade'); ?>
+            <?php crm_sort_th('Valor unit.', 'valor', ['type' => 'number', 'right' => true]); ?>
             <?php if ($catalogoTemEstoque): ?>
-            <th scope="col" class="text-right"><button type="button" class="catalogo-excel-sort text-right" data-sort-key="estoque"><span class="catalogo-excel-sort__label">Estoque saldo</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
+            <?php crm_sort_th('Estoque saldo', 'estoque', ['type' => 'number', 'right' => true]); ?>
             <?php endif; ?>
-            <th scope="col"><button type="button" class="catalogo-excel-sort" data-sort-key="status"><span class="catalogo-excel-sort__label">Status</span><span class="catalogo-excel-sort__icon" aria-hidden="true">↕</span></button></th>
-            <th scope="col" class="catalogo-excel-col-acoes">
-              <div class="catalogo-excel-sort catalogo-excel-sort--static">
-                <span class="catalogo-excel-sort__label">Ações</span>
-                <span class="catalogo-excel-sort__icon catalogo-excel-sort__icon--spacer" aria-hidden="true">↕</span>
-              </div>
-            </th>
+            <?php crm_sort_th('Status', 'status', ['type' => 'number']); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'catalogo-excel-col-acoes crm-table-col-acoes']); ?>
           </tr>
         </thead>
         <tbody>
@@ -312,22 +303,23 @@ $metricCardClass = static function (bool $active): string {
             $tipoRaw   = (string) ($it['tipo'] ?? 'produto');
             $codRaw    = trim((string) ($it['codigo'] ?? ''));
             $estSaldo  = (float) ($it['estoque_saldo'] ?? 0);
-            $estBaixo  = $catalogoTemEstoque && !empty($it['ativo']) && $estSaldo < $catalogoEstoqueBaixoLimiar;
+            $estBaixo  = $catalogoTemEstoque && catalogo_item_estoque_baixo($it);
             $estNeg    = $catalogoTemEstoque && $estSaldo < 0;
             $rowClass  = $estBaixo ? 'catalogo-row--estoque-baixo' : '';
             $estClasse = $estNeg ? 'catalogo-estoque--negativo' : ($estBaixo ? 'catalogo-estoque--baixo' : '');
             $valorNum = $catalogoValorRound((float) ($it['valor_unitario'] ?? 0));
           ?>
           <tr
-            data-catalogo-row="1"
             class="<?= htmlspecialchars($rowClass) ?>"
-            data-sort-tipo="<?= htmlspecialchars($tipoRaw) ?>"
-            data-sort-nome="<?= htmlspecialchars((string) ($it['nome'] ?? '')) ?>"
-            data-sort-codigo="<?= htmlspecialchars($codRaw) ?>"
-            data-sort-unidade="<?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?>"
-            data-sort-valor="<?= htmlspecialchars((string) $valorNum) ?>"
-            data-sort-estoque="<?= htmlspecialchars((string) $estSaldo) ?>"
-            data-sort-status="<?= !empty($it['ativo']) ? '1' : '0' ?>"
+            <?= crm_sort_row_attr([
+                'tipo'    => $tipoRaw,
+                'nome'    => (string) ($it['nome'] ?? ''),
+                'codigo'  => $codRaw,
+                'unidade' => (string) ($it['unidade'] ?? ''),
+                'valor'   => (string) $valorNum,
+                'estoque' => (string) $estSaldo,
+                'status'  => !empty($it['ativo']) ? '1' : '0',
+            ]) ?>
           >
             <td><span class="badge badge-plain"><?= (($it['tipo'] ?? '') === 'produto') ? 'Produto' : 'Serviço' ?></span></td>
             <td>
@@ -392,11 +384,6 @@ $metricCardClass = static function (bool $active): string {
   </div>
 
 </section>
-
-<?php
-$catalogoPainelBasePath = isset($basePath) ? (string) $basePath : '../';
-?>
-<script src="<?= htmlspecialchars($catalogoPainelBasePath) ?>assets/js/catalogo-tabela.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/catalogo-tabela.js') ?>"></script>
 
 <?php if (!$catalogoPainelSomenteLeitura): ?>
 <div id="item-modal" class="kb-modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" aria-hidden="true">
@@ -468,7 +455,9 @@ $catalogoPainelBasePath = isset($basePath) ? (string) $basePath : '../';
     var itemId = btn.getAttribute('data-id');
     var editing = itemId !== null && itemId !== '';
     id.value = editing ? itemId : '0';
-    tipo.value = btn.getAttribute('data-tipo') || 'produto';
+    var tipoNovo = btn.getAttribute('data-tipo') || 'produto';
+    tipo.value = tipoNovo;
+    tipo.dispatchEvent(new Event('change', { bubbles: true }));
     nome.value = btn.getAttribute('data-nome') || '';
     codigo.value = btn.getAttribute('data-codigo') || '';
     unidade.value = btn.getAttribute('data-unidade') || 'UN';

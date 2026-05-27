@@ -17,21 +17,38 @@ const UPLOAD_EXT_PERMITIDAS  = [
     'zip', 'rar', '7z',
 ];
 
+/**
+ * Garante diretório de upload existente e gravável pelo PHP (ex.: Apache daemon no XAMPP).
+ */
+function upload_ensure_dir_writable(string $dir): bool
+{
+    if (!is_dir($dir)) {
+        if (!@mkdir($dir, 0775, true)) {
+            return false;
+        }
+    }
+    if (is_writable($dir)) {
+        return true;
+    }
+    @chmod($dir, 0775);
+    if (is_writable($dir)) {
+        return true;
+    }
+    @chmod($dir, 0777);
+    return is_writable($dir);
+}
+
 function upload_dir_cliente(int $clienteId): string
 {
     $base = __DIR__ . '/../uploads/clientes/' . $clienteId;
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    upload_ensure_dir_writable($base);
     return $base;
 }
 
 function upload_dir_chamado(int $chamadoId): string
 {
     $base = __DIR__ . '/../uploads/chamados/' . $chamadoId;
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    upload_ensure_dir_writable($base);
     return $base;
 }
 
@@ -39,9 +56,7 @@ function upload_dir_chamado(int $chamadoId): string
 function upload_dir_os_pedido(int $osPedidoId): string
 {
     $base = __DIR__ . '/../uploads/os_pedidos/' . $osPedidoId;
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    upload_ensure_dir_writable($base);
     return $base;
 }
 
@@ -49,9 +64,7 @@ function upload_dir_os_pedido(int $osPedidoId): string
 function upload_dir_conta(int $contaId): string
 {
     $base = __DIR__ . '/../uploads/contas/' . $contaId;
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    upload_ensure_dir_writable($base);
     return $base;
 }
 
@@ -59,9 +72,7 @@ function upload_dir_conta(int $contaId): string
 function upload_dir_ponto_iluminacao(int $pontoId): string
 {
     $base = __DIR__ . '/../uploads/pontos_iluminacao/' . $pontoId;
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    upload_ensure_dir_writable($base);
     return $base;
 }
 
@@ -126,12 +137,18 @@ function upload_gravar_arquivo(array $file, $destino): array
         $dir = upload_dir_cliente($destino);
     } else {
         $dir = (string) $destino;
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        if (!upload_ensure_dir_writable($dir)) {
+            return ['ok' => false, 'msg' => 'Pasta de destino sem permissão de escrita no servidor.'];
+        }
     }
     $dest = $dir . DIRECTORY_SEPARATOR . $nomeFs;
 
     if (!move_uploaded_file($file['tmp_name'], $dest)) {
-        return ['ok' => false, 'msg' => 'Falha ao gravar arquivo no servidor.'];
+        $msg = 'Falha ao gravar arquivo no servidor.';
+        if (!is_writable($dir)) {
+            $msg .= ' Verifique permissões em uploads/.';
+        }
+        return ['ok' => false, 'msg' => $msg];
     }
 
     $mime = function_exists('mime_content_type') ? (mime_content_type($dest) ?: null) : null;

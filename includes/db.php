@@ -27,6 +27,11 @@ function db(): ?PDO
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]);
+        try {
+            $pdo->exec("SET time_zone = '-03:00'");
+        } catch (Throwable $tzEx) {
+            // Ignora se o servidor MySQL não permitir SET time_zone.
+        }
     } catch (Throwable $e) {
         $GLOBALS['__db_err'] = $e->getMessage();
         if (DB_REQUIRED) {

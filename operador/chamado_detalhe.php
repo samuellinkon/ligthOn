@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/upload.php';
 require_once __DIR__ . '/../includes/chamado_geo.php';
+require_once __DIR__ . '/../includes/chamado_os_fields.php';
 $user = require_auth('operador');
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_operador('chamados');
@@ -29,19 +30,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         exit;
     }
 
-    if ($acao === 'enviar_os') {
-        $msgs      = [];
-        $falhas    = [];
-        $salvos    = 0;
-        $anexosPre = repo_chamado_anexos($id);
-        $countFotosAntes = 0;
-        foreach ($anexosPre as $axPre) {
-            $mimePre = strtolower((string) ($axPre['mime'] ?? ''));
-            $nomePre = strtolower((string) ($axPre['nome_original'] ?? ''));
-            if (strpos($mimePre, 'image/') === 0 || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomePre)) {
-                $countFotosAntes++;
+    $msgEdicaoEncerrada = 'Chamado encerrado pela gestão. Itens e fotos não podem mais ser alterados.';
+    $acoesEdicaoMateriaisFotos = [
+        'chamado_item_add',
+        'chamado_item_qtd',
+        'chamado_item_del',
+        'fotos',
+        'excluir_foto',
+        'solicitar_item_devolutivo',
+    ];
+    if (in_array($acao, $acoesEdicaoMateriaisFotos, true) && operador_chamado_materiais_fotos_bloqueados($ch)) {
+        if (op_chamado_detalhe_is_ajax()) {
+            if (in_array($acao, ['fotos', 'excluir_foto'], true)) {
+                op_chamado_mat_json_send([
+                    'ok'  => false,
+                    'err' => $msgEdicaoEncerrada,
+                    'msg' => $msgEdicaoEncerrada,
+                ], 403);
+            }
+            op_chamado_mat_json_for_chamado($id, false, $msgEdicaoEncerrada);
+        }
+        flash_set('err', $msgEdicaoEncerrada);
+        header('Location: chamado_detalhe.php?id=' . $id);
+        exit;
+    }
+
+    if ($acao === 'salvar_op') {
+        if (operador_chamado_materiais_fotos_bloqueados($ch)) {
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_send([
+                    'ok'  => false,
+                    'err' => $msgEdicaoEncerrada,
+                    'msg' => $msgEdicaoEncerrada,
+                ], 403);
+            }
+            flash_set('err', $msgEdicaoEncerrada);
+            header('Location: chamado_detalhe.php?id=' . $id);
+            exit;
+        }
+
+        $msgsSalvar = [];
+        $falhasSalvar = [];
+        $jaEnviado = !empty($ch['finalizado_operador_em'])
+            || (string) ($ch['status'] ?? '') === 'Aguardando Aprovação';
+
+        if (!$jaEnviado) {
+            $end = trim((string) ($_POST['endereco_completo'] ?? ''));
+            if ($end === '' && trim((string) ($ch['endereco_completo'] ?? '')) !== '') {
+                $end = trim((string) $ch['endereco_completo']);
+            }
+            $endForRepo = $end !== '' ? $end : null;
+            $latCh = isset($ch['latitude']) && $ch['latitude'] !== null && $ch['latitude'] !== ''
+                ? (float) $ch['latitude'] : null;
+            $lngCh = isset($ch['longitude']) && $ch['longitude'] !== null && $ch['longitude'] !== ''
+                ? (float) $ch['longitude'] : null;
+            repo_update_chamado_localizacao($id, $endForRepo, $latCh, $lngCh);
+        }
+
+        $podeRemoverFoto = !operador_chamado_materiais_fotos_bloqueados($ch);
+        $upSalvar = op_chamado_detalhe_upload_fotos_from_request($id, $user, $podeRemoverFoto);
+        if ($upSalvar['teve_arquivo']) {
+            if ($upSalvar['salvos'] > 0) {
+                $msgsSalvar[] = $upSalvar['salvos'] . ' imagem(ns) enviada(s).';
+            } elseif ($upSalvar['err'] !== '') {
+                $falhasSalvar[] = $upSalvar['err'];
             }
         }
+
+        if ($falhasSalvar !== []) {
+            $msgErr = implode(' | ', $falhasSalvar);
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_send([
+                    'ok'           => false,
+                    'err'          => $msgErr,
+                    'msg'          => $msgErr,
+                    'fotos_salvas' => op_chamado_detalhe_count_fotos($id),
+                    'items_html'   => $upSalvar['items_html'],
+                ], 400);
+            }
+            flash_set('err', $msgErr);
+            header('Location: chamado_detalhe.php?id=' . $id);
+            exit;
+        }
+
+        if ($msgsSalvar === []) {
+            $msgsSalvar[] = 'Alterações salvas.';
+        }
+
+        $msgOk = implode(' ', $msgsSalvar);
+        if (op_chamado_detalhe_is_ajax()) {
+            op_chamado_mat_json_send([
+                'ok'                => true,
+                'msg'               => $msgOk,
+                'fotos_salvas'      => op_chamado_detalhe_count_fotos($id),
+                'items_html'        => $upSalvar['items_html'],
+                'ja_enviado_gestor' => $jaEnviado,
+            ]);
+        }
+        flash_set('ok', $msgOk);
+        header('Location: chamado_detalhe.php?id=' . $id);
+        exit;
+
+    } elseif ($acao === 'enviar_os') {
+        $msgs      = [];
+        $falhas    = [];
+        $countFotosAntes = op_chamado_detalhe_count_fotos($id);
 
         $end = trim((string) ($_POST['endereco_completo'] ?? ''));
         if ($end === '' && trim((string) ($ch['endereco_completo'] ?? '')) !== '') {
@@ -52,44 +145,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         $lngCh = isset($ch['longitude']) && $ch['longitude'] !== null && $ch['longitude'] !== '' ? (float) $ch['longitude'] : null;
         repo_update_chamado_localizacao($id, $endForRepo, $latCh, $lngCh);
 
-        $itemId = (int) ($_POST['item_id'] ?? 0);
-        if ($itemId > 0) {
-            $qtd = (float) str_replace(',', '.', (string) ($_POST['quantidade'] ?? '1'));
-            $mov = (string) ($_POST['movimento'] ?? 'utilizado');
-            $obs = trim((string) ($_POST['observacao'] ?? ''));
-            $rItem = repo_chamado_item_adicionar($id, $itemId, $qtd, $mov, $obs !== '' ? $obs : null);
-            if ($rItem['ok']) {
-                $msgs[] = 'Item lançado.';
-            } else {
-                $falhas[] = $rItem['err'];
-            }
+        $podeRemoverFoto = !operador_chamado_materiais_fotos_bloqueados($ch);
+        $upEnvio = op_chamado_detalhe_upload_fotos_from_request($id, $user, $podeRemoverFoto);
+        $salvos = $upEnvio['salvos'];
+        if ($salvos > 0) {
+            $msgs[] = $salvos . ' imagem(ns) enviada(s).';
         }
-
-        $temArq = !empty($_FILES['imagens']['name']) && (is_array($_FILES['imagens']['name'])
-            ? count(array_filter($_FILES['imagens']['name'], fn ($n) => $n !== '' && $n !== null)) > 0
-            : (string) ($_FILES['imagens']['name'] ?? '') !== '');
-        if ($temArq) {
-            $destino = upload_dir_chamado($id);
-            $res = upload_gravar_multiplos($_FILES['imagens'], $destino);
-            foreach ($res['salvos'] as $arq) {
-                repo_create_chamado_anexo([
-                    'chamado_id'    => $id,
-                    'resposta_id'   => null,
-                    'nome_original' => $arq['nome_original'],
-                    'nome_arquivo'  => $arq['nome_arquivo'],
-                    'mime'          => $arq['mime'],
-                    'tamanho'       => $arq['tamanho'],
-                    'enviado_por'   => $user['nome'] ?? 'Operador',
-                    'enviado_tipo'  => 'operador',
-                ]);
-                $salvos++;
-            }
-            if ($salvos > 0) {
-                $msgs[] = $salvos . ' imagem(ns) enviada(s).';
-            }
-            if (!empty($res['erros'])) {
-                $falhas[] = 'Algumas imagens não foram aceitas: ' . implode(' | ', $res['erros']);
-            }
+        if ($upEnvio['teve_arquivo'] && $salvos < 1 && $upEnvio['err'] !== '') {
+            $falhas[] = $upEnvio['err'];
         }
 
         if (empty($falhas) && ($countFotosAntes + $salvos) < 1) {
@@ -101,12 +164,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             $r = repo_operador_chamado_finalizar($id, (int) ($user['id'] ?? 0), $empresaId, $nome);
             if ($r['ok']) {
                 $msgs[] = 'Chamado enviado ao gestor (Aguardando Aprovação).';
-                flash_set('ok', implode(' ', $msgs));
-            } else {
-                flash_set('err', $r['err']);
+                $msgOk = implode(' ', $msgs);
+                if (op_chamado_detalhe_is_ajax()) {
+                    op_chamado_mat_json_send([
+                        'ok'                => true,
+                        'msg'               => $msgOk,
+                        'fotos_salvas'      => op_chamado_detalhe_count_fotos($id),
+                        'items_html'        => $upEnvio['items_html'],
+                        'ja_enviado_gestor' => true,
+                        'status'            => 'Aguardando Aprovação',
+                        'status_class'      => status_class('Aguardando Aprovação'),
+                    ]);
+                }
+                flash_set('ok', $msgOk);
+                header('Location: chamado_detalhe.php?id=' . $id . '&salvo=1');
+                exit;
             }
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_send([
+                    'ok'  => false,
+                    'err' => $r['err'],
+                    'msg' => $r['err'],
+                ], 400);
+            }
+            flash_set('err', $r['err']);
         } else {
-            flash_set('err', implode(' | ', array_filter($falhas)));
+            $msgErr = implode(' | ', array_filter($falhas));
+            if (op_chamado_detalhe_is_ajax()) {
+                op_chamado_mat_json_send([
+                    'ok'  => false,
+                    'err' => $msgErr,
+                    'msg' => $msgErr,
+                ], 400);
+            }
+            flash_set('err', $msgErr);
         }
 
     } elseif ($acao === 'geo') {
@@ -167,6 +258,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             audit_log_registar('chamado.item_devolutivo.solicitar', 'chamado', $id, (int) ($ch['cliente_id'] ?? 0) ?: null, [
                 'nome' => $nomeItem, 'codigo' => $codItem, 'qtd' => $qtdItem, 'obs' => $obsItem,
             ]);
+            $txtDev = 'Solicitação de item devolutivo: ' . $nomeItem
+                . ($codItem !== '' ? ' (cód. ' . $codItem . ')' : '')
+                . ' · Qtd: ' . $qtdItem
+                . ($obsItem !== '' ? "\nObs.: " . $obsItem : '');
+            repo_create_chamado_resposta(
+                $id,
+                (string) ($user['nome'] ?? 'Operador'),
+                'operador',
+                $txtDev,
+                false,
+                (int) ($user['id'] ?? 0)
+            );
             flash_set('ok', 'Solicitação enviada ao gestor.');
         }
     } elseif ($acao === 'chamado_item_add') {
@@ -230,14 +333,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         $temArq = !empty($_FILES['imagens']['name']) && (is_array($_FILES['imagens']['name'])
             ? count(array_filter($_FILES['imagens']['name'], fn ($n) => $n !== '' && $n !== null)) > 0
             : (string) ($_FILES['imagens']['name'] ?? '') !== '');
-        if (!$temArq) {
-            flash_set('ok', 'Referência no local guardada.');
-        } else {
+        $salvos  = 0;
+        $errFoto = '';
+        $novosHtml = [];
+        if ($temArq) {
             $destino = upload_dir_chamado($id);
             $res     = upload_gravar_multiplos($_FILES['imagens'], $destino);
-            $salvos  = 0;
             foreach ($res['salvos'] as $arq) {
-                repo_create_chamado_anexo([
+                $aid = repo_create_chamado_anexo([
                     'chamado_id'    => $id,
                     'resposta_id'   => null,
                     'nome_original' => $arq['nome_original'],
@@ -247,13 +350,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
                     'enviado_por'   => $user['nome'] ?? 'Operador',
                     'enviado_tipo'  => 'operador',
                 ]);
-                $salvos++;
+                if ($aid) {
+                    $salvos++;
+                    $nomeEsc = htmlspecialchars((string) $arq['nome_original'], ENT_QUOTES, 'UTF-8');
+                    $novosHtml[] =
+                        '<div class="op-photo-grid__item" data-anexo-id="' . (int) $aid . '">'
+                        . '<a class="op-photo-grid__link" href="chamado_download.php?id=' . (int) $aid . '" target="_blank" rel="noopener">'
+                        . '<img src="chamado_download.php?id=' . (int) $aid . '" alt="' . $nomeEsc . '" loading="lazy">'
+                        . '</a>'
+                        . '<button type="button" class="op-photo-grid__remove" data-anexo-id="' . (int) $aid . '"'
+                        . ' aria-label="Remover foto ' . $nomeEsc . '">×</button></div>';
+                }
             }
-            flash_set($salvos > 0 ? 'ok' : 'err', $salvos > 0 ? $salvos . ' imagem(ns) enviada(s).' : 'Nenhuma imagem aceita.');
+            if ($salvos < 1) {
+                $errFoto = 'Nenhuma imagem aceita.';
+            }
             if (!empty($res['erros'])) {
-                flash_set('err', 'Algumas imagens não foram aceitas: ' . implode(' | ', $res['erros']));
+                $errFoto = ($errFoto !== '' ? $errFoto . ' ' : '') . implode(' | ', $res['erros']);
             }
         }
+        if (op_chamado_detalhe_is_ajax()) {
+            $fotosRestantes = 0;
+            foreach (repo_chamado_anexos($id) as $axCnt) {
+                $mimeCnt = strtolower((string) ($axCnt['mime'] ?? ''));
+                $nomeCnt = strtolower((string) ($axCnt['nome_original'] ?? ''));
+                if (strncmp($mimeCnt, 'image/', 8) === 0 || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomeCnt)) {
+                    $fotosRestantes++;
+                }
+            }
+            op_chamado_mat_json_send([
+                'ok'           => $temArq ? $salvos > 0 : true,
+                'err'          => $errFoto,
+                'fotos_salvas' => $fotosRestantes,
+                'items_html'   => $novosHtml,
+                'msg'          => $salvos > 0 ? $salvos . ' imagem(ns) enviada(s).' : ($temArq ? $errFoto : ''),
+            ], ($temArq && $salvos < 1) ? 400 : 200);
+        }
+        if (!$temArq) {
+            flash_set('ok', 'Referência no local guardada.');
+        } else {
+            flash_set($salvos > 0 ? 'ok' : 'err', $salvos > 0 ? $salvos . ' imagem(ns) enviada(s).' : ($errFoto !== '' ? $errFoto : 'Nenhuma imagem aceita.'));
+        }
+    } elseif ($acao === 'excluir_foto') {
+        $anexoId = (int) ($_POST['anexo_id'] ?? 0);
+        $okDel   = false;
+        $errDel  = 'Foto não encontrada.';
+        $anexo   = $anexoId > 0 ? repo_chamado_anexo($anexoId) : null;
+        if ($anexo && (int) ($anexo['chamado_id'] ?? 0) === $id) {
+            $mimeDel = strtolower((string) ($anexo['mime'] ?? ''));
+            $nomeDel = strtolower((string) ($anexo['nome_original'] ?? ''));
+            $ehImg   = strncmp($mimeDel, 'image/', 8) === 0
+                || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomeDel);
+            if ($ehImg) {
+                $deleted = repo_delete_chamado_anexo($anexoId);
+                if ($deleted) {
+                    $pathDel = upload_dir_chamado($id) . DIRECTORY_SEPARATOR . ($deleted['nome_arquivo'] ?? '');
+                    if (is_file($pathDel)) {
+                        @unlink($pathDel);
+                    }
+                    $okDel = true;
+                } else {
+                    $errDel = 'Não foi possível remover a foto.';
+                }
+            } else {
+                $errDel = 'Anexo inválido.';
+            }
+        }
+        if (op_chamado_detalhe_is_ajax()) {
+            $fotosRestantes = 0;
+            foreach (repo_chamado_anexos($id) as $axCnt) {
+                $mimeCnt = strtolower((string) ($axCnt['mime'] ?? ''));
+                $nomeCnt = strtolower((string) ($axCnt['nome_original'] ?? ''));
+                if (strncmp($mimeCnt, 'image/', 8) === 0 || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomeCnt)) {
+                    $fotosRestantes++;
+                }
+            }
+            op_chamado_mat_json_send([
+                'ok'           => $okDel,
+                'err'          => $okDel ? '' : $errDel,
+                'fotos_salvas' => $fotosRestantes,
+                'msg'          => $okDel ? 'Foto removida.' : $errDel,
+            ], $okDel ? 200 : 400);
+        }
+        flash_set($okDel ? 'ok' : 'err', $okDel ? 'Foto removida.' : $errDel);
     }
 
     header('Location: chamado_detalhe.php?id=' . $id);
@@ -272,6 +451,8 @@ if (!$chamado || !repo_chamado_acessivel_operador_atribuido($id, $empresaId, (in
     exit;
 }
 
+$chamadoImportadoBm = chamado_eh_origem_importacao_bm($chamado);
+
 $chamadoClienteId   = (int) ($chamado['cliente_id'] ?? 0);
 $respostas          = repo_chamado_respostas_do_ticket($id, true);
 $servicosAll        = $chamadoClienteId > 0 ? repo_cliente_itens_list($chamadoClienteId, true) : [];
@@ -286,8 +467,8 @@ try {
     $chamadoMateriaisOp = [];
 }
 $anexos            = repo_chamado_anexos($chamado['id']);
-$itensUsadosOp     = array_values(array_filter($chamadoMateriaisOp, fn ($i) => ($i['movimento'] ?? 'utilizado') !== 'devolvido'));
-$itensDevolvidosOp = array_values(array_filter($chamadoMateriaisOp, fn ($i) => ($i['movimento'] ?? '') === 'devolvido'));
+$itensUsadosOp     = array_values(array_filter($chamadoMateriaisOp, fn ($i) => repo_chamado_item_movimento_efetivo($i) !== 'devolvido'));
+$itensDevolvidosOp = array_values(array_filter($chamadoMateriaisOp, fn ($i) => repo_chamado_item_movimento_efetivo($i) === 'devolvido'));
 $imagensOp         = [];
 foreach ($anexos as $ax) {
     $mime = strtolower((string) ($ax['mime'] ?? ''));
@@ -297,8 +478,10 @@ foreach ($anexos as $ax) {
     }
 }
 $qtdFotosExistentes = count($imagensOp);
-$jaFechado          = in_array((string) ($chamado['status'] ?? ''), ['Resolvido', 'Fechado'], true)
-    || !empty($chamado['finalizado_operador_em']);
+$statusCh           = (string) ($chamado['status'] ?? '');
+$jaEnviadoGestor    = !empty($chamado['finalizado_operador_em'])
+    || $statusCh === 'Aguardando Aprovação';
+$opEdicaoEncerrada  = operador_chamado_materiais_fotos_bloqueados($chamado);
 $anexosPorResposta = [];
 foreach ($anexos as $a) {
     if (!empty($a['resposta_id'])) {
@@ -333,17 +516,29 @@ $topSubtitle = (string) ($chamado['titulo'] ?? '');
 $topSearch   = '';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 
-$enderecoChamado = trim((string) ($chamado['endereco_completo'] ?? ''));
-$pontoChamado    = null;
-$pidPonto        = (int) ($chamado['ponto_iluminacao_id'] ?? 0);
+$pontoChamado = null;
+$pidPonto     = (int) ($chamado['ponto_iluminacao_id'] ?? 0);
 if ($pidPonto > 0) {
     $pontoChamado = repo_ponto_iluminacao($pidPonto);
     if ($pontoChamado && (int) ($pontoChamado['cliente_id'] ?? 0) !== $chamadoClienteId) {
         $pontoChamado = null;
     }
 }
-$locPreview = chamado_resolver_localizacao_preview($chamado, $pontoChamado);
+if ($pontoChamado && !chamado_tem_endereco_cadastrado($chamado, null)) {
+    repo_chamado_sincronizar_endereco_do_ponto($id);
+    $chReload = repo_chamado($id);
+    if ($chReload) {
+        $chamado = $chReload;
+    }
+}
+$enderecoChamado = chamado_endereco_efetivo($chamado, $pontoChamado);
+$locPreview      = chamado_resolver_localizacao_preview($chamado, $pontoChamado);
 $loadLeaflet = !empty($locPreview['show_preview']);
+
+$opPageFlash     = function_exists('flash_get') ? flash_get() : null;
+$opSalvoRecente  = isset($_GET['salvo']) && (string) $_GET['salvo'] === '1';
+$opSalvoOk       = $opSalvoRecente && !empty($opPageFlash) && ($opPageFlash['tipo'] ?? '') === 'ok';
+$topbarSkipFlash = true;
 
 include __DIR__ . '/../includes/head.php';
 $topbarHideTitle = true;
@@ -354,7 +549,15 @@ $topbarHideTitle = true;
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
 <section class="content">
+  <?php if (!empty($opPageFlash) && !$opSalvoOk): ?>
+  <div class="op-inline-flash op-inline-flash--<?= ($opPageFlash['tipo'] ?? '') === 'err' ? 'err' : 'ok' ?>" role="alert" aria-live="polite">
+    <?= htmlspecialchars((string) ($opPageFlash['msg'] ?? '')) ?>
+  </div>
+  <?php endif; ?>
   <style>
+    .op-inline-flash{max-width:760px;margin:0 auto 14px;padding:12px 16px;border-radius:14px;font-size:14px;font-weight:600;line-height:1.45}
+    .op-inline-flash--ok{background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46}
+    .op-inline-flash--err{background:#fef2f2;border:1px solid #fca5a5;color:#991b1b}
     .op-mobile-shell{display:flex;flex-direction:column;gap:22px;max-width:760px;margin:0 auto;padding-block:6px 28px}
     .op-mobile-shell--fixed-save{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
     .op-card{background:#fff;border:1px solid var(--border);border-radius:20px;box-shadow:0 4px 24px rgba(15,23,42,.06);overflow:hidden}
@@ -380,29 +583,36 @@ $topbarHideTitle = true;
     .op-btn-block{width:100%;justify-content:center}
     .op-btn-cta{min-height:52px;font-size:16px;font-weight:700;border-radius:14px;box-shadow:0 4px 14px rgba(83,74,183,.35)}
     .op-fixed-save-bar{position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:100;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,rgba(255,255,255,.98),#fff);border-top:1px solid var(--border);box-shadow:0 -8px 24px rgba(15,23,42,.08)}
-    .op-fixed-save-bar .btn{width:100%;justify-content:center}
+    .op-fixed-save-bar__inner{display:grid;grid-template-columns:1fr 1.15fr;gap:10px;max-width:760px;margin:0 auto}
+    .op-fixed-save-bar__inner--single{grid-template-columns:1fr}
+    .op-fixed-save-bar .btn{width:100%;justify-content:center;min-height:48px}
+    .op-save-ack-bar{position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:101;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 18px calc(14px + env(safe-area-inset-bottom,0px));background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-size:15px;font-weight:700;line-height:1.35;text-align:center;box-shadow:0 -8px 28px rgba(5,150,105,.35);animation:op-save-ack-in .35s ease}
+    .op-save-ack-bar.is-out{opacity:0;transform:translateY(12px);transition:opacity .35s ease,transform .35s ease}
+    .op-save-ack-bar__icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.22);font-size:16px;font-weight:800;flex-shrink:0}
+    @keyframes op-save-ack-in{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    .op-ticket-banner--highlight{animation:op-banner-pulse 1.1s ease 2}
+    @keyframes op-banner-pulse{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.45)}50%{box-shadow:0 0 0 8px rgba(16,185,129,0)}}
+    @media(max-width:720px){.op-fixed-save-bar,.op-save-ack-bar{left:0}}
     .op-fotos-section{display:flex;flex-direction:column;gap:12px;padding-top:4px;border-top:1px solid var(--border)}
     .op-fotos-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
     .op-fotos-head strong{font-size:15px}
-    #op-photo-clear{margin:0;width:100%}
     .op-photo-preview{display:none;grid-template-columns:repeat(2,1fr);gap:12px}
     @media(min-width:540px){.op-photo-preview{grid-template-columns:repeat(3,1fr)}}
     .op-photo-preview.active{display:grid}
-    .op-photo-preview__fig{margin:0;border-radius:16px;overflow:hidden;background:#f8fafc;border:1px solid var(--border);box-shadow:0 4px 16px rgba(15,23,42,.08)}
+    .op-photo-preview__fig{position:relative;margin:0;border-radius:16px;overflow:hidden;background:#f8fafc;border:1px solid var(--border);box-shadow:0 4px 16px rgba(15,23,42,.08)}
     .op-photo-preview__fig img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
     .op-photo-preview__fig figcaption{padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .op-photo-preview__remove,.op-photo-grid__remove{position:absolute;top:6px;right:6px;z-index:2;width:28px;height:28px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.72);color:#fff;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    .op-photo-preview__remove:hover,.op-photo-grid__remove:hover{background:rgba(185,28,28,.92)}
     .op-photo-grid-wrap{max-height:280px;overflow-y:auto;border-radius:16px;padding:2px}
     .op-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
-    .op-photo-grid a{display:block;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#f1f5f9;transition:transform .15s ease,box-shadow .15s ease}
-    .op-photo-grid a:active{transform:scale(.98)}
-    .op-photo-grid img{width:100%;aspect-ratio:1;object-fit:cover;display:block;vertical-align:middle}
-    .op-photo-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 16px;border:2px dashed var(--border);border-radius:16px;background:var(--surface-raised,#f8fafc);text-align:center}
-    .op-photo-empty__ico{width:48px;height:48px;border-radius:50%;border:2px dashed #cbd5e1;background:#fff}
-    .op-photo-empty p{margin:0;font-size:14px;font-weight:600;color:var(--muted)}
-    .op-photo-empty small{font-size:12px;color:var(--muted);max-width:280px;line-height:1.45}
-    .op-fotos-section:has(.op-photo-preview.active) .op-photo-empty{display:none!important}
+    .op-photo-grid__item{position:relative;border-radius:14px;overflow:hidden}
+    .op-photo-grid__link{display:block;border:1px solid var(--border);background:#f1f5f9;border-radius:14px;overflow:hidden;transition:transform .15s ease,box-shadow .15s ease}
+    .op-photo-grid__link:active{transform:scale(.98)}
+    .op-photo-grid__link img{width:100%;aspect-ratio:1;object-fit:cover;display:block;vertical-align:middle}
     .op-map{height:260px;border-radius:16px;overflow:hidden;background:#f1f5f9;border:1px solid var(--border)}
-    .op-loc-streetview{margin-top:12px}
+    .op-loc-view-bar{display:flex;gap:8px;margin:10px 0 0}
+    .op-loc-streetview{margin-top:0}
     .op-loc-streetview .chamado-ponto-streetview__frame-wrap{padding-bottom:0;height:260px;border-radius:16px}
     .op-loc-streetview .chamado-ponto-streetview__frame{border-radius:16px}
     .op-item-combo{position:relative;width:100%}
@@ -469,24 +679,34 @@ $topbarHideTitle = true;
     .op-thread-card .bubble p:last-child{margin-bottom:0}
     .op-resumo-card .op-card-head h4{font-size:14px;font-weight:600;color:var(--muted)}
     .op-resumo-card .op-card-body{padding:12px 18px 16px}
-    .op-ticket-header.ticket-header{padding:12px 16px 14px;border-radius:18px;margin-block:16px 20px}
-    .op-ticket-banner{font-size:13px;font-weight:600;padding:8px 12px;border-radius:12px;margin-bottom:10px;line-height:1.4}
+    .op-mobile-shell .op-ticket-header.ticket-header{margin:0 0 4px}
+    .op-ticket-header.ticket-header{
+      display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;flex-wrap:nowrap;gap:10px;
+      width:100%;padding:14px 16px 16px;border-radius:18px;
+      box-sizing:border-box;overflow-x:hidden
+    }
+    .op-ticket-header.ticket-header > *{min-width:0;max-width:100%;box-sizing:border-box}
+    .op-ticket-banner{width:100%;font-size:13px;font-weight:600;padding:10px 12px;border-radius:12px;margin:0;line-height:1.45;box-sizing:border-box}
     .op-ticket-banner--done{background:linear-gradient(135deg,#ecfdf5,#d1fae5);color:#065f46;border:1px solid #a7f3d0}
     .op-ticket-banner--hold{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
-    .op-ticket-top{margin-bottom:8px}
+    .op-ticket-top{margin:0}
     .op-ticket-kicker{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--primary,#534ab7);margin-bottom:4px}
-    .op-ticket-title{margin:0;font-size:18px;font-weight:800;line-height:1.25;color:var(--text,#0f172a)}
-    @media(min-width:721px){.op-ticket-title{font-size:20px}}
-    .op-ticket-meta{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;padding-bottom:4px;margin:0 -4px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
-    .op-ticket-meta::-webkit-scrollbar{height:4px}
-    .op-ticket-meta::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
-    .op-ticket-chip{flex:0 0 auto;font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;border:1px solid var(--border);background:#fff;white-space:nowrap}
+    .op-ticket-title{margin:0;font-size:18px;font-weight:800;line-height:1.3;color:var(--text,#0f172a);overflow-wrap:anywhere;word-break:break-word}
+    @media(min-width:721px){.op-ticket-title{font-size:20px;line-height:1.25}}
+    .op-ticket-subline{overflow-wrap:anywhere;word-break:break-word}
+    .op-ticket-meta{display:flex;flex-wrap:wrap;gap:8px;margin:0;overflow:visible;width:100%}
+    .op-ticket-chip{flex:0 1 auto;max-width:100%;font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;border:1px solid var(--border);background:#fff;white-space:normal;line-height:1.3;box-sizing:border-box}
     .op-ticket-chip--status{border-width:0}
+    .op-ticket-chip--import{font-weight:600;color:#64748b;background:#f1f5f9;border-color:#e2e8f0}
     .op-ticket-sub{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);line-height:1.45}
     .op-ticket-sub span{display:block}
     .op-sr-file{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0.01;clip:auto;overflow:hidden}
     @media(max-width:720px){
-      .content{padding:12px}
+      .content{padding:12px 12px 20px}
+      .op-ticket-header.ticket-header{padding:12px 14px 14px;border-radius:16px}
+      .op-ticket-title{font-size:17px}
+      .op-ticket-banner{font-size:12px;padding:9px 11px}
+      .op-ticket-chip{font-size:11px;padding:5px 10px}
       .op-actions--cam{grid-template-columns:1fr 1fr}
       .op-mat-table-only{display:none!important}
       .op-mat-cards-only{display:flex!important}
@@ -494,30 +714,34 @@ $topbarHideTitle = true;
     }
   </style>
 
+  <div class="op-mobile-shell<?= !$opEdicaoEncerrada ? ' op-mobile-shell--fixed-save' : '' ?>">
+
   <div class="ticket-header op-ticket-header">
-    <?php if ($jaFechado): ?>
-      <div class="op-ticket-banner op-ticket-banner--done" role="status">
-        <?php if (in_array((string) ($chamado['status'] ?? ''), ['Resolvido', 'Fechado'], true)): ?>
-          Chamado finalizado. Pode ainda anexar fotos ao chamado.
+    <?php if ($jaEnviadoGestor || $opEdicaoEncerrada): ?>
+      <div class="op-ticket-banner op-ticket-banner--done<?= $opSalvoOk ? ' op-ticket-banner--highlight' : '' ?>" id="op-ticket-banner-status" role="status">
+        <?php if ($opEdicaoEncerrada): ?>
+          Chamado encerrado pela gestão. Itens e fotos não podem mais ser alterados.
         <?php else: ?>
-          Chamado já enviado ao gestor. Pode ainda <strong>anexar fotos</strong>; alteração de referência depende do gestor.
+          Chamado enviado ao gestor. Ainda pode <strong>adicionar itens e fotos</strong>; alteração de endereço depende do gestor.
         <?php endif; ?>
       </div>
     <?php endif; ?>
     <div class="op-ticket-top">
-      <span class="op-ticket-kicker">CHAMADO #<?= (int) $chamado['id'] ?></span>
-      <h2 class="op-ticket-title"><?= htmlspecialchars((string) ($chamado['titulo'] ?? '')) ?></h2>
+      <span class="op-ticket-kicker">Chamado #<?= (int) $chamado['id'] ?></span>
+      <h2 class="op-ticket-title"><?= htmlspecialchars($enderecoChamado !== '' ? $enderecoChamado : ((string) ($chamado['titulo'] ?? 'Sem endereço'))) ?></h2>
+      <?php if ($enderecoChamado !== '' && trim((string) ($chamado['titulo'] ?? '')) !== ''): ?>
+      <p class="op-ticket-subline muted" style="margin:6px 0 0;font-size:14px;line-height:1.4;"><?= htmlspecialchars((string) ($chamado['titulo'] ?? '')) ?></p>
+      <?php endif; ?>
     </div>
     <div class="op-ticket-meta" aria-label="Resumo do chamado">
       <span class="op-ticket-chip op-ticket-chip--status badge <?= htmlspecialchars(status_class($chamado['status'] ?? '')) ?>"><?= htmlspecialchars((string) ($chamado['status'] ?? '—')) ?></span>
       <span class="op-ticket-chip">Prioridade: <?= htmlspecialchars((string) ($chamado['prioridade'] ?? '—')) ?></span>
-    </div>
-    <div class="op-ticket-sub">
-      <?php if (!empty($chamado['servico_nome'])): ?>
-        <span>Serviço: <strong class="op-ticket-sub-strong"><?= htmlspecialchars((string) $chamado['servico_nome']) ?></strong></span>
-      <?php endif; ?>
       <?php if (!empty($chamado['data'])): ?>
-        <span>Aberto em <?= date('d/m/Y H:i', strtotime((string) $chamado['data'])) ?></span>
+      <span class="op-ticket-chip"><?= date('d/m/Y H:i', strtotime((string) $chamado['data'])) ?></span>
+      <?php endif; ?>
+      <?php if ($chamadoImportadoBm): ?>
+      <span class="op-ticket-chip op-ticket-chip--import"
+            title="Chamado gerado pela importação do relatório / boletim de medição">Importado BM</span>
       <?php endif; ?>
     </div>
     <?php if (trim((string) ($chamado['descricao'] ?? '')) !== ''): ?>
@@ -527,24 +751,28 @@ $topbarHideTitle = true;
     </div>
     <?php endif; ?>
   </div>
-
-  <div class="op-mobile-shell<?= !$jaFechado ? ' op-mobile-shell--fixed-save' : '' ?>">
       <form id="op-os-form" class="op-card op-card--primary" method="post" enctype="multipart/form-data"
             data-max-file-bytes="<?= (int) UPLOAD_MAX_BYTES ?>"
-            data-fotos-salvas="<?= (int) $qtdFotosExistentes ?>">
-        <input type="hidden" name="acao" id="op-form-acao" value="enviar_os">
+            data-fotos-salvas="<?= (int) $qtdFotosExistentes ?>"
+            data-ja-enviado-gestor="<?= $jaEnviadoGestor ? '1' : '0' ?>"
+            data-chamado-id="<?= (int) $id ?>">
+        <input type="hidden" name="acao" id="op-form-acao" value="">
         <input type="file" id="op-pick-cam" class="op-sr-file crm-no-custom-file" accept="image/*" capture="environment" multiple tabindex="-1" aria-hidden="true">
         <input type="file" id="op-pick-gal" class="op-sr-file crm-no-custom-file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
         <input type="file" name="imagens[]" id="op-imagens-master" class="op-sr-file crm-no-custom-file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/*" multiple tabindex="-1" aria-hidden="true">
         <div class="op-card-head">
           <div>
             <h4>Atendimento</h4>
-            <p class="op-card-lead muted">As fotos gravam-se ao escolher na câmera ou galeria. Use <strong>Salvar chamado</strong> para enviar ao gestor quando terminar.</p>
+            <p class="op-card-lead muted"><?php if ($jaEnviadoGestor): ?>
+              Fotos gravam ao selecionar. Use <strong>Salvar alterações</strong> na barra inferior para gravar fotos pendentes.
+            <?php else: ?>
+              Fotos gravam ao selecionar. Use <strong>Salvar</strong> na barra inferior para gravar pendentes e <strong>Enviar ao gestor</strong> quando terminar.
+            <?php endif; ?></p>
           </div>
         </div>
         <div class="op-card-body op-atend-body">
-          <?php if ($jaFechado): ?>
-            <p class="op-atend-note">Este chamado já foi enviado ao gestor. Pode ainda <strong>anexar fotos</strong> (gravam automaticamente ao selecionar).</p>
+          <?php if ($jaEnviadoGestor && !$opEdicaoEncerrada): ?>
+            <p class="op-atend-note">Este chamado já foi enviado ao gestor. Ainda pode <strong>adicionar itens e fotos</strong> (fotos gravam automaticamente ao selecionar).</p>
           <?php endif; ?>
 
           <?php
@@ -569,7 +797,7 @@ $topbarHideTitle = true;
               ?></div>
               <button type="button" class="btn btn-secondary op-ref-copy-btn" id="op-endereco-copy" data-copy="<?= htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') ?>"<?= $refLocal === '' ? ' disabled' : '' ?>>Copiar</button>
             </div>
-            <?php if (!$jaFechado): ?>
+            <?php if (!$jaEnviadoGestor): ?>
               <input type="hidden" name="endereco_completo" value="<?= htmlspecialchars($refLocal, ENT_QUOTES, 'UTF-8') ?>">
             <?php endif; ?>
             <?php if ($temCoordsEfetivas): ?>
@@ -593,68 +821,65 @@ $topbarHideTitle = true;
                 <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
               <?php endif; ?>
               <div id="op-loc-preview" class="op-ref-map">
+                <div class="op-loc-view-bar" role="group" aria-label="Visualização do local">
+                  <button type="button" class="btn btn-sm btn-primary" id="op-loc-sv-street-btn">Street View</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="op-loc-sv-map-btn">Mapa</button>
+                </div>
+                <div id="chamado-map-atendimento" class="op-map" hidden aria-label="Mapa do endereço do chamado"></div>
                 <div id="op-loc-streetview-wrap" class="chamado-ponto-streetview op-loc-streetview" hidden>
-                  <div class="chamado-ponto-streetview__head">
-                    <span id="op-loc-sv-label" class="chamado-ponto-streetview__label">Street View</span>
-                    <div class="chamado-ponto-streetview__head-actions">
-                      <button type="button" class="btn btn-ghost btn-sm" id="op-loc-sv-map-btn">Ver mapa</button>
-                      <a id="op-loc-sv-tab" class="btn btn-ghost btn-sm" href="#" target="_blank" rel="noopener">Abrir em nova aba</a>
-                    </div>
-                  </div>
                   <div class="chamado-ponto-streetview__frame-wrap">
                     <iframe id="op-loc-streetview-frame" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy"></iframe>
                   </div>
                 </div>
-                <div id="chamado-map-atendimento" class="op-map" hidden aria-label="Mapa do endereço do chamado"></div>
               </div>
             <?php endif; ?>
           </div>
-          <?php if ($jaFechado): ?>
+          <?php if ($jaEnviadoGestor): ?>
             <small class="muted" style="display:block;margin-top:-8px;">Alteração de endereço após envio depende do gestor.</small>
           <?php endif; ?>
 
+          <?php if (!$opEdicaoEncerrada): ?>
           <div class="op-atend-actions">
             <div class="op-actions op-actions--cam">
               <button type="button" class="btn btn-secondary op-btn-tall" id="op-btn-cam">Abrir câmera</button>
               <button type="button" class="btn btn-secondary op-btn-tall" id="op-btn-gal">Galeria</button>
             </div>
-            <?php if (!$jaFechado): ?>
-              <small class="muted" style="margin:0;font-size:12px;line-height:1.45;text-align:center;">Ao salvar, o chamado fica <strong>Aguardando Aprovação</strong> do gestor. É necessária pelo menos uma foto.</small>
-            <?php endif; ?>
           </div>
+          <?php endif; ?>
 
           <div class="op-fotos-section">
             <div class="op-fotos-head">
               <strong>Fotos do atendimento</strong>
               <span class="panel-sub" id="op-photo-count-hint"><?= (int) $qtdFotosExistentes ?> salva(s)<span id="op-photo-pending-hint"></span></span>
             </div>
-            <button type="button" class="btn btn-ghost" id="op-photo-clear" hidden>Limpar fotos selecionadas</button>
             <div class="op-photo-preview" id="op-photo-preview" aria-live="polite"></div>
-            <?php if (!empty($imagensOp)): ?>
-              <div class="op-photo-grid-wrap">
-                <div class="op-photo-grid">
-                  <?php foreach ($imagensOp as $img): ?>
-                    <a href="chamado_download.php?id=<?= (int) $img['id'] ?>" target="_blank" rel="noopener">
+            <div class="op-photo-grid-wrap" id="op-photo-grid-wrap"<?= empty($imagensOp) ? ' hidden' : '' ?>>
+              <div class="op-photo-grid" id="op-photo-grid">
+                <?php foreach ($imagensOp as $img): ?>
+                  <div class="op-photo-grid__item" data-anexo-id="<?= (int) $img['id'] ?>">
+                    <a class="op-photo-grid__link" href="chamado_download.php?id=<?= (int) $img['id'] ?>" target="_blank" rel="noopener">
                       <img src="chamado_download.php?id=<?= (int) $img['id'] ?>" alt="<?= htmlspecialchars((string) $img['nome_original']) ?>" loading="lazy">
                     </a>
-                  <?php endforeach; ?>
-                </div>
+                    <?php if (!$opEdicaoEncerrada): ?>
+                    <button type="button" class="op-photo-grid__remove" data-anexo-id="<?= (int) $img['id'] ?>"
+                            aria-label="Remover foto <?= htmlspecialchars((string) $img['nome_original'], ENT_QUOTES, 'UTF-8') ?>">×</button>
+                    <?php endif; ?>
+                  </div>
+                <?php endforeach; ?>
               </div>
-            <?php else: ?>
-              <div class="op-photo-empty" role="status">
-                <span class="op-photo-empty__ico" aria-hidden="true"></span>
-                <p>Nenhuma foto guardada ainda</p>
-                <small><?= $jaFechado
-                  ? 'As novas imagens gravam-se ao selecionar na câmera ou galeria.'
-                  : 'As novas imagens gravam-se ao selecionar. Depois use <strong>Salvar chamado</strong> para enviar ao gestor.' ?></small>
-              </div>
-            <?php endif; ?>
+            </div>
           </div>
         </div>
       </form>
-      <?php if (!$jaFechado): ?>
+      <?php if (!$opEdicaoEncerrada): ?>
       <div class="op-fixed-save-bar" role="region" aria-label="Ações do chamado">
-        <button type="button" class="btn btn-primary op-btn-block op-btn-cta" id="op-btn-salvar-chamado">Salvar chamado</button>
+        <div class="op-fixed-save-bar__inner<?= $jaEnviadoGestor ? ' op-fixed-save-bar__inner--single' : '' ?>">
+          <button type="button" class="btn btn-secondary op-btn-block" id="op-btn-salvar-rascunho"
+                  title="Grava fotos pendentes sem enviar ao gestor"><?= $jaEnviadoGestor ? 'Salvar alterações' : 'Salvar' ?></button>
+          <?php if (!$jaEnviadoGestor): ?>
+          <button type="button" class="btn btn-primary op-btn-block op-btn-cta" id="op-btn-enviar-gestor">Enviar ao gestor</button>
+          <?php endif; ?>
+        </div>
       </div>
       <?php endif; ?>
 
@@ -680,7 +905,7 @@ $topbarHideTitle = true;
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-op-mat-uso-title" class="chamado-materiais-block__title">Itens utilizados</h5>
             </div>
-            <?php if (!$jaFechado): ?>
+            <?php if (!$opEdicaoEncerrada): ?>
             <div class="chamado-materiais-op-add op-mat-panel">
               <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="utilizado" data-catalog-filter="produto">
                 <input type="hidden" name="acao" value="chamado_item_add">
@@ -713,9 +938,9 @@ $topbarHideTitle = true;
               <small>Adicione produtos ou serviços aplicados neste atendimento.</small>
             </div>
             <ul class="op-mat-stack" data-op-mat-stack="utilizado" aria-label="Itens utilizados adicionados">
-              <?= op_chamado_mat_stack_list_html($itensUsadosOp, $jaFechado) ?>
+              <?= op_chamado_mat_stack_list_html($itensUsadosOp, $opEdicaoEncerrada) ?>
             </ul>
-            <?php if (!$jaFechado && !empty($itensUsadosOp)): ?>
+            <?php if (!$opEdicaoEncerrada && !empty($itensUsadosOp)): ?>
             <p class="op-mat-footnote op-mat-footnote--edit">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               Clique na quantidade para editar
@@ -727,7 +952,7 @@ $topbarHideTitle = true;
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-op-mat-dev-title" class="chamado-materiais-block__title">Devolvidos / recolhidos</h5>
             </div>
-            <?php if (!$jaFechado): ?>
+            <?php if (!$opEdicaoEncerrada): ?>
             <div class="chamado-materiais-op-add op-mat-panel">
               <form method="post" class="flex-col op-mat-add-form" data-op-item-form data-op-mat-movimento="devolvido" data-catalog-filter="produto">
                 <input type="hidden" name="acao" value="chamado_item_add">
@@ -759,9 +984,9 @@ $topbarHideTitle = true;
               <small>Registre materiais retirados, devolvidos ou recolhidos no atendimento.</small>
             </div>
             <ul class="op-mat-stack" data-op-mat-stack="devolvido" aria-label="Itens recolhidos adicionados">
-              <?= op_chamado_mat_stack_list_html($itensDevolvidosOp, $jaFechado) ?>
+              <?= op_chamado_mat_stack_list_html($itensDevolvidosOp, $opEdicaoEncerrada) ?>
             </ul>
-            <?php if (!$jaFechado && !empty($itensDevolvidosOp)): ?>
+            <?php if (!$opEdicaoEncerrada && !empty($itensDevolvidosOp)): ?>
             <p class="op-mat-footnote op-mat-footnote--edit">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               Clique na quantidade para editar · atualiza sem recarregar a página
@@ -772,6 +997,7 @@ $topbarHideTitle = true;
       </div>
 
 
+      <?php if (!$chamadoImportadoBm): ?>
       <div class="op-card op-thread-card">
         <div class="op-card-head">
           <h4>Conversa</h4>
@@ -786,7 +1012,7 @@ $topbarHideTitle = true;
             <?php else: foreach ($respostas as $r): ?>
               <?php
                 $tipo = (string) ($r['tipo'] ?? '');
-                $cls  = $tipo === 'operador' ? 'me' : ($tipo === 'cliente' ? 'me' : '');
+                $cls  = in_array($tipo, ['operador', 'admin', 'gestor'], true) ? 'me' : '';
               ?>
               <div class="msg <?= $cls ?>">
                 <div class="avatar avatar-sm"><?= initials($r['autor']) ?></div>
@@ -830,6 +1056,7 @@ $topbarHideTitle = true;
           <small class="muted" style="display:block;margin-top:10px;line-height:1.45;">Visível a gestores, cliente e restantes técnicos da empresa; gera notificação no sistema.</small>
         </form>
       </div>
+      <?php endif; ?>
 
       <div class="op-card op-resumo-card">
         <div class="op-card-head"><h4>Resumo</h4></div>
@@ -843,6 +1070,13 @@ $topbarHideTitle = true;
       </div>
   </div>
 
+  <?php if ($opSalvoOk): ?>
+  <div class="op-save-ack-bar" id="op-save-ack-bar" role="status" aria-live="polite">
+    <span class="op-save-ack-bar__icon" aria-hidden="true">✓</span>
+    <span>Chamado enviado ao gestor com sucesso</span>
+  </div>
+  <?php endif; ?>
+
 </section>
 
 <script src="<?= $basePath ?>assets/js/op-chamado-materiais.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/op-chamado-materiais.js') ?>"></script>
@@ -851,7 +1085,7 @@ $topbarHideTitle = true;
   if (window.OpChamadoMateriais) {
     OpChamadoMateriais.init({
       catalog: <?= json_encode($opCatalogoItensJs, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS) ?>,
-      readonly: <?= $jaFechado ? 'true' : 'false' ?>
+      readonly: <?= $opEdicaoEncerrada ? 'true' : 'false' ?>
     });
   }
 
@@ -861,11 +1095,14 @@ $topbarHideTitle = true;
   var pickGal = document.getElementById('op-pick-gal');
   var btnCam = document.getElementById('op-btn-cam');
   var btnGal = document.getElementById('op-btn-gal');
-  var btnClear = document.getElementById('op-photo-clear');
   var preview = document.getElementById('op-photo-preview');
   var acaoInput = document.getElementById('op-form-acao');
-  var btnSalvarChamado = document.getElementById('op-btn-salvar-chamado');
+  var btnSalvarRascunho = document.getElementById('op-btn-salvar-rascunho');
+  var btnEnviarGestor = document.getElementById('op-btn-enviar-gestor');
   var pendingHint = document.getElementById('op-photo-pending-hint');
+  var countHint = document.getElementById('op-photo-count-hint');
+  var photoGridWrap = document.getElementById('op-photo-grid-wrap');
+  var photoGrid = document.getElementById('op-photo-grid');
 
   if (!opForm || !master || !preview || !acaoInput) {
     return;
@@ -873,6 +1110,14 @@ $topbarHideTitle = true;
 
   var maxBytes = parseInt(opForm.getAttribute('data-max-file-bytes') || '15728640', 10) || 15728640;
   var fotosSalvas = parseInt(opForm.getAttribute('data-fotos-salvas') || '0', 10) || 0;
+
+  function countFotosNoGrid() {
+    return photoGrid ? photoGrid.querySelectorAll('.op-photo-grid__item').length : 0;
+  }
+
+  function totalFotosAtendimento() {
+    return Math.max(fotosSalvas, countFotosNoGrid()) + dt.files.length;
+  }
 
   var dt = new DataTransfer();
 
@@ -926,9 +1171,28 @@ $topbarHideTitle = true;
     if (pendingHint) {
       pendingHint.textContent = n ? ' · +' + n + ' nova(s)' : '';
     }
-    if (btnClear) {
-      btnClear.hidden = n < 1;
-    }
+  }
+
+  function updateSavedCountUi() {
+    var n = countFotosNoGrid();
+    fotosSalvas = Math.max(fotosSalvas, n);
+    opForm.setAttribute('data-fotos-salvas', String(fotosSalvas));
+    if (!countHint) return;
+    countHint.innerHTML = n + ' salva(s)<span id="op-photo-pending-hint"></span>';
+    pendingHint = document.getElementById('op-photo-pending-hint');
+    updatePendingUi();
+    if (photoGridWrap) photoGridWrap.hidden = n < 1;
+  }
+
+  function removePendingFile(fileToRemove) {
+    var next = new DataTransfer();
+    Array.prototype.forEach.call(dt.files, function (file) {
+      if (file !== fileToRemove) {
+        next.items.add(file);
+      }
+    });
+    dt = next;
+    syncMasterFiles();
   }
 
   function renderPreview() {
@@ -939,12 +1203,23 @@ $topbarHideTitle = true;
       var url = URL.createObjectURL(file);
       var fig = document.createElement('figure');
       fig.className = 'op-photo-preview__fig';
+      var btnRm = document.createElement('button');
+      btnRm.type = 'button';
+      btnRm.className = 'op-photo-preview__remove';
+      btnRm.setAttribute('aria-label', 'Remover ' + file.name);
+      btnRm.textContent = '×';
+      btnRm.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        removePendingFile(file);
+      });
       var img = document.createElement('img');
       var cap = document.createElement('figcaption');
       img.src = url;
       img.alt = file.name;
       img.onload = function () { URL.revokeObjectURL(url); };
       cap.textContent = file.name + ' (' + formatBytes(file.size) + ')';
+      fig.appendChild(btnRm);
       fig.appendChild(img);
       fig.appendChild(cap);
       preview.appendChild(fig);
@@ -988,10 +1263,55 @@ $topbarHideTitle = true;
       pickGal.value = '';
     });
   }
-  if (btnClear) {
-    btnClear.addEventListener('click', function () {
-      dt = new DataTransfer();
-      syncMasterFiles();
+  function confirmDelete(msg, title) {
+    if (typeof window.appConfirm === 'function') {
+      return window.appConfirm({ message: msg, title: title || 'Fotos', danger: true });
+    }
+    return Promise.resolve(window.confirm(msg));
+  }
+
+  function deleteSavedPhoto(anexoId, itemEl) {
+    var fd = new FormData();
+    fd.append('acao', 'excluir_foto');
+    fd.append('ajax', '1');
+    fd.append('anexo_id', String(anexoId));
+    fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+    })
+      .then(function (r) { return r.text().then(function (t) {
+        var trimmed = (t || '').trim();
+        if (!trimmed) throw new Error('Resposta vazia.');
+        return JSON.parse(trimmed);
+      }); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          alertMsg((data && data.err) || 'Não foi possível remover a foto.');
+          return;
+        }
+        if (itemEl && itemEl.parentNode) itemEl.parentNode.removeChild(itemEl);
+        fotosSalvas = typeof data.fotos_salvas === 'number' ? data.fotos_salvas : Math.max(0, fotosSalvas - 1);
+        updateSavedCountUi();
+      })
+      .catch(function (err) {
+        alertMsg((err && err.message) || 'Erro de rede ao remover foto.');
+      });
+  }
+
+  if (photoGrid) {
+    photoGrid.addEventListener('click', function (e) {
+      var btn = e.target.closest('.op-photo-grid__remove');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var aid = parseInt(btn.getAttribute('data-anexo-id') || '0', 10);
+      if (!aid) return;
+      var item = btn.closest('.op-photo-grid__item');
+      confirmDelete('Remover esta foto do atendimento?', 'Fotos').then(function (ok) {
+        if (ok) deleteSavedPhoto(aid, item);
+      });
     });
   }
 
@@ -1004,40 +1324,279 @@ $topbarHideTitle = true;
     return errs;
   }
 
-  function doSubmit(acao) {
+  function fetchPostJson(fd) {
+    return fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var trimmed = (t || '').trim();
+        if (!trimmed) throw new Error('Resposta vazia.');
+        return JSON.parse(trimmed);
+      });
+    });
+  }
+
+  function applyFotoUploadResponse(data) {
+    if (photoGrid && data.items_html && data.items_html.length) {
+      data.items_html.forEach(function (html) {
+        var wrap = document.createElement('div');
+        wrap.innerHTML = html;
+        var node = wrap.firstElementChild;
+        if (node) photoGrid.appendChild(node);
+      });
+      if (photoGridWrap) photoGridWrap.hidden = false;
+    }
+    dt = new DataTransfer();
+    syncMasterFiles();
+    fotosSalvas = typeof data.fotos_salvas === 'number' ? data.fotos_salvas : fotosSalvas;
+    updateSavedCountUi();
+  }
+
+  function showOpToast(msg, kind) {
+    if (!msg) return;
+    if (typeof window.appToast === 'function') {
+      window.appToast(msg, kind === 'err' ? 'info' : 'ok');
+    }
+  }
+
+  function setSaveBarBusy(busy, labelSalvar, labelEnviar) {
+    [btnSalvarRascunho, btnEnviarGestor].forEach(function (btn) {
+      if (!btn) return;
+      btn.disabled = !!busy;
+      btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+    });
+    if (btnSalvarRascunho && labelSalvar) btnSalvarRascunho.textContent = labelSalvar;
+    if (btnEnviarGestor && labelEnviar) btnEnviarGestor.textContent = labelEnviar;
+  }
+
+  function submitFotosAjax() {
     var pendErros = validatePendingFiles();
     if (pendErros.length) {
       alertMsg(pendErros.join('\n'), 'Fotos inválidas');
       return;
     }
-    acaoInput.value = acao;
-    if (typeof opForm.requestSubmit === 'function') {
-      opForm.requestSubmit();
-    } else {
-      HTMLFormElement.prototype.submit.call(opForm);
+    var fd = new FormData(opForm);
+    fd.set('acao', 'fotos');
+    fd.append('ajax', '1');
+    fetchPostJson(fd)
+      .then(function (data) {
+        if (!data || !data.ok) {
+          alertMsg((data && data.err) || (data && data.msg) || 'Não foi possível enviar as fotos.');
+          return;
+        }
+        applyFotoUploadResponse(data);
+      })
+      .catch(function (err) {
+        alertMsg((err && err.message) || 'Erro de rede ao enviar fotos.');
+      });
+  }
+
+  function postAcaoAjax(acao, labels) {
+    var pendErros = validatePendingFiles();
+    if (pendErros.length) {
+      alertMsg(pendErros.join('\n'), 'Fotos inválidas');
+      return Promise.resolve(false);
+    }
+    var fd = new FormData(opForm);
+    fd.set('acao', acao);
+    fd.append('ajax', '1');
+    setSaveBarBusy(true, labels.salvar || 'Salvando…', labels.enviar || 'Enviando…');
+    return fetchPostJson(fd)
+      .then(function (data) {
+        if (!data || !data.ok) {
+          alertMsg((data && data.err) || (data && data.msg) || 'Não foi possível concluir a operação.');
+          return false;
+        }
+        if (data.items_html && data.items_html.length) {
+          applyFotoUploadResponse(data);
+        } else if (typeof data.fotos_salvas === 'number') {
+          fotosSalvas = data.fotos_salvas;
+          updateSavedCountUi();
+        }
+        showOpToast(data.msg || 'Salvo.', 'ok');
+        if (data.ja_enviado_gestor && acao === 'enviar_os') {
+          markEnviadoGestorUI(data);
+        }
+        return true;
+      })
+      .catch(function (err) {
+        alertMsg((err && err.message) || 'Erro de rede.');
+        return false;
+      })
+      .finally(function () {
+        var lblSalvar = opForm.getAttribute('data-ja-enviado-gestor') === '1' ? 'Salvar alterações' : 'Salvar';
+        setSaveBarBusy(false, lblSalvar, btnEnviarGestor ? 'Enviar ao gestor' : null);
+      });
+  }
+
+  function markEnviadoGestorUI(data) {
+    opForm.setAttribute('data-ja-enviado-gestor', '1');
+    var header = document.querySelector('.op-ticket-header');
+    if (header && !document.getElementById('op-ticket-banner-status')) {
+      var div = document.createElement('div');
+      div.id = 'op-ticket-banner-status';
+      div.className = 'op-ticket-banner op-ticket-banner--done op-ticket-banner--highlight';
+      div.setAttribute('role', 'status');
+      div.innerHTML = 'Chamado enviado ao gestor. Ainda pode <strong>adicionar itens e fotos</strong>; alteração de endereço depende do gestor.';
+      header.insertBefore(div, header.firstChild);
+    }
+    var chip = document.querySelector('.op-ticket-chip--status');
+    if (chip && data.status) {
+      chip.textContent = data.status;
+      if (data.status_class) {
+        chip.className = 'op-ticket-chip op-ticket-chip--status badge ' + data.status_class;
+      }
+    }
+    if (btnEnviarGestor && btnEnviarGestor.parentNode) {
+      btnEnviarGestor.remove();
+      var inner = document.querySelector('.op-fixed-save-bar__inner');
+      if (inner) inner.classList.add('op-fixed-save-bar__inner--single');
+    }
+    var endInput = opForm.querySelector('input[name="endereco_completo"]');
+    if (endInput) endInput.remove();
+    var atendBody = document.querySelector('.op-atend-body');
+    if (atendBody && !atendBody.querySelector('.op-atend-note')) {
+      var note = document.createElement('p');
+      note.className = 'op-atend-note';
+      note.innerHTML = 'Este chamado já foi enviado ao gestor. Ainda pode <strong>adicionar itens e fotos</strong> (fotos gravam automaticamente ao selecionar).';
+      atendBody.insertBefore(note, atendBody.firstChild);
+    }
+    showOpSaveAckBar();
+  }
+
+  function showOpSaveAckBar() {
+    if (document.getElementById('op-save-ack-bar')) return;
+    var bar = document.createElement('div');
+    bar.className = 'op-save-ack-bar';
+    bar.id = 'op-save-ack-bar';
+    bar.setAttribute('role', 'status');
+    bar.innerHTML = '<span class="op-save-ack-bar__icon" aria-hidden="true">✓</span><span>Chamado enviado ao gestor com sucesso</span>';
+    document.body.appendChild(bar);
+    setTimeout(function () {
+      bar.classList.add('is-out');
+      setTimeout(function () { bar.remove(); }, 400);
+    }, 5500);
+  }
+
+  function doSubmit(acao) {
+    if (acao === 'fotos') {
+      submitFotosAjax();
     }
   }
 
-  function onSalvarChamadoClick() {
-    var novas = dt.files.length;
-    if (fotosSalvas + novas < 1) {
-      alertMsg('Inclua pelo menos uma foto do atendimento antes de concluir o chamado.', 'Salvar chamado');
+  opForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+  });
+
+  function materiaisPendentesNosFormularios() {
+    var card = document.querySelector('.chamado-materiais-card');
+    if (!card) return [];
+    var msgs = [];
+    card.querySelectorAll('form[data-op-item-form]').forEach(function (form) {
+      var itemId = form.querySelector('[data-op-item-id]');
+      var search = form.querySelector('[data-op-item-search]');
+      var mov = form.getAttribute('data-op-mat-movimento') || 'utilizado';
+      var rotulo = mov === 'devolvido' ? 'recolhido' : 'utilizado';
+      if (itemId && itemId.value && parseInt(itemId.value, 10) > 0) {
+        msgs.push('Há um item ' + rotulo + ' selecionado que ainda não foi adicionado. Use «Adicionar ' + rotulo + '» ou limpe a busca.');
+      } else if (search && search.value.trim()) {
+        msgs.push('Há texto na busca de itens ' + rotulo + ' sem item confirmado na lista.');
+      }
+    });
+    return msgs;
+  }
+
+  function onSalvarRascunhoClick() {
+    var pendMat = materiaisPendentesNosFormularios();
+    if (pendMat.length) {
+      alertMsg(pendMat.join('\n'), 'Itens do chamado');
+      return;
+    }
+    postAcaoAjax('salvar_op', { salvar: 'Salvando…', enviar: null });
+  }
+
+  function onEnviarGestorClick() {
+    var pendMat = materiaisPendentesNosFormularios();
+    if (pendMat.length) {
+      alertMsg(pendMat.join('\n'), 'Itens do chamado');
+      return;
+    }
+    if (totalFotosAtendimento() < 1) {
+      alertMsg('Inclua pelo menos uma foto do atendimento antes de concluir o chamado.', 'Enviar ao gestor');
       return;
     }
     var msg = 'Enviar este chamado ao gestor? O status passará para Aguardando Aprovação.';
+    var run = function () {
+      postAcaoAjax('enviar_os', { salvar: 'Salvando…', enviar: 'Enviando…' });
+    };
     if (typeof window.appConfirm === 'function') {
       window.appConfirm({ message: msg, title: 'Confirmar', danger: false }).then(function (ok) {
-        if (!ok) return;
-        doSubmit('enviar_os');
+        if (ok) run();
       });
     } else if (window.confirm(msg)) {
-      doSubmit('enviar_os');
+      run();
     }
   }
 
-  if (btnSalvarChamado) btnSalvarChamado.addEventListener('click', onSalvarChamadoClick);
+  updateSavedCountUi();
+
+  if (btnSalvarRascunho) btnSalvarRascunho.addEventListener('click', onSalvarRascunhoClick);
+  if (btnEnviarGestor) btnEnviarGestor.addEventListener('click', onEnviarGestorClick);
 })();
 </script>
+<?php if ($opSalvoOk): ?>
+<script>
+(function () {
+  var chamadoId = <?= (int) $id ?>;
+  var banner = document.getElementById('op-ticket-banner-status');
+  var ackBar = document.getElementById('op-save-ack-bar');
+
+  function cleanSalvoQuery() {
+    if (!window.history.replaceState) return;
+    history.replaceState(null, '', 'chamado_detalhe.php?id=' + chamadoId);
+  }
+
+  requestAnimationFrame(function () {
+    if (banner) {
+      banner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
+
+  var msg = <?= json_encode((string) ($opPageFlash['msg'] ?? ''), JSON_UNESCAPED_UNICODE) ?>;
+  if (msg && typeof window.appToast === 'function') {
+    window.appToast(msg, 'ok');
+  }
+
+  if (ackBar) {
+    setTimeout(function () {
+      ackBar.classList.add('is-out');
+      setTimeout(function () {
+        ackBar.remove();
+        cleanSalvoQuery();
+      }, 400);
+    }, 5500);
+  } else {
+    setTimeout(cleanSalvoQuery, 800);
+  }
+})();
+</script>
+<?php elseif (!empty($opPageFlash)): ?>
+<script>
+(function () {
+  var msg = <?= json_encode((string) ($opPageFlash['msg'] ?? ''), JSON_UNESCAPED_UNICODE) ?>;
+  var kind = <?= json_encode(($opPageFlash['tipo'] ?? '') === 'err' ? 'info' : 'ok') ?>;
+  if (!msg) return;
+  if (typeof window.appToast === 'function') {
+    window.appToast(msg, kind);
+  }
+})();
+</script>
+<?php endif; ?>
 <script>
 (function () {
   var btn = document.getElementById('op-endereco-copy');
@@ -1076,6 +1635,7 @@ $topbarHideTitle = true;
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
 <script src="<?= htmlspecialchars($basePath) ?>assets/js/chamado-loc-preview.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -1084,15 +1644,18 @@ document.addEventListener('DOMContentLoaded', function () {
     mapId: 'chamado-map-atendimento',
     svWrapId: 'op-loc-streetview-wrap',
     svFrameId: 'op-loc-streetview-frame',
-    svTabId: 'op-loc-sv-tab',
-    svLabelId: 'op-loc-sv-label',
     svMapBtnId: 'op-loc-sv-map-btn',
+    svStreetBtnId: 'op-loc-sv-street-btn',
+    dualViewButtons: true,
+    hideExternalTab: true,
     hintId: 'chamado-map-geocode-hint',
     lat: <?= $locPreview['lat'] !== null ? json_encode($locPreview['lat']) : 'null' ?>,
     lng: <?= $locPreview['lng'] !== null ? json_encode($locPreview['lng']) : 'null' ?>,
     modo: <?= json_encode($locPreview['modo'] ?? 'none', JSON_UNESCAPED_UNICODE) ?>,
     mapaQuery: <?= json_encode($locPreview['mapa_query'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
     attempts: <?= json_encode($locPreview['geocode_attempts'] ?? [], JSON_UNESCAPED_UNICODE) ?>,
+    geocodeCidade: <?= json_encode(trim((string) ($chamado['os_cidade'] ?? '')), JSON_UNESCAPED_UNICODE) ?>,
+    geocodeUf: <?= json_encode(strtoupper(preg_replace('/\./', '', trim((string) ($chamado['os_uf'] ?? '')))), JSON_UNESCAPED_UNICODE) ?>,
     scrollWheelZoom: false,
     zoomControl: true
   });

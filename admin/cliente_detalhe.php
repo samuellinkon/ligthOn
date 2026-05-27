@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: cliente_detalhe.php?id=' . $clienteId);
             exit;
         }
-        flash_set('ok', 'Usuário #' . $newId . ' criado com sucesso.');
+        flash_set('ok', 'Usuário #' . $newId . ' criado. A conta já está ativa — pode entrar no portal com o e-mail e a senha definidos (sem confirmação por e-mail).');
         header('Location: cliente_detalhe.php?id=' . $clienteId);
         exit;
     }

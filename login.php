@@ -9,6 +9,11 @@ $erro = '';
 $msgSenhaOk = '';
 $emailPreenchido = '';
 
+$flashLogin = flash_get();
+if ($flashLogin && ($flashLogin['tipo'] ?? '') === 'err' && ($flashLogin['msg'] ?? '') !== '') {
+    $erro = (string) $flashLogin['msg'];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = $_POST['email'] ?? '';
     $senha = $_POST['senha'] ?? '';
@@ -25,15 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         audit_log_registar('auth.login', 'sessao', null, $cidLog > 0 ? $cidLog : null, [
             'email' => function_exists('mb_substr') ? mb_substr(trim((string) $email), 0, 160, 'UTF-8') : substr(trim((string) $email), 0, 160),
         ]);
-        $p = (string) ($u['perfil'] ?? '');
-        if ($p === 'admin' || $p === 'gestor') {
-            $destino = 'admin/index.php';
-        } elseif ($p === 'operador') {
-            $destino = 'operador/chamados.php';
-        } else {
-            $destino = 'cliente/index.php';
+        $dest = auth_painel_destino_apos_login($u);
+        if (($dest['err'] ?? '') !== '') {
+            mock_logout();
+            flash_set('err', $dest['err']);
+            header('Location: login.php');
+            exit;
         }
-        header('Location: ' . $destino);
+        header('Location: ' . $dest['path']);
         exit;
     }
     audit_log_registar('auth.login_falha', 'auth', null, null, [

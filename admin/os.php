@@ -125,13 +125,13 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>Mês</th>
-              <th class="text-right">Qtd. OS</th>
-              <th class="text-right">Valor (itens)</th>
-              <th class="text-right td-actions">Ações</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Mês', 'mes'); ?>
+              <?php crm_sort_th('Qtd. OS', 'qtd', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Valor (itens)', 'valor', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Ações', null, ['class' => 'td-actions crm-table-col-acoes', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
@@ -145,7 +145,11 @@ include __DIR__ . '/../includes/head.php';
               $ym = (string) ($row['ym'] ?? '');
               $hrefMes = 'os_mes.php?' . http_build_query(['mes' => $ym]);
               ?>
-              <tr>
+              <tr <?= crm_sort_row_attr([
+                  'mes'   => $ym,
+                  'qtd'   => (string) (int) ($row['n_os'] ?? 0),
+                  'valor' => (string) (float) ($row['valor_total'] ?? 0),
+              ]) ?>>
                 <td class="td-strong"><?= htmlspecialchars(medicao_mes_label_pt($ym)) ?></td>
                 <td class="text-right"><?= (int) ($row['n_os'] ?? 0) ?></td>
                 <td class="text-right"><strong>R$ <?= number_format((float) ($row['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>

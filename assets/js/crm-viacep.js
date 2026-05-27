@@ -31,14 +31,21 @@
     return d.slice(0, 5) + '-' + d.slice(5);
   }
 
+  function notifyOsAddressFieldsChanged() {
+    document.dispatchEvent(
+      new CustomEvent('crm:os-address-changed', { bubbles: true })
+    );
+  }
+
   function applyViaCep(data) {
-    if (logra) logra.value = data.logradouro || '';
-    if (bairro) bairro.value = data.bairro || '';
-    if (cidade) cidade.value = data.localidade || '';
-    if (uf) uf.value = String(data.uf || '').toUpperCase().slice(0, 2);
+    if (logra && data.logradouro) logra.value = data.logradouro;
+    if (bairro && data.bairro) bairro.value = data.bairro;
+    if (cidade && data.localidade) cidade.value = data.localidade;
+    if (uf && data.uf) uf.value = String(data.uf).toUpperCase().slice(0, 2);
     if (comp && data.complemento && String(comp.value).trim() === '') {
       comp.value = data.complemento;
     }
+    notifyOsAddressFieldsChanged();
   }
 
   function clearLoading(token) {

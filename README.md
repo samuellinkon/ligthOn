@@ -96,3 +96,24 @@ crm/
 Com o banco instalado, todas as telas leem dados reais do MySQL. Sem banco,
 a aplicação continua funcional com os arrays mock de `includes/mock.php`.
 As páginas não precisam saber a diferença — a camada de dados é transparente.
+
+## Deploy na Hostinger (produção)
+
+O site precisa das **três pastas de painel** na raiz pública (`public_html` ou equivalente):
+
+| Pasta      | Quem usa        | Exemplo de URL                          |
+| ---------- | --------------- | --------------------------------------- |
+| `admin/`   | Admin / gestor  | `https://seu-dominio/admin/index.php`   |
+| `operador/`| Operador campo  | `https://seu-dominio/operador/`         |
+| `cliente/` | Portal prefeitura | `https://seu-dominio/cliente/index.php` |
+
+Se o login do **cliente** falhar com «página não existe» ou 404 genérico da Hostinger,
+quase sempre a pasta **`cliente/` não foi enviada** ao servidor (admin e operador
+já estão lá, mas `cliente/` ficou de fora no FTP/Git).
+
+**Correção:** envie a pasta `cliente/` completa (todos os `.php` do repositório) para
+a mesma raiz onde estão `login.php`, `admin/` e `operador/`. Confirme no gestor de
+ficheiros que existe `cliente/index.php`.
+
+Também envie/atualize: `.htaccess`, `includes/`, `assets/`, `database/migrations/`
+(aplicar SQL no phpMyAdmin quando houver migrações novas).

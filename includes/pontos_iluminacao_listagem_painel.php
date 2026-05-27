@@ -264,22 +264,31 @@ if ($metricaAtiva === 'chamados') {
     </form>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>Poste</th>
-            <th>Prefeitura</th>
-            <th>Local</th>
-            <th>Chamados</th>
-            <th>Status</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('Poste', 'poste'); ?>
+            <?php crm_sort_th('Prefeitura', 'prefeitura'); ?>
+            <?php crm_sort_th('Local', 'local'); ?>
+            <?php crm_sort_th('Chamados', 'chamados', ['type' => 'number']); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
           <?php if (!$pontos): ?>
           <tr><td colspan="6" class="muted" style="padding:24px;text-align:center;">Nenhum ponto encontrado.</td></tr>
           <?php else: foreach ($pontos as $p): ?>
-          <tr>
+          <?php
+            $localSort = trim((string) ($p['bairro'] ?? '') . ' ' . (string) ($p['endereco_completo'] ?? ''));
+          ?>
+          <tr <?= crm_sort_row_attr([
+              'poste'      => (string) ($p['codigo_poste'] ?? ''),
+              'prefeitura' => (string) ($p['cliente_empresa'] ?? ''),
+              'local'      => $localSort,
+              'chamados'   => (string) (int) ($p['chamados_abertos'] ?? 0),
+              'status'     => (string) ($p['status'] ?? ''),
+          ]) ?>>
             <td><strong><?= htmlspecialchars((string) ($p['codigo_poste'] ?? '')) ?></strong></td>
             <td><?= htmlspecialchars((string) ($p['cliente_empresa'] ?? '')) ?></td>
             <td class="td-mute"><?= htmlspecialchars((string) ($p['bairro'] ?? '')) ?><?php if (!empty($p['endereco_completo'])): ?><br><small><?= htmlspecialchars((string) $p['endereco_completo']) ?></small><?php endif; ?></td>
@@ -305,6 +314,8 @@ if ($metricaAtiva === 'chamados') {
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/partials/leaflet_basemap_script.php'; ?>
+<?php include __DIR__ . '/partials/leaflet_ponto_popup_assets.php'; ?>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
 <script>
   window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pinsMapa, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;

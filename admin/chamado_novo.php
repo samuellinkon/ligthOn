@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $respAuto = trim((string) ($user['nome'] ?? ''));
         $id = repo_create_chamado(array_merge($os, [
             'cliente_id'          => $cidNovo,
+            'criado_por_user_id'  => (int) ($user['id'] ?? 0),
             'ponto_iluminacao_id' => (int) ($_POST['ponto_iluminacao_id'] ?? 0),
             'titulo'              => chamado_os_titulo_from_post($_POST),
             'descricao'           => trim($_POST['descricao'] ?? ''),
@@ -121,6 +122,7 @@ if (db_ok()) {
     }
 }
 
+$loadLeaflet = true;
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">
@@ -148,7 +150,7 @@ include __DIR__ . '/../includes/head.php';
     $ch_os_descricao = '';
     $ch_os_mostrar_ponto = !empty($pontosIluminacaoChamado);
     $ch_os_pontos_opcoes = $pontosIluminacaoChamado ?: [];
-    $ch_os_mostrar_preview_mapa = false;
+    $ch_os_mostrar_preview_mapa = true;
     include __DIR__ . '/../includes/chamado_os_grid_markup.php';
     ?>
 
@@ -159,22 +161,18 @@ include __DIR__ . '/../includes/head.php';
           <label class="radio-card radio-card--prio-baixa">
             <input type="radio" name="prioridade" value="Baixa">
             <strong>Baixa</strong>
-            <span>Sem impacto imediato</span>
           </label>
           <label class="radio-card radio-card--prio-normal active">
             <input type="radio" name="prioridade" value="Normal" checked>
             <strong>Normal</strong>
-            <span>Prazo padrão</span>
           </label>
           <label class="radio-card radio-card--prio-alta">
             <input type="radio" name="prioridade" value="Alta">
             <strong>Alta</strong>
-            <span>Impacta rotina</span>
           </label>
           <label class="radio-card radio-card--prio-urgente">
             <input type="radio" name="prioridade" value="Urgente">
             <strong>Urgente</strong>
-            <span>Sistema parado</span>
           </label>
         </div>
       </div>
@@ -184,7 +182,6 @@ include __DIR__ . '/../includes/head.php';
         <div class="file-upload">
           <div class="file-icon">⇪</div>
           <strong>Clique ou arraste arquivos aqui</strong>
-          <span>PDF, imagens ou documentos até 10MB</span>
           <input type="file" name="anexos[]" multiple hidden>
         </div>
         <div class="file-list"></div>
@@ -216,6 +213,32 @@ include __DIR__ . '/../includes/head.php';
   });
   group.addEventListener('change', sync);
   sync();
+})();
+</script>
+<script>
+(function () {
+  var input = document.querySelector('.file-upload input[type="file"][name="anexos[]"]');
+  var list = document.querySelector('.file-list');
+  if (!input || !list) return;
+  input.addEventListener('change', function () {
+    list.innerHTML = '';
+    Array.prototype.forEach.call(input.files || [], function (file) {
+      var row = document.createElement('div');
+      row.className = 'file-preview-row';
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border:1px solid var(--border,#e2e8f0);border-radius:10px;';
+      if ((file.type || '').indexOf('image/') === 0) {
+        var img = document.createElement('img');
+        img.style.cssText = 'width:56px;height:56px;object-fit:cover;border-radius:8px;';
+        img.src = URL.createObjectURL(file);
+        img.onload = function () { URL.revokeObjectURL(img.src); };
+        row.appendChild(img);
+      }
+      var meta = document.createElement('span');
+      meta.textContent = file.name + ' (' + Math.round(file.size / 1024) + ' KB)';
+      row.appendChild(meta);
+      list.appendChild(row);
+    });
+  });
 })();
 </script>
 

@@ -1,24 +1,31 @@
 /**
- * Street View primeiro; mapa Leaflet (OSM) sob demanda ou após geocode.
+ * Localização do chamado: Street View (iframe) e/ou mapa Leaflet (OSM).
  */
 (function (global) {
   'use strict';
 
   function initChamadoLocPreview(opts) {
+    var mapOnly = !!opts.mapOnly;
     var mapEl = document.getElementById(opts.mapId);
-    var svWrap = document.getElementById(opts.svWrapId);
-    var svFrame = document.getElementById(opts.svFrameId);
-    var svTab = document.getElementById(opts.svTabId);
+    var svWrap = opts.svWrapId ? document.getElementById(opts.svWrapId) : null;
+    var svFrame = opts.svFrameId ? document.getElementById(opts.svFrameId) : null;
+    var svTab = opts.svTabId ? document.getElementById(opts.svTabId) : null;
     var svLabel = opts.svLabelId ? document.getElementById(opts.svLabelId) : null;
     var svMapBtn = opts.svMapBtnId ? document.getElementById(opts.svMapBtnId) : null;
+    var svStreetBtn = opts.svStreetBtnId ? document.getElementById(opts.svStreetBtnId) : null;
+    var hideExternalTab = !!opts.hideExternalTab || mapOnly;
+    var dualViewButtons = !!opts.dualViewButtons;
+    var defaultView = opts.defaultView === 'leaflet' ? 'leaflet' : 'streetview';
     var hint = opts.hintId ? document.getElementById(opts.hintId) : null;
     if (!mapEl || typeof global.L === 'undefined') return;
+    if (!mapOnly && (!svWrap || !svFrame)) return;
 
     var lat = opts.lat;
     var lng = opts.lng;
     var modo = opts.modo || 'streetview';
     var mapaQuery = (opts.mapaQuery || '').trim();
     var attempts = opts.attempts || [];
+    var mapZoom = typeof opts.zoom === 'number' && opts.zoom > 0 ? opts.zoom : 15;
     var map;
     var svGeneration = 0;
     var lastCoords = { lat: null, lng: null };
@@ -27,14 +34,39 @@
       if (hint) hint.remove();
     }
 
+    function setViewButtons(active) {
+      if (!dualViewButtons) return;
+      if (svMapBtn) {
+        svMapBtn.classList.toggle('btn-primary', active === 'map');
+        svMapBtn.classList.toggle('btn-secondary', active !== 'map');
+        svMapBtn.classList.remove('btn-ghost');
+      }
+      if (svStreetBtn) {
+        svStreetBtn.classList.toggle('btn-primary', active === 'street');
+        svStreetBtn.classList.toggle('btn-secondary', active !== 'street');
+        svStreetBtn.classList.remove('btn-ghost');
+        svStreetBtn.hidden = false;
+      }
+      if (svMapBtn) svMapBtn.hidden = false;
+    }
+
+    function showCoordsView(la, lo) {
+      if (defaultView === 'leaflet') {
+        showLeafletMap(la, lo);
+      } else {
+        showStreetView(la, lo);
+      }
+    }
+
     function showLeafletMap(la, lo) {
       svGeneration++;
       if (svWrap) svWrap.hidden = true;
       mapEl.hidden = false;
       lastCoords.lat = la;
       lastCoords.lng = lo;
+      setViewButtons('map');
       if (map) {
-        map.setView([la, lo], 15);
+        map.setView([la, lo], mapZoom);
         global.setTimeout(function () { map.invalidateSize(); }, 120);
         clearHint();
         return;
@@ -43,13 +75,41 @@
         scrollWheelZoom: opts.scrollWheelZoom !== false,
         zoomControl: opts.zoomControl !== false
       });
-      global.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OSM'
-      }).addTo(map);
+      if (global.CrmLeafletBasemap) {
+        global.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+      }
       global.L.marker([la, lo]).addTo(map);
-      map.setView([la, lo], 15);
+      map.setView([la, lo], mapZoom);
       global.setTimeout(function () { map.invalidateSize(); }, 120);
+      clearHint();
+    }
+
+    function showMapEmbed(la, lo) {
+      if (!svWrap || !svFrame) {
+        showLeafletMap(la, lo);
+        return;
+      }
+      svGeneration++;
+      lastCoords.lat = la;
+      lastCoords.lng = lo;
+      mapEl.hidden = true;
+      svWrap.hidden = false;
+      if (svLabel) svLabel.textContent = 'Mapa';
+      if (svTab) {
+        svTab.textContent = 'Abrir no Google Maps';
+        svTab.hidden = hideExternalTab;
+      }
+      var ll = encodeURIComponent(String(la) + ',' + String(lo));
+      svFrame.src = 'https://www.google.com/maps?q=' + ll + '&z=17&hl=pt-BR&output=embed';
+      if (svTab && !hideExternalTab) {
+        svTab.href = 'https://www.google.com/maps/search/?api=1&query=' + ll;
+      }
+      if (!dualViewButtons) {
+        if (svStreetBtn) svStreetBtn.hidden = false;
+        if (svMapBtn) svMapBtn.hidden = false;
+      } else {
+        setViewButtons('street');
+      }
       clearHint();
     }
 
@@ -65,13 +125,19 @@
       svWrap.hidden = false;
       if (svLabel) svLabel.textContent = 'Street View';
       if (svTab) {
-        svTab.textContent = 'Abrir em nova aba';
-        svTab.hidden = false;
+        svTab.textContent = 'Abrir no Google Maps';
+        svTab.hidden = hideExternalTab;
       }
       var ll = encodeURIComponent(String(la) + ',' + String(lo));
       svFrame.src = 'https://www.google.com/maps?cbll=' + ll + '&cbp=11,0,0,0,0&layer=c&output=svembed';
-      if (svTab) {
-        svTab.href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + ll;
+      if (svTab && !hideExternalTab) {
+        svTab.href = 'https://www.google.com/maps/search/?api=1&query=' + ll;
+      }
+      if (!dualViewButtons) {
+        if (svStreetBtn) svStreetBtn.hidden = true;
+        if (svMapBtn) svMapBtn.hidden = false;
+      } else {
+        setViewButtons('street');
       }
       clearHint();
     }
@@ -89,7 +155,7 @@
         svTab.hidden = false;
       }
       var qEnc = encodeURIComponent(q);
-      svFrame.src = 'https://www.google.com/maps?q=' + qEnc + '&hl=pt-BR&output=embed';
+      svFrame.src = 'https://www.google.com/maps?q=' + qEnc + '&z=17&hl=pt-BR&output=embed';
       if (svTab) {
         svTab.href = 'https://www.google.com/maps/search/?api=1&query=' + qEnc;
       }
@@ -103,18 +169,54 @@
         }
       });
     }
+    if (svStreetBtn) {
+      svStreetBtn.addEventListener('click', function () {
+        if (lastCoords.lat != null && lastCoords.lng != null) {
+          showStreetView(lastCoords.lat, lastCoords.lng);
+        }
+      });
+    }
 
-    function nominatimStructured(street, city, state, nomEmail, nomOpts) {
-      var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
+    var geocodeCidade = (opts.geocodeCidade || '').trim();
+    var geocodeUf = String(opts.geocodeUf || '').replace(/\./g, '').toUpperCase();
+
+    function hitMatchesContext(hit) {
+      if (!hit) return false;
+      if (!geocodeCidade && !geocodeUf) return true;
+      var dn = String(hit.display_name || '').toLowerCase();
+      if (!dn) return false;
+      if (geocodeUf && dn.indexOf(geocodeUf.toLowerCase()) < 0) {
+        var addr = hit.address;
+        if (!addr || !addr.state) return false;
+        var st = String(addr.state).toLowerCase();
+        if (st.indexOf(geocodeUf.toLowerCase()) < 0) return false;
+      }
+      if (geocodeCidade && dn.indexOf(geocodeCidade.toLowerCase()) < 0) {
+        return false;
+      }
+      return true;
+    }
+
+    function nominatimStructured(attempt, nomEmail, nomOpts) {
+      var street = attempt.street || '';
+      var city = attempt.city || '';
+      var state = attempt.state || '';
+      var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=br&email=' + nomEmail
         + '&street=' + encodeURIComponent(street)
         + '&city=' + encodeURIComponent(city)
         + '&state=' + encodeURIComponent(state)
         + '&country=' + encodeURIComponent('Brasil');
+      if (attempt.postalcode) {
+        url += '&postalcode=' + encodeURIComponent(attempt.postalcode);
+      }
+      if (attempt.county) {
+        url += '&county=' + encodeURIComponent(attempt.county);
+      }
       return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
     }
 
     function nominatimQ(q, nomEmail, nomOpts) {
-      var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&email=' + nomEmail
+      var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=br&email=' + nomEmail
         + '&q=' + encodeURIComponent(q);
       return fetch(url, nomOpts).then(function (r) { return r.ok ? r.json() : []; });
     }
@@ -125,10 +227,17 @@
     }
 
     function hitFromNominatim(hits) {
-      if (!hits || !hits[0]) return null;
-      var la = parseFloat(hits[0].lat);
-      var lo = parseFloat(hits[0].lon);
-      return isFinite(la) && isFinite(lo) ? { lat: la, lon: lo } : null;
+      if (!hits || !hits.length) return null;
+      var i;
+      for (i = 0; i < hits.length; i++) {
+        if (!hitMatchesContext(hits[i])) continue;
+        var la = parseFloat(hits[i].lat);
+        var lo = parseFloat(hits[i].lon);
+        if (isFinite(la) && isFinite(lo)) {
+          return { lat: la, lon: lo };
+        }
+      }
+      return null;
     }
 
     function hitFromPhoton(data) {
@@ -154,7 +263,7 @@
       }
       var a = attempts[i];
       var p = (a.type === 'structured')
-        ? nominatimStructured(a.street, a.city, a.state, nomEmail, nomOpts)
+        ? nominatimStructured(a, nomEmail, nomOpts)
         : nominatimQ(a.q || '', nomEmail, nomOpts);
       return p.then(function (hits) {
         var h = hitFromNominatim(hits);
@@ -163,11 +272,21 @@
       });
     }
 
-    if (modo === 'streetview' && lat != null && lng != null) {
-      showStreetView(lat, lng);
+    if (mapOnly && lat != null && lng != null) {
+      showLeafletMap(lat, lng);
       return;
     }
-    if (modo === 'mapa_endereco' && mapaQuery !== '') {
+    if (modo === 'map_embed' && lat != null && lng != null) {
+      if (mapOnly || defaultView === 'leaflet') showLeafletMap(lat, lng);
+      else showMapEmbed(lat, lng);
+      return;
+    }
+    if (modo === 'streetview' && lat != null && lng != null) {
+      if (mapOnly) showLeafletMap(lat, lng);
+      else showCoordsView(lat, lng);
+      return;
+    }
+    if (modo === 'mapa_endereco' && mapaQuery !== '' && !mapOnly) {
       showMapaEndereco(mapaQuery);
       return;
     }
@@ -187,11 +306,14 @@
     tryAttempts(0, nomEmail, nomOpts)
       .then(function (hit) {
         if (hit) {
-          showStreetView(hit.lat, hit.lon);
+          if (mapOnly) showLeafletMap(hit.lat, hit.lon);
+          else showCoordsView(hit.lat, hit.lon);
           return;
         }
         if (hint) {
-          hint.textContent = 'Não foi possível localizar automaticamente. Use o botão Google Maps acima.';
+          hint.textContent = mapOnly
+            ? 'Não foi possível localizar automaticamente o endereço no mapa.'
+            : 'Não foi possível localizar automaticamente. Use o botão Google Maps acima.';
           hint.style.color = 'var(--muted,#64748b)';
         }
       })

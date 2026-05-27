@@ -88,6 +88,24 @@ function medicao_tot_resumo_com_import_bm(array $tot, array $impLinhas): array
 }
 
 /**
+ * Inclui custos adicionais aprovados no total do BM (telas e listagem mensal).
+ *
+ * @param array{n_chamados:int,valor_materiais:float,valor_servicos:float,valor_total:float} $tot
+ * @return array{n_chamados:int,valor_materiais:float,valor_servicos:float,valor_total:float,valor_custos_adicionais:float}
+ */
+function medicao_totais_incluir_custos_aprovados(array $tot, int $matrizId, string $refYm): array
+{
+    $custos = 0.0;
+    if ($matrizId > 0 && preg_match('/^\d{4}-\d{2}$/', $refYm) && function_exists('repo_medicao_custos_valor_aprovado')) {
+        $custos = repo_medicao_custos_valor_aprovado($matrizId, $refYm);
+    }
+    $tot['valor_custos_adicionais'] = $custos;
+    $tot['valor_total']             = round((float) ($tot['valor_total'] ?? 0) + $custos, 2);
+
+    return $tot;
+}
+
+/**
  * @param list<array<string,mixed>> $linhasChamados
  * @param list<array<string,mixed>> $impLinhas
  * @return list<array<string,mixed>>
@@ -192,6 +210,42 @@ function medicao_import_linhas_para_chamados_listagem(array $impLinhas, string $
 /**
  * Texto usado nos cabeçalhos de coluna BM (ex.: MAI/2026) para alinhar export/import ao mês da medição.
  */
+/**
+ * Converte serial de data do Excel ou texto dd/mm/aaaa para Y-m-d.
+ */
+function medicao_planilha_data_para_ymd(string $raw): ?string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return null;
+    }
+    if (preg_match('/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/', $raw, $m)) {
+        $d = (int) $m[1];
+        $mo = (int) $m[2];
+        $y = (int) $m[3];
+        if (checkdate($mo, $d, $y)) {
+            return sprintf('%04d-%02d-%02d', $y, $mo, $d);
+        }
+
+        return null;
+    }
+    if (preg_match('/^\d{4,6}$/', $raw)) {
+        $serial = (int) $raw;
+        if ($serial >= 30000 && $serial <= 80000) {
+            $base = new DateTimeImmutable('1899-12-30');
+            try {
+                $dt = $base->modify('+' . $serial . ' days');
+
+                return $dt->format('Y-m-d');
+            } catch (Throwable $e) {
+                return null;
+            }
+        }
+    }
+
+    return null;
+}
+
 function medicao_bm_needle_periodo_planilha(string $refYm): ?string
 {
     if (!preg_match('/^(\d{4})-(\d{2})$/', $refYm, $m)) {
@@ -252,6 +306,21 @@ function medicao_data_br(string $ymd): string
     $ts = strtotime($ymd);
 
     return $ts !== false ? date('d/m/Y', $ts) : $ymd;
+}
+
+/** Faixa curta para cards de medição: 01/05 → 25/05 */
+function medicao_periodo_faixa_curta(string $de, string $ate): string
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $de) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ate)) {
+        return '—';
+    }
+    $tsDe  = strtotime($de);
+    $tsAte = strtotime($ate);
+    if ($tsDe === false || $tsAte === false) {
+        return '—';
+    }
+
+    return date('d/m', $tsDe) . ' → ' . date('d/m', $tsAte);
 }
 
 /**
@@ -376,4 +445,206 @@ function medicao_resolve_periodo_livre(string $dataInicio = '', string $dataFim 
     }
 
     return ['ok' => true, 'err' => '', 'de' => $de, 'ate' => $ate];
+}
+
+/**
+ * Classificação orçamentária pelo código do item na planilha BM.
+ * Prefixo 2. = serviço; prefixo 3. = material (produto no catálogo).
+ *
+ * @return 'produto'|'servico'|null
+ */
+function medicao_item_tipo_por_codigo_orcamento(string $codigo): ?string
+{
+    $c = trim($codigo);
+    if ($c === '') {
+        return null;
+    }
+    if (preg_match('/^3\./u', $c)) {
+        return 'produto';
+    }
+    if (preg_match('/^2\./u', $c)) {
+        return 'servico';
+    }
+
+    return null;
+}
+
+/** Normaliza código de item para união BM / CRM (maiúsculas, trim). */
+function medicao_bm_boletim_norm_cod(?string $cod): string
+{
+    return strtoupper(trim((string) $cod));
+}
+
+/** Garante chave string (evita int em arrays PHP quando o código é só numérico). */
+function medicao_bm_boletim_key_string(mixed $k): string
+{
+    return (string) $k;
+}
+
+/**
+ * Chave estável para indexar linhas BM/CRM/catálogo.
+ * Códigos só dígitos viram COD:123 para não virar chave int no array.
+ */
+function medicao_bm_boletim_key_from_cod(string $normCod, int $fallbackItemId = 0): string
+{
+    $n = medicao_bm_boletim_norm_cod($normCod);
+    if ($n === '') {
+        return $fallbackItemId > 0 ? 'ID:' . $fallbackItemId : '';
+    }
+    if (ctype_digit($n)) {
+        return 'COD:' . $n;
+    }
+
+    return $n;
+}
+
+/** Código de exibição / lookup a partir da chave interna. */
+function medicao_bm_boletim_cod_from_key(string $k): string
+{
+    $k = medicao_bm_boletim_key_string($k);
+    if (strpos($k, 'COD:') === 0) {
+        return substr($k, 4);
+    }
+    if (strpos($k, 'MIL:') === 0 || strpos($k, 'ID:') === 0) {
+        return '';
+    }
+
+    return $k;
+}
+
+/**
+ * Comparação para ordenar itens do BM pelo id do catálogo (cliente_itens.id), menor → maior.
+ */
+function medicao_bm_boletim_cmp_item_id_codigo(int $idA, int $idB, string $codA, string $codB): int
+{
+    if ($idA > 0 && $idB > 0) {
+        $c = $idA <=> $idB;
+        if ($c !== 0) {
+            return $c;
+        }
+    } elseif ($idA > 0) {
+        return -1;
+    } elseif ($idB > 0) {
+        return 1;
+    }
+
+    $codA = trim($codA);
+    $codB = trim($codB);
+    if ($codA !== '' && $codB !== '') {
+        $n = strnatcasecmp($codA, $codB);
+        if ($n !== 0) {
+            return $n;
+        }
+    } elseif ($codA !== '') {
+        return -1;
+    } elseif ($codB !== '') {
+        return 1;
+    }
+
+    return 0;
+}
+
+/**
+ * Id do catálogo para ordenação de linhas/chaves do boletim BM.
+ *
+ * @param array<string,mixed>|null $catLinha
+ * @param array<string,mixed>|null $crmLine
+ * @param array<string,mixed>|null $ilLinhaImport
+ */
+function medicao_bm_boletim_item_id_ordenacao(
+    string $bmKey,
+    ?array $catLinha,
+    ?array $crmLine,
+    ?array $ilLinhaImport = null
+): int {
+    if ($catLinha !== null) {
+        $id = (int) ($catLinha['item_id'] ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
+    }
+    if ($crmLine !== null) {
+        $id = (int) ($crmLine['item_id'] ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
+    }
+    if ($ilLinhaImport !== null) {
+        $id = (int) ($ilLinhaImport['item_id'] ?? $ilLinhaImport['cliente_item_id'] ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
+    }
+    $k = medicao_bm_boletim_key_string($bmKey);
+    if (strpos($k, 'ID:') === 0) {
+        $id = (int) substr($k, strlen('ID:'));
+        if ($id > 0) {
+            return $id;
+        }
+    }
+
+    return PHP_INT_MAX;
+}
+
+/**
+ * Ordena chaves do boletim BM v2 pelo id do item no catálogo (crescente).
+ *
+ * @param list<string> $keys
+ * @param array<string, array<string,mixed>> $catPorCodNorm
+ * @param array<string, array<string,mixed>> $crmPorKey
+ * @param array<string, array<string,mixed>> $importPorCodNorm
+ *
+ * @return list<string>
+ */
+function medicao_bm_boletim_ordenar_keys_por_item_id(
+    array $keys,
+    array $catPorCodNorm,
+    array $crmPorKey,
+    array $importPorCodNorm = []
+): array {
+    if ($keys === []) {
+        return [];
+    }
+
+    $meta = [];
+    foreach ($keys as $kRaw) {
+        $k = medicao_bm_boletim_key_string($kRaw);
+        $meta[] = [
+            'key' => $k,
+            'id'  => medicao_bm_boletim_item_id_ordenacao(
+                $k,
+                $catPorCodNorm[$k] ?? null,
+                $crmPorKey[$k] ?? null,
+                $importPorCodNorm[$k] ?? null
+            ),
+            'cod' => medicao_bm_boletim_cod_from_key($k),
+        ];
+    }
+
+    usort($meta, static function (array $a, array $b): int {
+        $c = medicao_bm_boletim_cmp_item_id_codigo((int) $a['id'], (int) $b['id'], (string) $a['cod'], (string) $b['cod']);
+        if ($c !== 0) {
+            return $c;
+        }
+
+        return strcmp((string) $a['key'], (string) $b['key']);
+    });
+
+    return array_values(array_map(static fn (array $m): string => (string) $m['key'], $meta));
+}
+
+/**
+ * Ordena linhas do detalhamento institucional (BM completo) pelo id do item no catálogo.
+ *
+ * @param array<string,mixed> $a
+ * @param array<string,mixed> $b
+ */
+function medicao_bm_boletim_cmp_detalhe_linha(array $a, array $b): int
+{
+    return medicao_bm_boletim_cmp_item_id_codigo(
+        (int) ($a['item_id_catalogo'] ?? 0),
+        (int) ($b['item_id_catalogo'] ?? 0),
+        trim((string) ($a['item_codigo'] ?? '')),
+        trim((string) ($b['item_codigo'] ?? ''))
+    );
 }

@@ -87,175 +87,38 @@ if (function_exists('db_ok') && db_ok()) {
         </button>
         <div class="topbar-notif-dropdown" id="topbarNotifDropdown" hidden role="menu">
           <div class="topbar-notif-head">
-            <span>Notificações</span>
-            <button type="button" id="topbarNotifMarkAll" hidden>Marcar todas como lidas</button>
+            <div class="topbar-notif-head-text">
+              <strong>Notificações</strong>
+              <span class="topbar-notif-head-count" id="topbarNotifHeadCount"></span>
+            </div>
+            <button type="button" class="topbar-notif-mark-all" id="topbarNotifMarkAll" hidden>Marcar todas como lidas</button>
+          </div>
+          <div class="topbar-notif-tabs" role="tablist" aria-label="Filtrar notificações">
+            <button type="button" class="is-active" data-notif-filter="all" role="tab" aria-selected="true">Todas</button>
+            <button type="button" data-notif-filter="unread" role="tab" aria-selected="false">Não lidas</button>
+            <button type="button" data-notif-filter="chamados" role="tab" aria-selected="false">Chamados</button>
+            <button type="button" data-notif-filter="sistema" role="tab" aria-selected="false">Sistema</button>
           </div>
           <ul class="topbar-notif-list" id="topbarNotifList"></ul>
-          <div class="topbar-notif-empty" id="topbarNotifEmpty" hidden>Nenhuma notificação.</div>
+          <div class="topbar-notif-empty" id="topbarNotifEmpty" hidden>
+            <strong>Você está em dia</strong>
+            <span>Nenhuma nova notificação no momento.</span>
+          </div>
           <?php if ($notifPaginaHref !== ''): ?>
           <div class="topbar-notif-foot">
-            <a href="<?= htmlspecialchars($notifPaginaHref) ?>" class="topbar-notif-ver-todas">Ver todas</a>
+            <a href="<?= htmlspecialchars($notifPaginaHref) ?>" class="topbar-notif-ver-todas">Ver todas as notificações</a>
           </div>
           <?php endif; ?>
         </div>
       </div>
+      <?php
+      $topbarNotifJs = dirname(__DIR__) . '/assets/js/topbar-notifications.js';
+      ?>
+      <script src="<?= htmlspecialchars($basePath ?? '') ?>assets/js/topbar-notifications.js?v=<?= (int) @filemtime($topbarNotifJs) ?>"></script>
       <script>
-      (function () {
-        var wrap = document.querySelector('.topbar-notif-wrap[data-notif-api]');
-        if (!wrap) return;
-        var api = wrap.getAttribute('data-notif-api');
-        var btn = document.getElementById('topbarNotifBtn');
-        var dd = document.getElementById('topbarNotifDropdown');
-        var list = document.getElementById('topbarNotifList');
-        var empty = document.getElementById('topbarNotifEmpty');
-        var badge = document.getElementById('topbarNotifBadge');
-        var markAll = document.getElementById('topbarNotifMarkAll');
-
-        function setBadge(n) {
-          if (!badge) return;
-          if (n < 1) {
-            badge.hidden = true;
-            badge.textContent = '0';
-            return;
-          }
-          badge.hidden = false;
-          badge.textContent = n > 99 ? '99+' : String(n);
-        }
-
-        function fetchJson(url, opts) {
-          return fetch(url, Object.assign({ credentials: 'same-origin' }, opts || {})).then(function (r) {
-            return r.json();
-          });
-        }
-
-        function refreshCount() {
-          fetchJson(api + '?action=count').then(function (d) {
-            if (d && d.ok) setBadge(parseInt(d.unread, 10) || 0);
-          }).catch(function () {});
-        }
-
-        function renderItems(items) {
-          if (!list || !empty) return;
-          list.innerHTML = '';
-          if (!items || !items.length) {
-            empty.hidden = false;
-            if (markAll) markAll.hidden = true;
-            return;
-          }
-          empty.hidden = true;
-          var anyUnread = false;
-          items.forEach(function (it) {
-            if (!it.lida) anyUnread = true;
-            var li = document.createElement('li');
-            li.className = 'topbar-notif-item';
-            var a = document.createElement('a');
-            a.className = 'topbar-notif-link' + (it.lida ? '' : ' is-unread');
-            a.href = it.link || '#';
-            a.setAttribute('role', 'menuitem');
-            a.dataset.nid = String(it.id);
-            var t = document.createElement('div');
-            t.className = 'topbar-notif-title';
-            t.textContent = it.titulo || '';
-            a.appendChild(t);
-            var m = document.createElement('div');
-            m.className = 'topbar-notif-meta';
-            m.textContent = (it.data_criacao || '') + (it.lida ? '' : ' · não lida');
-            a.appendChild(m);
-            a.addEventListener('click', function (e) {
-              if (!it.lida && it.id) {
-                var fd = new FormData();
-                fd.append('action', 'read_one');
-                fd.append('id', String(it.id));
-                fetch(api, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function () {
-                  refreshCount();
-                }).catch(function () {});
-              }
-            });
-            li.appendChild(a);
-            list.appendChild(li);
-          });
-          if (markAll) markAll.hidden = !anyUnread;
-        }
-
-        function notifDropdownNarrow() {
-          return window.matchMedia('(max-width: 900px)').matches;
-        }
-
-        function syncNotifDropdownGeom() {
-          if (!dd || !btn || dd.hidden) return;
-          if (!notifDropdownNarrow()) {
-            dd.style.removeProperty('top');
-            dd.style.removeProperty('max-height');
-            return;
-          }
-          var r = btn.getBoundingClientRect();
-          var gap = 8;
-          var topPx = Math.round(r.bottom + gap);
-          dd.style.top = topPx + 'px';
-          var bottomPad = 16;
-          var room = window.innerHeight - topPx - bottomPad;
-          dd.style.maxHeight = Math.max(160, Math.min(420, room)) + 'px';
-        }
-
-        function openList() {
-          if (!dd) return;
-          dd.hidden = false;
-          if (btn) btn.setAttribute('aria-expanded', 'true');
-          syncNotifDropdownGeom();
-          requestAnimationFrame(syncNotifDropdownGeom);
-          fetchJson(api + '?action=list').then(function (d) {
-            if (d && d.ok) {
-              loaded = true;
-              renderItems(d.items || []);
-              refreshCount();
-            }
-            requestAnimationFrame(syncNotifDropdownGeom);
-          }).catch(function () {});
-        }
-
-        function closeList() {
-          if (!dd) return;
-          dd.hidden = true;
-          if (btn) btn.setAttribute('aria-expanded', 'false');
-          dd.style.removeProperty('top');
-          dd.style.removeProperty('max-height');
-        }
-
-        if (btn && dd) {
-          btn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (dd.hidden) {
-              openList();
-            } else {
-              closeList();
-            }
-          });
-        }
-
-        document.addEventListener('click', function () { closeList(); });
-        if (wrap) {
-          wrap.addEventListener('click', function (e) { e.stopPropagation(); });
-        }
-
-        if (markAll) {
-          markAll.addEventListener('click', function (e) {
-            e.preventDefault();
-            var fd = new FormData();
-            fd.append('action', 'read_all');
-            fetch(api, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) {
-              return r.json();
-            }).then(function (d) {
-              setBadge(0);
-              openList();
-            }).catch(function () {});
-          });
-        }
-
-        setInterval(refreshCount, 60000);
-        window.addEventListener('resize', function () {
-          syncNotifDropdownGeom();
-        });
-      })();
+      if (window.CrmTopbarNotifications && typeof window.CrmTopbarNotifications.init === 'function') {
+        window.CrmTopbarNotifications.init({ dropdownLimit: 10 });
+      }
       </script>
       <?php endif; ?>
       <?php if ($topAction): ?>
@@ -284,7 +147,7 @@ if (function_exists('db_ok') && db_ok()) {
   <?php endif; ?>
 </header>
 <?php
-if (function_exists('render_flash')) {
+if (empty($topbarSkipFlash) && function_exists('render_flash')) {
     render_flash();
 }
 ?>

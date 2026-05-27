@@ -53,6 +53,28 @@ $opcoesCliente = $escopoUe !== null ? repo_clientes_na_empresa($escopoUe) : repo
 $opcoesEmpresaRaiz = $escopoUe === null ? repo_clientes_empresas() : [];
 $empresaIdUsuario = isset($usuario['empresa_id']) && $usuario['empresa_id'] !== null ? (int) $usuario['empresa_id'] : 0;
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['acao'] ?? '') === 'excluir_usuario') {
+    $returnPosted = trim((string) ($_POST['return_url'] ?? ''));
+    $validReturn  = preg_match('#^cliente_detalhe\\.php\\?id=\\d+$#', $returnPosted) ? $returnPosted : '';
+    if ($escopoUe !== null && (int) ($me['id'] ?? 0) !== $userId) {
+        $rDel = repo_usuario_delete_by_gestor($userId, (int) ($me['id'] ?? 0), $escopoUe);
+        if ($rDel['ok']) {
+            flash_set('ok', 'Utilizador excluído.');
+            if ($validReturn !== '') {
+                header('Location: ' . $validReturn);
+            } else {
+                header('Location: ' . $usuariosListaHref);
+            }
+            exit;
+        }
+        flash_set('err', $rDel['err'] !== '' ? $rDel['err'] : 'Não foi possível excluir.');
+    } else {
+        flash_set('err', 'Sem permissão para excluir este utilizador.');
+    }
+    header('Location: usuario_editar.php?id=' . $userId . ($validReturn !== '' ? '&embed=1&return=' . rawurlencode($validReturn) : ''));
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $returnPosted = trim((string) ($_POST['return_url'] ?? ''));
     $validReturn  = preg_match('#^cliente_detalhe\\.php\\?id=\\d+$#', $returnPosted) ? $returnPosted : '';

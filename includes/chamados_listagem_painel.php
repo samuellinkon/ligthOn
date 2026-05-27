@@ -63,6 +63,30 @@ if ($CRM_CHAMADOS_IS_OPERADOR) {
     }
 }
 
+$chAdminPodeExcluirTodos = false;
+$chExcluirTodosEscopo    = null;
+$chExcluirTodosTotal     = 0;
+$chExcluirTodosRotulo    = 'todo o sistema';
+if (
+    !$CRM_CHAMADOS_IS_CLIENTE
+    && !$CRM_CHAMADOS_IS_OPERADOR
+    && in_array((string) ($me['perfil'] ?? ''), ['admin', 'gestor'], true)
+) {
+    $chAdminPodeExcluirTodos = true;
+    $chExcluirTodosEscopo    = $escopoCh;
+    if ($clienteIdListagem > 0) {
+        $midExTodos = repo_cliente_matriz_raiz_id($clienteIdListagem);
+        $chExcluirTodosEscopo = $midExTodos > 0 ? $midExTodos : $clienteIdListagem;
+        $clRowTodos           = repo_cliente($chExcluirTodosEscopo);
+        $chExcluirTodosRotulo = trim((string) ($clRowTodos['empresa'] ?? '')) !== ''
+            ? (string) $clRowTodos['empresa']
+            : ('cliente #' . $chExcluirTodosEscopo);
+    }
+    if (db_ok()) {
+        $chExcluirTodosTotal = repo_chamados_contar_ativos($chExcluirTodosEscopo);
+    }
+}
+
 $medicaoMes = trim((string) ($_GET['medicao_mes'] ?? ''));
 if (!preg_match('/^\d{4}-\d{2}$/', $medicaoMes)) {
     $medicaoMes = '';
@@ -122,6 +146,34 @@ if ($medicaoMes !== '') {
     }
 }
 
+if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'excluir_todos') {
+    if (!in_array((string) ($me['perfil'] ?? ''), ['admin', 'gestor'], true)) {
+        flash_set('err', 'Apenas administradores e gestores podem excluir todos os chamados.');
+        header('Location: chamados.php');
+        exit;
+    }
+    if (!db_ok()) {
+        flash_set('err', 'Exclusão requer banco de dados ativo.');
+        header('Location: chamados.php');
+        exit;
+    }
+    $escopoExcluir = $escopoCh;
+    $pcidEx = max(0, (int) ($_POST['cliente_id_ctx'] ?? 0));
+    if ($pcidEx > 0) {
+        gestor_assert_escopo_cliente($pcidEx, 'chamados.php');
+        $midEx = repo_cliente_matriz_raiz_id($pcidEx);
+        $escopoExcluir = $midEx > 0 ? $midEx : $pcidEx;
+    }
+    $nEx = repo_chamados_excluir_todos_ativos($escopoExcluir);
+    if ($nEx > 0) {
+        flash_set('ok', $nEx . ' chamado(s) marcado(s) como inativo(s) (exclusão lógica).');
+    } else {
+        flash_set('err', 'Nenhum chamado ativo encontrado para excluir.');
+    }
+    header('Location: chamados.php');
+    exit;
+}
+
 if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'excluir') {
     $delId = (int) ($_POST['id'] ?? 0);
     if (db_ok() && $delId > 0) {
@@ -177,13 +229,18 @@ if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST
 
 $f = strtolower(trim((string) ($_GET['f'] ?? '')));
 if ($CRM_CHAMADOS_IS_OPERADOR) {
-    if (!in_array($f, ['', 'andamento', 'aguardando', 'resolvido'], true)) {
-        $f = '';
-    }
+    $f = '';
 } elseif (!in_array($f, ['', 'abertos', 'andamento', 'aguardando', 'resolvidos', 'cancelados', 'urgentes'], true)) {
     $f = '';
 }
 $q = trim((string) ($_GET['q'] ?? ''));
+/** Com busca ativa, não restringe por data de abertura (ex.: «5290» no título fora do mês filtrado). */
+$periodoDeListagem  = $periodoDe;
+$periodoAteListagem = $periodoAte;
+if ($q !== '') {
+    $periodoDeListagem  = null;
+    $periodoAteListagem = null;
+}
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 15;
 $medicaoMatrizId = 0;
@@ -215,7 +272,7 @@ if (db_ok() && $medicaoMatrizId > 0 && !$CRM_CHAMADOS_IS_OPERADOR) {
 
 $bmLista = [];
 $bmMergeActive = !$CRM_CHAMADOS_IS_OPERADOR
-    && $medicaoMatrizId > 0 && $refYmBm !== '' && $f === '' && $envolvidoUser <= 0 && $clienteIdListagem <= 0 && $tecnicoUserId <= 0 && $localQ === '' && db_ok();
+    && $medicaoMatrizId > 0 && $refYmBm !== '' && $f === '' && $q === '' && $envolvidoUser <= 0 && $clienteIdListagem <= 0 && $tecnicoUserId <= 0 && $localQ === '' && db_ok();
 if ($bmMergeActive) {
     $impPkg = repo_medicao_import_fetch($medicaoMatrizId, $refYmBm);
     $bmLista = medicao_import_linhas_para_chamados_listagem(
@@ -241,7 +298,7 @@ if (db_ok()) {
             $totalRows = $resOp['total'];
         }
     } elseif ($periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f === '' && $bmMergeActive) {
-        $resT     = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
+        $resT     = repo_chamados_admin_list($f, $q, 1, 1, $escopoLista, $periodoDeListagem, $periodoAteListagem, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
         $totalCh  = $resT['total'];
         $totalRows = $nBm + $totalCh;
         $totalPagesCalc = max(1, (int) ceil($totalRows / $perPage));
@@ -255,13 +312,13 @@ if (db_ok()) {
         }
         if ($remain > 0) {
             $chOff = max(0, $start - $nBm);
-            $resCh = repo_chamados_admin_list($f, $q, 1, $remain, $escopoLista, $periodoDe, $periodoAte, $chOff, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
+            $resCh = repo_chamados_admin_list($f, $q, 1, $remain, $escopoLista, $periodoDeListagem, $periodoAteListagem, $chOff, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
             foreach ($resCh['rows'] as $row) {
                 $lista[] = $row;
             }
         }
     } else {
-        $res       = repo_chamados_admin_list($f, $q, $page, $perPage, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
+        $res       = repo_chamados_admin_list($f, $q, $page, $perPage, $escopoLista, $periodoDeListagem, $periodoAteListagem, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false);
         $lista     = $res['rows'];
         $totalRows = $res['total'];
     }
@@ -281,21 +338,26 @@ if (db_ok()) {
         $lista = array_values(array_filter($lista, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true)));
     } elseif ($f === 'cancelados') {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Cancelado'));
+    } elseif ($f === 'ativos') {
+        $lista = array_values(array_filter($lista, fn ($c) => !in_array($c['status'] ?? '', ['Validado', 'Cancelado'], true)));
     } elseif ($f === 'urgentes') {
         $lista = array_values(array_filter($lista, fn ($c) => in_array($c['prioridade'] ?? '', ['Alta', 'Urgente'], true)
             && !in_array($c['status'] ?? '', ['Resolvido', 'Fechado', 'Cancelado'], true)));
     }
     if ($q !== '') {
-        if (ctype_digit($q)) {
-            $lista = array_values(array_filter($lista, fn ($c) => (int) ($c['id'] ?? 0) === (int) $q));
-        } else {
-            $ql = mb_strtolower($q);
-            $lista = array_values(array_filter($lista, function ($c) use ($ql) {
-                $hay = mb_strtolower(($c['titulo'] ?? '') . ' ' . ($c['cliente'] ?? ''));
+        $ql  = mb_strtolower($q);
+        $qId = ctype_digit($q) ? (int) $q : null;
+        $lista = array_values(array_filter($lista, function ($c) use ($ql, $qId) {
+            if ($qId !== null && (int) ($c['id'] ?? 0) === $qId) {
+                return true;
+            }
+            $hay = mb_strtolower(
+                ($c['titulo'] ?? '') . ' ' . ($c['cliente'] ?? '') . ' ' . (string) ($c['id'] ?? '')
+                    . ' ' . ($c['ponto_referencia'] ?? '')
+            );
 
-                return mb_strpos($hay, $ql) !== false;
-            }));
-        }
+            return mb_strpos($hay, $ql) !== false;
+        }));
     }
     $totalRows = count($lista);
     $totalPages = max(1, (int) ceil($totalRows / $perPage));
@@ -383,6 +445,14 @@ $chamadosPeriodoPresetAtivo = (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OP
     ? chamados_periodo_preset_ativo($periodoDe, $periodoAte, $periodoLimpar, $medicaoMes)
     : null;
 $admChClearBuscaCtx = array_merge($admChPeriodoCtx, ['local_q' => null, 'tecnico_user_id' => null]);
+$chMetricsPeriodoCtx = array_merge($admChPeriodoCtx, [
+    'periodo_limpar' => true,
+    'medicao_mes'    => '',
+    'periodo_de'     => '',
+    'periodo_ate'    => '',
+]);
+$chMockTotal = count($MOCK_CHAMADOS);
+$chMockAtivos = count(array_filter($MOCK_CHAMADOS, static fn ($c) => !in_array($c['status'] ?? '', ['Validado', 'Cancelado'], true)));
 
 $chamadosListagemHref = static function (int $p, string $filtro, string $busca, ?array $periodoCtxOverride = null) use ($CRM_CHAMADOS_IS_OPERADOR, $admChPeriodoCtx): string {
     if ($CRM_CHAMADOS_IS_OPERADOR) {
@@ -391,6 +461,11 @@ $chamadosListagemHref = static function (int $p, string $filtro, string $busca, 
 
     return adm_chamados_url($p, $filtro, $busca, $periodoCtxOverride ?? $admChPeriodoCtx);
 };
+
+$chHrefMetricTotal = adm_chamados_url(1, '', $q, $chMetricsPeriodoCtx);
+$chHrefMetricAtivos = adm_chamados_url(1, 'ativos', $q, $chMetricsPeriodoCtx);
+$chHrefMetricUrgentes = adm_chamados_url(1, 'urgentes', $q, $chMetricsPeriodoCtx);
+$chHrefMetricRes7d = adm_chamados_url(1, 'resolvidos', $q, $chMetricsPeriodoCtx);
 
 $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
 if ($CRM_CHAMADOS_IS_OPERADOR && $exportFmt !== '') {
@@ -404,7 +479,7 @@ $maxExportRows = 20000;
 $maxPdfChamados = 120;
 
 if ($exportFmt === 'pdf_anexos') {
-    $fExportMedicao = 'resolvido_bm';
+    $fExportMedicao = $f !== '' ? $f : ($mergeBmExport ? 'resolvido_bm' : '');
     require_once __DIR__ . '/crm_export_pdf_debug.php';
     crm_export_pdf_flush_output_buffers();
     ob_start();
@@ -428,15 +503,15 @@ if ($exportFmt === 'pdf_anexos') {
         header('Location: ' . $redirPosExport);
         exit;
     }
-    $totalPeriodo = repo_chamados_admin_list($fExportMedicao, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
+    $totalPeriodo = repo_chamados_admin_list($fExportMedicao, $q, 1, 1, $escopoLista, $periodoDeListagem, $periodoAteListagem, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
     $rowsEx       = adm_chamados_collect_export_rows(
         false,
         [],
         $fExportMedicao,
         $q,
         $escopoLista,
-        $periodoDe,
-        $periodoAte,
+        $periodoDeListagem,
+        $periodoAteListagem,
         $maxPdfChamados + 1,
         $envolvidoRepo,
         $tecnicoRepo,
@@ -678,9 +753,13 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
         $nomeOp .= ' · ' . $tipoOp;
     }
 
-    $matrizItensId = ($escopoLista !== null && $escopoLista > 0)
+    $matrizItensIdRaw = ($escopoLista !== null && $escopoLista > 0)
         ? $escopoLista
         : (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+    $matrizItensId = $matrizItensIdRaw > 0 ? repo_cliente_matriz_raiz_id($matrizItensIdRaw) : 0;
+    if ($matrizItensId <= 0 && $matrizItensIdRaw > 0) {
+        $matrizItensId = $matrizItensIdRaw;
+    }
     $pDeIt    = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoDe : '';
     $pAtIt    = (!$periodoLimpar && $periodoDe !== null && $periodoAte !== null) ? $periodoAte : '';
     $pDeItDet = $pDeIt;
@@ -696,13 +775,15 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
     }
 
     /** Detalhamento CRM: período pela data em que o item foi registrado em chamado_itens.criado_em */
+    $bmExportCompleto   = ($exportFmt === 'xlsx_detalhes');
     $detalheLinhasBoletim = [];
     if ($matrizItensId > 0 && $pDeItDet !== '' && $pAtItDet !== '') {
         $detalheLinhasBoletim = repo_catalogo_chamados_itens_periodo_por_data_lancamento(
             $matrizItensId,
             $pDeItDet,
             $pAtItDet,
-            'utilizado'
+            'utilizado',
+            $bmExportCompleto
         );
     }
 
@@ -717,6 +798,26 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
         $localQRepo,
         false
     );
+
+    $chamadosUnicosDet = [];
+    foreach ($detalheLinhasBoletim as $lnDet) {
+        $cidDet = (int) ($lnDet['chamado_id'] ?? 0);
+        if ($cidDet > 0) {
+            $chamadosUnicosDet[$cidDet] = true;
+        }
+    }
+    $totalChamadosExport = count($chamadosUnicosDet) + ($mergeBmExport ? $nBm : 0);
+    if ($bmExportCompleto && $totalChamadosExport === 0 && $detalheLinhasBoletim !== []) {
+        $totalChamadosExport = 1;
+    }
+
+    $valorCustosBmExport = 0.0;
+    if ($bmExportCompleto && $matrizItensId > 0 && preg_match('/^\d{4}-\d{2}$/', $refYmBm)) {
+        require_once __DIR__ . '/medicao_custo_repo.php';
+        if (repo_medicao_custos_table_exists()) {
+            $valorCustosBmExport = repo_medicao_custos_valor_aprovado($matrizItensId, $refYmBm);
+        }
+    }
 
     audit_log_chamados_listagem_export($exportFmt === 'xlsx_detalhes' ? 'xlsx_detalhes' : 'xlsx', [
         'cliente_id'      => $clienteIdListagem,
@@ -754,10 +855,25 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
             'bm_linhas'               => $bmLinhasBoletim,
             'detalhe_itens_linhas'    => $detalheLinhasBoletim,
             'kpis'                    => [
-                'total_chamados'   => (int) ($kpMed['total_chamados_crm'] ?? 0) + ($mergeBmExport ? $nBm : 0),
+                'total_chamados'   => $bmExportCompleto
+                    ? $totalChamadosExport
+                    : (int) ($kpMed['total_chamados_crm'] ?? 0) + ($mergeBmExport ? $nBm : 0),
                 'resolvidos'       => (int) ($kpMed['resolvidos'] ?? 0),
                 'em_andamento'     => (int) ($kpMed['em_andamento'] ?? 0),
-                'valor_utilizado'  => (float) ($kpMed['valor_itens_utilizados'] ?? 0),
+                'valor_utilizado'  => $bmExportCompleto
+                    ? round(
+                        ($detalheLinhasBoletim !== []
+                            ? (float) array_sum(array_map(
+                                static fn (array $ln): float => (($ln['movimento'] ?? '') === 'utilizado')
+                                    ? (float) ($ln['subtotal'] ?? 0)
+                                    : 0.0,
+                                $detalheLinhasBoletim
+                            ))
+                            : (float) ($kpMed['valor_itens_utilizados'] ?? 0))
+                        + $valorCustosBmExport,
+                        2
+                    )
+                    : (float) ($kpMed['valor_itens_utilizados'] ?? 0),
                 'total_anexos'     => (int) ($kpMed['quantidade_anexos'] ?? 0),
             ],
             'incluir_detalhamento_chamados' => ($pDeItDet !== '' && $pAtItDet !== ''),
@@ -780,8 +896,8 @@ if (in_array($exportFmt, ['csv_crm', 'json_crm'], true)) {
         $f,
         $q,
         $escopoLista,
-        $periodoDe,
-        $periodoAte,
+        $periodoDeListagem,
+        $periodoAteListagem,
         $maxExportRows,
         $envolvidoRepo,
         $tecnicoRepo,
@@ -878,8 +994,8 @@ if (in_array($exportFmt, ['csv', 'json'], true)) {
         $f,
         $q,
         $escopoLista,
-        $periodoDe,
-        $periodoAte,
+        $periodoDeListagem,
+        $periodoAteListagem,
         $maxExportRows,
         $envolvidoRepo,
         $tecnicoRepo,
@@ -1273,44 +1389,60 @@ include __DIR__ . '/head.php';
   <?php if (!$CRM_CHAMADOS_IS_OPERADOR): ?>
   <div class="dashboard-admin-metrics">
   <div class="cards-metrics">
-    <div class="card metric">
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricTotal, ENT_QUOTES, 'UTF-8') ?>" title="Ver todos os chamados">
       <div class="metric-top">
-        <div><div class="metric-label">Abertos</div><div class="metric-value"><?= $dash ? (int) $dash['ch_abertos'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Aberto')) ?></div></div>
-        <div class="icon-box">AB</div>
+        <div><div class="metric-label">Total de chamados</div><div class="metric-value"><?= $dash ? (int) ($dash['ch_total'] ?? 0) : $chMockTotal ?></div></div>
+        <div class="icon-box">CH</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? 'Ao vivo' : 'Mock' ?></div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change metric-change--admin"><?= $dash ? 'Todos os registros' : 'Mock' ?></div>
+    </a>
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricAtivos, ENT_QUOTES, 'UTF-8') ?>" title="Chamados exceto Validado e Cancelado">
       <div class="metric-top">
-        <div><div class="metric-label">Em andamento</div><div class="metric-value"><?= $dash ? (int) $dash['ch_andamento'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Em andamento')) ?></div></div>
-        <div class="icon-box">EA</div>
+        <div><div class="metric-label">Em fluxo</div><div class="metric-value"><?= $dash ? (int) ($dash['ch_sem_validado_cancelado'] ?? 0) : $chMockAtivos ?></div></div>
+        <div class="icon-box">EF</div>
       </div>
-      <div class="metric-change metric-change--admin">Em atendimento</div>
-    </div>
-    <div class="card metric">
+      <div class="metric-change metric-change--admin">Exceto Validado e Cancelado</div>
+    </a>
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricUrgentes, ENT_QUOTES, 'UTF-8') ?>" title="Filtrar chamados urgentes">
       <div class="metric-top">
-        <div><div class="metric-label">Urgentes</div><div class="metric-value"><?= $dash ? (int) $dash['ch_urgentes'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['prioridade'] ?? '', ['Alta', 'Urgente'], true))) ?></div></div>
+        <div><div class="metric-label">Urgentes</div><div class="metric-value"><?= $dash ? (int) $dash['ch_urgentes'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['prioridade'] ?? '', ['Alta', 'Urgente'], true) && !in_array($c['status'] ?? '', ['Resolvido', 'Fechado', 'Cancelado', 'Validado'], true))) ?></div></div>
         <div class="icon-box">!!</div>
       </div>
       <div class="metric-change metric-change--admin">Prioridade alta</div>
-    </div>
-    <div class="card metric">
+    </a>
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricRes7d, ENT_QUOTES, 'UTF-8') ?>" title="Filtrar chamados resolvidos">
       <div class="metric-top">
         <div><div class="metric-label">Resolvidos 7d</div><div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true))) ?></div></div>
         <div class="icon-box">OK</div>
       </div>
       <div class="metric-change metric-change--admin"><?= $dash ? 'Últimos 7 dias' : 'Todos (mock)' ?></div>
-    </div>
+    </a>
   </div>
   </div>
   <?php endif; ?>
 
   <div class="card">
-    <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
+    <div class="panel-head" style="flex-wrap:wrap;gap:12px;align-items:center;">
       <div style="flex:1;min-width:0;">
         <h4 style="margin:0;"><?= $CRM_CHAMADOS_IS_OPERADOR ? 'Os meus chamados' : 'Todos os chamados' ?></h4>
-        <span class="panel-sub"><?= (int) $totalRows ?> registro(s)</span>
+        <span class="panel-sub"><?= (int) $totalRows ?> registro(s)<?= $chAdminPodeExcluirTodos && $chExcluirTodosTotal > 0 ? ' · ' . (int) $chExcluirTodosTotal . ' ativo(s) no escopo' : '' ?></span>
       </div>
+      <?php if ($chAdminPodeExcluirTodos && db_ok() && $chExcluirTodosTotal > 0): ?>
+      <?php
+        $chExcluirTodosMsg = 'Excluir TODOS os ' . (int) $chExcluirTodosTotal . ' chamado(s) ativos de '
+            . $chExcluirTodosRotulo
+            . '? Ignora filtros de período e status da lista. Exclusão lógica — os registos ficam em «Excluídos / inativos».';
+      ?>
+      <form method="post" action="chamados.php" style="margin:0;flex-shrink:0;"
+            data-confirm="<?= htmlspecialchars($chExcluirTodosMsg, ENT_QUOTES, 'UTF-8') ?>"
+            data-confirm-danger>
+        <input type="hidden" name="acao" value="excluir_todos">
+        <?php if ($clienteIdListagem > 0): ?>
+        <input type="hidden" name="cliente_id_ctx" value="<?= (int) $clienteIdListagem ?>">
+        <?php endif; ?>
+        <button type="submit" class="btn btn-danger btn-sm">Excluir todos os chamados</button>
+      </form>
+      <?php endif; ?>
     </div>
 
     <?php if ($CRM_CHAMADOS_IS_OPERADOR): ?>
@@ -1320,17 +1452,11 @@ include __DIR__ . '/head.php';
           <label for="q_op" style="font-size:12px;">Buscar</label>
           <input type="search" id="q_op" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID ou palavra no assunto">
         </div>
-        <?php if ($f !== ''): ?><input type="hidden" name="f" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
         <button type="submit" class="btn btn-primary">Buscar</button>
         <?php if ($q !== ''): ?>
-        <a href="<?= htmlspecialchars(oper_chamados_url(1, $f, '')) ?>" class="btn btn-secondary">Limpar</a>
+        <a href="<?= htmlspecialchars(oper_chamados_url(1, '', '')) ?>" class="btn btn-secondary">Limpar</a>
         <?php endif; ?>
       </form>
-    </div>
-    <div class="filters" style="padding:8px 20px 16px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);">
-      <a href="<?= htmlspecialchars(oper_chamados_url(1, '', $q)) ?>" class="chip <?= $f === '' ? 'active' : '' ?>">Todos</a>
-      <a href="<?= htmlspecialchars(oper_chamados_url(1, 'andamento', $q)) ?>" class="chip <?= $f === 'andamento' ? 'active' : '' ?>">Em andamento</a>
-      <a href="<?= htmlspecialchars(oper_chamados_url(1, 'aguardando', $q)) ?>" class="chip <?= $f === 'aguardando' ? 'active' : '' ?>">Aguardando Aprovação</a>
     </div>
     <?php else: ?>
     <div class="filters" style="padding:12px 20px;border-bottom:1px solid var(--border);display:grid;gap:12px;">
@@ -1356,6 +1482,7 @@ include __DIR__ . '/head.php';
           <label for="filtro_status" style="font-size:12px;">Status</label>
           <select id="filtro_status" name="f" class="select">
             <option value=""<?= $f === '' ? ' selected' : '' ?>>Todos</option>
+            <option value="ativos"<?= $f === 'ativos' ? ' selected' : '' ?>>Em fluxo (exc. Validado/Cancelado)</option>
             <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
             <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
             <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
@@ -1376,6 +1503,9 @@ include __DIR__ . '/head.php';
           <label for="q" style="font-size:12px;">Buscar</label>
           <input type="search" id="q" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID, título ou órgão" style="width:100%;min-width:0;min-height:40px;font-size:14px;">
         </div>
+        <?php if ($q !== '' && !$periodoLimpar && $periodoDe !== null && $periodoAte !== null): ?>
+        <p class="muted" style="font-size:12px;margin:0;flex:1 1 100%;">A busca ignora o filtro de período e procura em todos os chamados do escopo.</p>
+        <?php endif; ?>
         <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR): ?>
         <div class="form-group" style="margin:0;flex:1 1 0;min-width:140px;">
           <label for="local_q" style="font-size:12px;">Local (endereço, bairro…)</label>
@@ -1496,19 +1626,19 @@ include __DIR__ . '/head.php';
     </div>
     <?php else: ?>
     <div class="table-wrap">
-      <table class="chamados-admin-list chamados-admin-list--anexos" style="min-width:1090px;">
+      <table class="chamados-admin-list chamados-admin-list--anexos" data-crm-sortable style="min-width:1090px;">
         <thead>
-          <tr>
-            <th>ID</th>
-            <th>Título</th>
-            <th>Prioridade</th>
-            <th>Status</th>
-            <th>Data</th>
-            <th>Endereço</th>
-            <th>Latitude</th>
-            <th>Longitude</th>
-            <th class="chamados-col-anexos" scope="col" title="Anexos / imagens">Anx.</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('ID', 'id', ['type' => 'number']); ?>
+            <?php crm_sort_th('Título', 'titulo'); ?>
+            <?php crm_sort_th('Prioridade', 'prioridade', ['type' => 'number']); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Data', 'data', ['type' => 'date']); ?>
+            <?php crm_sort_th('Endereço', 'endereco'); ?>
+            <?php crm_sort_th('Latitude', 'lat', ['type' => 'number']); ?>
+            <?php crm_sort_th('Longitude', 'lng', ['type' => 'number']); ?>
+            <?php crm_sort_th('Anx.', null, ['class' => 'chamados-col-anexos', 'title' => 'Anexos / imagens']); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
@@ -1519,8 +1649,30 @@ include __DIR__ . '/head.php';
           <?php
             $isBm = !empty($c['medicao_bm']);
             $chInativo = !$isBm && isset($c['ativo']) && (int) $c['ativo'] === 0;
+            $enderecoListaSort = $isBm ? '' : trim((string) ($c['endereco_completo'] ?? ''));
+            $latListaSort = $isBm ? null : ($c['latitude'] ?? null);
+            $lngListaSort = $isBm ? null : ($c['longitude'] ?? null);
+            $sortId = $isBm
+                ? (1000000000 + (int) ($c['medicao_bm_linha_id'] ?? 0))
+                : (int) ($c['id'] ?? 0);
+            $sortDataRaw = (string) ($c['data'] ?? '');
+            $sortDataIso = $sortDataRaw !== '' ? date('Y-m-d H:i:s', strtotime($sortDataRaw)) : '';
+            $sortAnx = 0;
+            if (!$isBm && db_ok()) {
+                $sortAnx = (int) (($anexosResumoPorChamado[(int) ($c['id'] ?? 0)] ?? [])['total'] ?? 0);
+            }
           ?>
-          <tr class="<?= $chInativo ? 'chamados-row--inativo' : '' ?>">
+          <tr class="<?= $chInativo ? 'chamados-row--inativo' : '' ?>" <?= crm_sort_row_attr([
+              'id'         => (string) $sortId,
+              'titulo'     => (string) ($c['titulo'] ?? ''),
+              'prioridade' => (string) crm_sort_prioridade_rank((string) ($c['prioridade'] ?? '')),
+              'status'     => (string) ($c['status'] ?? ''),
+              'data'       => $sortDataIso,
+              'endereco'   => $enderecoListaSort,
+              'lat'        => $latListaSort !== null ? (string) (float) $latListaSort : '',
+              'lng'        => $lngListaSort !== null ? (string) (float) $lngListaSort : '',
+              'anx'        => (string) $sortAnx,
+          ]) ?>>
             <td class="td-id"><?= $isBm ? 'BM-' . (int) ($c['medicao_bm_linha_id'] ?? 0) : '#' . (int) $c['id'] ?></td>
             <td>
               <div class="td-title"><?= htmlspecialchars((string) ($c['titulo'] ?? '')) ?></div>
@@ -1544,9 +1696,9 @@ include __DIR__ . '/head.php';
             </td>
             <td class="td-mute"><?= date('d/m/Y H:i', strtotime((string) ($c['data'] ?? 'now'))) ?></td>
             <?php
-            $enderecoLista = $isBm ? '' : trim((string) ($c['endereco_completo'] ?? ''));
-            $latLista = $isBm ? null : ($c['latitude'] ?? null);
-            $lngLista = $isBm ? null : ($c['longitude'] ?? null);
+            $enderecoLista = $enderecoListaSort;
+            $latLista = $latListaSort;
+            $lngLista = $lngListaSort;
             ?>
             <td class="td-ch-endereco td-mute">
               <?php if ($isBm || $enderecoLista === ''): ?>
@@ -1616,7 +1768,7 @@ include __DIR__ . '/head.php';
               </a>
               <?php endif; ?>
               <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$chInativo): ?>
-              <form method="post" action="chamados.php" style="display:inline;" data-confirm="Inativar chamado #<?= (int) $c['id'] ?>? O registo permanece no sistema (exclusão lógica) e poderá ser consultado em «Excluídos / inativos»." data-confirm-danger>
+              <form method="post" action="chamados.php" style="display:inline;" data-confirm="Excluir chamado #<?= (int) $c['id'] ?>? O registo permanece no sistema (exclusão lógica) e poderá ser consultado em «Excluídos / inativos»." data-confirm-danger>
                 <input type="hidden" name="acao" value="excluir">
                 <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
                 <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id_ctx" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
@@ -1625,7 +1777,7 @@ include __DIR__ . '/head.php';
                 <?php if ($localQ !== ''): ?><input type="hidden" name="local_q_ctx" value="<?= htmlspecialchars($localQ) ?>"><?php endif; ?>
                 <?php if ($f !== ''): ?><input type="hidden" name="f_ctx" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
                 <?php if ($periodoLimpar): ?><input type="hidden" name="periodo_limpar" value="1"><?php elseif ($medicaoMes !== ''): ?><input type="hidden" name="medicao_mes" value="<?= htmlspecialchars($medicaoMes) ?>"><?php else: ?><input type="hidden" name="periodo_de" value="<?= htmlspecialchars((string) $periodoDe) ?>"><input type="hidden" name="periodo_ate" value="<?= htmlspecialchars((string) $periodoAte) ?>"><?php endif; ?>
-                <button type="submit" class="action danger" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;" title="Exclusão lógica">Inativar</button>
+                <button type="submit" class="action danger" style="background:none;border:none;cursor:pointer;padding:0;font:inherit;" title="Exclusão lógica">Excluir</button>
               </form>
               <?php endif; ?>
               <?php endif; ?>

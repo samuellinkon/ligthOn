@@ -58,8 +58,9 @@
     });
   });
 
-  // File upload visual
+  // File upload visual (exceto painel de anexos com upload AJAX imediato)
   document.querySelectorAll('.file-upload').forEach(function (box) {
+    if (box.closest('[data-chamado-anexos-ajax]')) return;
     const input = box.querySelector('input[type="file"]');
     const list = box.parentElement.querySelector('.file-list');
 

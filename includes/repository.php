@@ -346,22 +346,44 @@ function _repo_parse_latlng_pair(?string $latStr, ?string $lngStr): array
     return [$la, $lo];
 }
 
-function repo_chamado_tem_coordenadas_validas(array $ch): bool
+function repo_chamado_tem_coordenadas_validas(array $ch, ?array $ponto = null): bool
 {
-    [$la, $lo] = _repo_parse_latlng_pair(
-        isset($ch['latitude']) ? (string) $ch['latitude'] : null,
-        isset($ch['longitude']) ? (string) $ch['longitude'] : null
-    );
+    if (!function_exists('chamado_coordenadas_efetivas')) {
+        require_once __DIR__ . '/chamado_os_fields.php';
+    }
+    [$la, $lo] = chamado_coordenadas_efetivas($ch, $ponto);
+    if ($la !== null && $lo !== null) {
+        return true;
+    }
 
-    return $la !== null && $lo !== null;
+    return false;
 }
 
 /**
- * Condição SQL: chamados que entram no boletim BM, BM completo e relatório fotográfico.
+ * Condição SQL: chamados que entram no boletim BM oficial e relatório fotográfico (medição fechada).
  */
 function repo_chamados_status_sql_medicao_bm(): string
 {
-    return "ch.status = 'Resolvido'";
+    return "ch.status = 'Validado'";
+}
+
+/**
+ * Condição SQL legada — preferir {@see repo_chamados_status_sql_medicao_bm()} na medição oficial e no BM completo (detalhe).
+ */
+function repo_chamados_status_sql_medicao_bm_completo(): string
+{
+    return repo_chamados_status_sql_medicao_bm();
+}
+
+/**
+ * Condição SQL: lançamentos que compõem custo de medição/BM (materiais e serviços utilizados).
+ * Itens devolvidos/recolhidos (sucata) ficam fora dos totais oficiais.
+ */
+function repo_chamados_sql_movimento_medicao_custo(string $alias = 'ci'): string
+{
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias) ?: 'ci';
+
+    return $a . ".movimento = 'utilizado'";
 }
 
 /**
@@ -373,7 +395,12 @@ function repo_validar_chamado_resolvido(int $id): array
     if (!$ch) {
         return ['ok' => false, 'err' => 'Chamado não encontrado.'];
     }
-    if (!repo_chamado_tem_coordenadas_validas($ch)) {
+    $ponto = null;
+    $pid = (int) ($ch['ponto_iluminacao_id'] ?? 0);
+    if ($pid > 0) {
+        $ponto = repo_ponto_iluminacao($pid);
+    }
+    if (!repo_chamado_tem_coordenadas_validas($ch, $ponto)) {
         return [
             'ok'  => false,
             'err' => 'Cadastre latitude e longitude válidas no chamado antes de finalizá-lo.',
@@ -396,16 +423,12 @@ function _repo_chamado_row_normalizar_geo(array &$r): void
 }
 
 /**
- * Chamados com coordenadas no intervalo de datas (aberto_em), para mapa.
+ * Intervalo de datas normalizado para mapa de chamados.
  *
- * @return list<array{id:int,titulo:string,status:string,data:string,cliente:string,endereco_completo:?string,lat:float,lng:float}>
+ * @return array{de: string, ate: string, de_start: string, ate_fim: string}
  */
-function repo_chamados_mapa_pins(string $dataDe, string $dataAte, ?int $clienteId = null): array
+function _repo_chamados_mapa_periodo_bounds(string $dataDe, string $dataAte): array
 {
-    $pdo = db();
-    if (!$pdo) {
-        return [];
-    }
     $de  = strlen($dataDe) === 10 ? $dataDe : date('Y-m-d', strtotime('-30 days'));
     $ate = strlen($dataAte) === 10 ? $dataAte : date('Y-m-d');
     if (strcmp($de, $ate) > 0) {
@@ -413,6 +436,64 @@ function repo_chamados_mapa_pins(string $dataDe, string $dataAte, ?int $clienteI
         $de  = $ate;
         $ate = $tmp;
     }
+
+    return [
+        'de'        => $de,
+        'ate'       => $ate,
+        'de_start'  => $de . ' 00:00:00',
+        'ate_fim'   => (new DateTimeImmutable($ate))->modify('+1 day')->format('Y-m-d H:i:s'),
+    ];
+}
+
+/**
+ * @param array<string, mixed> $r
+ * @return array<string, mixed>
+ */
+function _repo_chamado_mapa_pin_base(array $r, string $fotoUrl): array
+{
+    $cid = (int) ($r['id'] ?? 0);
+
+    return [
+        'id'                => $cid,
+        'titulo'            => (string) ($r['titulo'] ?? ''),
+        'status'            => (string) ($r['status'] ?? ''),
+        'prioridade'        => (string) ($r['prioridade'] ?? ''),
+        'origem_os'         => (string) ($r['origem_os'] ?? ''),
+        'problema_os'       => (string) ($r['problema_os'] ?? ''),
+        'data'              => (string) ($r['data'] ?? ''),
+        'cliente'           => (string) ($r['cliente'] ?? ''),
+        'endereco_completo' => isset($r['endereco_completo']) && $r['endereco_completo'] !== ''
+            ? (string) $r['endereco_completo'] : null,
+        'foto_url'          => $fotoUrl,
+    ];
+}
+
+/**
+ * Chamados do período para mapa: pins com coords (chamado/poste) ou geocode pendente.
+ *
+ * @return array{pins: list<array<string, mixed>>, stats: array{total_periodo:int,ready:int,pending_geocode:int,sem_localizacao:int}}
+ */
+function repo_chamados_mapa_data(string $dataDe, string $dataAte, ?int $clienteId = null): array
+{
+    $emptyStats = [
+        'total_periodo'     => 0,
+        'ready'             => 0,
+        'pending_geocode'   => 0,
+        'sem_localizacao'   => 0,
+    ];
+    $pdo = db();
+    if (!$pdo) {
+        return ['pins' => [], 'stats' => $emptyStats];
+    }
+
+    if (!function_exists('chamado_coordenadas_efetivas')) {
+        require_once __DIR__ . '/chamado_os_fields.php';
+    }
+    if (!function_exists('chamado_map_preview_tier')) {
+        require_once __DIR__ . '/chamado_geo.php';
+    }
+
+    $bounds = _repo_chamados_mapa_periodo_bounds($dataDe, $dataAte);
     try {
         if ($clienteId !== null && $clienteId > 0) {
             $clienteId = repo_cliente_matriz_raiz_id($clienteId);
@@ -425,50 +506,167 @@ function repo_chamados_mapa_pins(string $dataDe, string $dataAte, ?int $clienteI
                 ch.id,
                 ch.titulo,
                 ch.status,
+                ch.prioridade,
+                ch.origem_os,
+                ch.problema_os,
+                ch.ponto_iluminacao_id,
                 ch.latitude,
                 ch.longitude,
                 ch.endereco_completo,
+                ch.os_cep,
+                ch.os_logradouro,
+                ch.os_numero,
+                ch.os_complemento,
+                ch.os_bairro,
+                ch.os_cidade,
+                ch.os_uf,
+                pi.latitude AS ponto_latitude,
+                pi.longitude AS ponto_longitude,
                 DATE_FORMAT(ch.aberto_em, \'%Y-%m-%d %H:%i\') AS data,
                 c.empresa AS cliente
             FROM chamados ch
             JOIN clientes c ON c.id = ch.cliente_id
-            WHERE ch.latitude IS NOT NULL
-              AND ch.longitude IS NOT NULL
-              AND DATE(ch.aberto_em) >= ?
-              AND DATE(ch.aberto_em) <= ?
+            LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
+            WHERE (
+                (ch.aberto_em >= ? AND ch.aberto_em < ?)
+                OR (ch.data_abertura_os IS NOT NULL AND ch.data_abertura_os >= ? AND ch.data_abertura_os <= ?)
+            )
+              ' . _repo_chamados_sql_apenas_ativos('ch') . '
               ' . $scopeSql . '
             ORDER BY ch.aberto_em DESC
         ');
-        $params = [$de, $ate];
+        $params = [$bounds['de_start'], $bounds['ate_fim'], $bounds['de'], $bounds['ate']];
         if ($clienteId !== null && $clienteId > 0) {
             $params[] = $clienteId;
             $params[] = $clienteId;
         }
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        $out  = [];
+
+        $chIds = array_map(static fn (array $r): int => (int) ($r['id'] ?? 0), $rows);
+        $thumbPorChamado = [];
+        if ($chIds !== []) {
+            $ph = implode(',', array_fill(0, count($chIds), '?'));
+            $stImg = $pdo->prepare("
+                SELECT a.chamado_id, MIN(a.id) AS anexo_id
+                FROM chamado_anexos a
+                WHERE a.chamado_id IN ($ph)
+                  AND (a.mime LIKE 'image/%' OR a.nome_original REGEXP '\\\\.(png|jpe?g|gif|webp|bmp)$')
+                GROUP BY a.chamado_id
+            ");
+            $stImg->execute($chIds);
+            foreach ($stImg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $im) {
+                $cid = (int) ($im['chamado_id'] ?? 0);
+                $aid = (int) ($im['anexo_id'] ?? 0);
+                if ($cid > 0 && $aid > 0) {
+                    $thumbPorChamado[$cid] = 'chamado_download.php?id=' . $aid;
+                }
+            }
+        }
+
+        $pins   = [];
+        $stats  = $emptyStats;
+        $stats['total_periodo'] = count($rows);
+
         foreach ($rows as $r) {
-            $la = $r['latitude'] !== null && $r['latitude'] !== '' ? (float) $r['latitude'] : null;
-            $lo = $r['longitude'] !== null && $r['longitude'] !== '' ? (float) $r['longitude'] : null;
-            if ($la === null || $lo === null) {
+            $cid   = (int) ($r['id'] ?? 0);
+            if ($cid <= 0) {
                 continue;
             }
-            $out[] = [
-                'id'                 => (int) $r['id'],
-                'titulo'             => (string) ($r['titulo'] ?? ''),
-                'status'             => (string) ($r['status'] ?? ''),
-                'data'               => (string) ($r['data'] ?? ''),
-                'cliente'            => (string) ($r['cliente'] ?? ''),
-                'endereco_completo'  => isset($r['endereco_completo']) && $r['endereco_completo'] !== ''
-                    ? (string) $r['endereco_completo'] : null,
-                'lat'                => $la,
-                'lng'                => $lo,
-            ];
+            $ponto = null;
+            $pid   = (int) ($r['ponto_iluminacao_id'] ?? 0);
+            if ($pid > 0) {
+                $ponto = [
+                    'id'        => $pid,
+                    'latitude'  => $r['ponto_latitude'] ?? null,
+                    'longitude' => $r['ponto_longitude'] ?? null,
+                ];
+            }
+
+            [$la, $lo] = chamado_coordenadas_efetivas($r, $ponto);
+            $base      = _repo_chamado_mapa_pin_base($r, $thumbPorChamado[$cid] ?? '');
+
+            if ($la !== null && $lo !== null) {
+                $stats['ready']++;
+                $pins[] = array_merge($base, [
+                    'pin_state' => 'ready',
+                    'lat'       => $la,
+                    'lng'       => $lo,
+                ]);
+                continue;
+            }
+
+            $tier = chamado_map_preview_tier($r, $ponto);
+            $attempts = [];
+            if ($tier === 2) {
+                $attempts = chamado_geocode_attempts_com_cep($r);
+            } elseif ($tier >= 3) {
+                $attempts = chamado_geocode_attempts($r);
+            } elseif ($tier < 0) {
+                $attempts = chamado_geocode_attempts($r);
+            }
+            if ($attempts !== []) {
+                $stats['pending_geocode']++;
+                $pins[] = array_merge($base, [
+                    'pin_state'        => 'pending_geocode',
+                    'lat'              => null,
+                    'lng'              => null,
+                    'geocode_attempts' => $attempts,
+                ]);
+                continue;
+            }
+
+            $stats['sem_localizacao']++;
         }
-        return $out;
+
+        return ['pins' => $pins, 'stats' => $stats];
     } catch (Throwable $e) {
-        return [];
+        return ['pins' => [], 'stats' => $emptyStats];
     }
+}
+
+/**
+ * @return list<array<string, mixed>>
+ */
+function repo_chamados_mapa_pins(string $dataDe, string $dataAte, ?int $clienteId = null): array
+{
+    return repo_chamados_mapa_data($dataDe, $dataAte, $clienteId)['pins'];
+}
+
+/**
+ * @return array{total_periodo:int,ready:int,pending_geocode:int,sem_localizacao:int}
+ */
+function repo_chamados_mapa_pins_stats(string $dataDe, string $dataAte, ?int $clienteId = null): array
+{
+    return repo_chamados_mapa_data($dataDe, $dataAte, $clienteId)['stats'];
+}
+
+/**
+ * Grava lat/lng no chamado apenas se ainda não houver coordenadas válidas.
+ */
+function repo_chamado_persist_geocode_se_vazio(int $chamadoId, float $lat, float $lng): array
+{
+    if (!function_exists('chamado_geo_coords_validas')) {
+        require_once __DIR__ . '/chamado_geo.php';
+    }
+    if ($chamadoId <= 0 || !chamado_geo_coords_validas($lat, $lng)) {
+        return ['ok' => false, 'err' => 'Coordenadas inválidas.'];
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return ['ok' => false, 'err' => 'Chamado não encontrado.'];
+    }
+    [$cla, $clo] = chamado_geo_row_latlng($ch);
+    if ($cla !== null && $clo !== null) {
+        return ['ok' => true, 'err' => '', 'skipped' => true];
+    }
+    $end = trim((string) ($ch['endereco_completo'] ?? ''));
+    $end = $end !== '' ? $end : null;
+    if (!repo_update_chamado_localizacao($chamadoId, $end, $lat, $lng)) {
+        return ['ok' => false, 'err' => 'Não foi possível gravar as coordenadas.'];
+    }
+
+    return ['ok' => true, 'err' => '', 'skipped' => false];
 }
 
 function _repo_ponto_iluminacao_normalizar(array &$r): void
@@ -2086,6 +2284,47 @@ function _repo_chamados_sql_apenas_ativos(string $alias = ''): string
     return " AND {$col} = 1";
 }
 
+/**
+ * Cláusula SQL para busca textual em listagens de chamados (q na URL).
+ *
+ * @return array{0: string, 1: list<mixed>}|null null se $q vazio
+ */
+function _repo_chamados_busca_q_sql(string $q, bool $incluirEmpresa = false, bool $incluirDescricao = false): ?array
+{
+    $q = trim($q);
+    if ($q === '') {
+        return null;
+    }
+    $term   = '%' . $q . '%';
+    $parts  = [];
+    $params = [];
+    if (ctype_digit($q)) {
+        $parts[]  = 'ch.id = ?';
+        $params[] = (int) $q;
+    }
+    $parts[]  = 'ch.titulo LIKE ?';
+    $params[] = $term;
+    if ($incluirDescricao) {
+        $parts[]  = 'ch.descricao LIKE ?';
+        $params[] = $term;
+    }
+    if ($incluirEmpresa) {
+        $parts[]  = 'c.empresa LIKE ?';
+        $params[] = $term;
+    }
+    $parts[]  = 'CAST(ch.id AS CHAR) LIKE ?';
+    $params[] = '%' . $q . '%';
+    $parts[]  = 'EXISTS (
+        SELECT 1 FROM pontos_iluminacao pi
+        WHERE pi.id = ch.ponto_iluminacao_id AND pi.codigo_poste LIKE ?
+    )';
+    $params[] = $term;
+    $parts[]  = 'ch.ponto_referencia LIKE ?';
+    $params[] = $term;
+
+    return ['(' . implode(' OR ', $parts) . ')', $params];
+}
+
 function repo_chamado_itens_tem_criado_por(): bool
 {
     static $exists = null;
@@ -2313,15 +2552,11 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
     }
 
-    if ($q !== '') {
-        if (ctype_digit($q)) {
-            $where[] = 'ch.id = ?';
-            $params[] = (int) $q;
-        } else {
-            $where[] = '(ch.titulo LIKE ? OR ch.descricao LIKE ?)';
-            $term      = '%' . $q . '%';
-            $params[] = $term;
-            $params[] = $term;
+    $buscaQ = _repo_chamados_busca_q_sql($q, false, true);
+    if ($buscaQ !== null) {
+        $where[] = $buscaQ[0];
+        foreach ($buscaQ[1] as $p) {
+            $params[] = $p;
         }
     }
 
@@ -2357,6 +2592,7 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
             ch.endereco_completo, ch.latitude, ch.longitude,
             ch.servico_id, ch.finalizado_operador_em, ch.tecnico_user_id, ch.aprovado_gestor_em,
             ch.prioridade, ch.status, ch.responsavel,
+            ch.origem_os, ch.problema_os,
             DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
             $tecnicoSelect
@@ -2545,15 +2781,11 @@ function repo_chamados_portal_list(
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
     }
 
-    if ($q !== '') {
-        if (ctype_digit($q)) {
-            $where[] = 'ch.id = ?';
-            $params[] = (int) $q;
-        } else {
-            $where[] = '(ch.titulo LIKE ? OR ch.descricao LIKE ?)';
-            $term      = '%' . $q . '%';
-            $params[] = $term;
-            $params[] = $term;
+    $buscaQ = _repo_chamados_busca_q_sql($q, false, true);
+    if ($buscaQ !== null) {
+        $where[] = $buscaQ[0];
+        foreach ($buscaQ[1] as $p) {
+            $params[] = $p;
         }
     }
 
@@ -2693,6 +2925,8 @@ function _repo_chamados_admin_sql_where(
     } elseif ($filtro === 'cancelados') {
         $where[]  = 'ch.status = ?';
         $params[] = 'Cancelado';
+    } elseif ($filtro === 'ativos') {
+        $where[] = 'ch.status NOT IN (\'Validado\',\'Cancelado\')';
     } elseif ($filtro === 'excluidos') {
         // visibilidade: ch.ativo = 0 (já aplicado em _repo_chamados_where_ativo)
     } elseif ($filtro === 'urgentes') {
@@ -2720,16 +2954,11 @@ function _repo_chamados_admin_sql_where(
         $params[] = $envolvidoUserId;
     }
 
-    if ($q !== '') {
-        if (ctype_digit($q)) {
-            $where[]  = 'ch.id = ?';
-            $params[] = (int) $q;
-        } else {
-            $where[] = '(ch.titulo LIKE ? OR c.empresa LIKE ? OR CAST(ch.id AS CHAR) LIKE ?)';
-            $term    = '%' . $q . '%';
-            $params[] = $term;
-            $params[] = $term;
-            $params[] = '%' . $q . '%';
+    $buscaQ = _repo_chamados_busca_q_sql($q, true, false);
+    if ($buscaQ !== null) {
+        $where[] = $buscaQ[0];
+        foreach ($buscaQ[1] as $p) {
+            $params[] = $p;
         }
     }
 
@@ -3321,7 +3550,7 @@ function repo_chamados_itens_utilizados_periodo_linhas(int $empresaRaizId, strin
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND ci.movimento = \'utilizado\'
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND " . repo_chamados_status_sql_medicao_bm() . "
+          AND ' . repo_chamados_status_sql_medicao_bm() . '
         ORDER BY ref_mes ASC, ch.id ASC, ci.id ASC
     ';
     $st = $pdo->prepare($sql);
@@ -3402,7 +3631,7 @@ function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe
         ' . $tecJoin . '
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
-          AND " . repo_chamados_status_sql_medicao_bm() . "
+          AND ' . repo_chamados_status_sql_medicao_bm() . '
         ' . $movimentoSql . '
         ORDER BY ch.aberto_em DESC, ch.id DESC, FIELD(ci.movimento, \'utilizado\', \'devolvido\'), ci.id ASC
     ';
@@ -3424,9 +3653,10 @@ function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe
 }
 
 /**
- * Itens de catálogo no período, filtrados pela data do LANÇAMENTO (criado_em; fallback na data usada no WHERE
- * se criado_em for nulo). Uma linha por registo em chamado_itens (sem GROUP BY) — analítico na origem.
- * No XLSX do boletim, o detalhe por chamado é agrupado/consolidado em PHP (bm_med_agrupar_detalhamento_chamados_consolidado).
+ * Itens de catálogo no período (uma linha por chamado_itens).
+ * Padrão: Validado + data do lançamento (criado_em).
+ * BM completo ($bmCompleto): Validado + abertura (aberto_em); nas exportações XLSX só entram linhas
+ * com movimento «utilizado» (devolvido/sucata não são exportados).
  *
  * @return list<array<string,mixed>>
  */
@@ -3434,7 +3664,8 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
     int $empresaRaizId,
     string $dataDe,
     string $dataAte,
-    string $movimento = 'utilizado'
+    string $movimento = 'utilizado',
+    bool $bmCompleto = false
 ): array {
     $pdo = db();
     if (!$pdo || $empresaRaizId <= 0) {
@@ -3444,7 +3675,7 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
         return [];
     }
     $mov = strtolower(trim($movimento));
-    if ($mov !== 'utilizado' && $mov !== 'devolvido') {
+    if ($mov !== '' && $mov !== 'utilizado' && $mov !== 'devolvido') {
         return [];
     }
     $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
@@ -3503,13 +3734,20 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
         LEFT JOIN usuarios ut ON ut.id = ch.tecnico_user_id
         ' . $tecJoin . '
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-          AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
-          AND " . repo_chamados_status_sql_medicao_bm() . "
-          AND ci.movimento = ?
+          AND ' . ($bmCompleto
+        ? 'DATE(ch.aberto_em) BETWEEN ? AND ?'
+        : 'DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?') . '
+          AND ' . repo_chamados_status_sql_medicao_bm() . '
+          ' . _repo_chamados_sql_apenas_ativos('ch') . '
+          ' . ($mov === '' ? "AND ci.movimento IN ('utilizado', 'devolvido')" : 'AND ci.movimento = ?') . '
         ORDER BY ch.aberto_em DESC, ch.id DESC, ci.id ASC
     ';
     $st = $pdo->prepare($sql);
-    $st->execute([$empresaRaizId, $empresaRaizId, $dataDe, $dataAte, $mov]);
+    $params = [$empresaRaizId, $empresaRaizId, $dataDe, $dataAte];
+    if ($mov !== '') {
+        $params[] = $mov;
+    }
+    $st->execute($params);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     foreach ($rows as &$r) {
         $r['chamado_item_id'] = (int) ($r['chamado_item_id'] ?? 0);
@@ -3590,7 +3828,15 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
             ch.titulo AS chamado_titulo,
             DATE_FORMAT(ch.aberto_em, \'%Y-%m-%d %H:%i\') AS chamado_aberto_em,
             ch.status AS chamado_status,
-            u.nome AS tecnico_nome,
+            ch.endereco_completo,
+            ch.os_logradouro,
+            ch.os_numero,
+            ch.os_complemento,
+            ch.os_bairro,
+            ch.os_cidade,
+            ch.os_uf,
+            ch.os_cep,
+            pi.endereco_completo AS ponto_endereco_completo,
             ci.id AS linha_id,
             ci.movimento,
             it.nome AS item_nome,
@@ -3599,11 +3845,11 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
             it.unidade AS catalogo_unidade,
             ci.quantidade,
             ci.valor_unitario,
-            ci.subtotal,
-            ci.observacao
+            ci.subtotal
         FROM chamado_itens ci
         INNER JOIN chamados ch ON ch.id = ci.chamado_id
         INNER JOIN cliente_itens it ON it.id = ci.item_id
+        LEFT JOIN pontos_iluminacao pi ON pi.id = ch.ponto_iluminacao_id
         LEFT JOIN usuarios u ON u.id = ch.tecnico_user_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
@@ -3621,6 +3867,20 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
         $r['valor_unitario'] = (float) ($r['valor_unitario'] ?? 0);
         $r['subtotal']       = (float) ($r['subtotal'] ?? 0);
         $r['movimento']      = (string) ($r['movimento'] ?? 'utilizado');
+        $pontoEnd = trim((string) ($r['ponto_endereco_completo'] ?? ''));
+        $r['chamado_endereco'] = chamado_endereco_efetivo(
+            [
+                'endereco_completo' => (string) ($r['endereco_completo'] ?? ''),
+                'os_logradouro'     => (string) ($r['os_logradouro'] ?? ''),
+                'os_numero'         => (string) ($r['os_numero'] ?? ''),
+                'os_complemento'    => (string) ($r['os_complemento'] ?? ''),
+                'os_bairro'         => (string) ($r['os_bairro'] ?? ''),
+                'os_cidade'         => (string) ($r['os_cidade'] ?? ''),
+                'os_uf'             => (string) ($r['os_uf'] ?? ''),
+                'os_cep'            => (string) ($r['os_cep'] ?? ''),
+            ],
+            $pontoEnd !== '' ? ['endereco_completo' => $pontoEnd] : null
+        );
     }
     unset($r);
 
@@ -3642,6 +3902,7 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
  *     n_itens_devolvidos:int
  *   }
  * }
+ * custo_liquido = valor_usado (devolvido é informativo/sucata e não abate medição).
  */
 function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe, string $dataAte): array
 {
@@ -3693,10 +3954,11 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         $mov = (string) ($r['movimento'] ?? '');
         $qtd = (float) ($r['quantidade'] ?? 0);
         $val = (float) ($r['valor_total'] ?? 0);
-        $r['quantidade']    = $qtd;
-        $r['valor_total']   = $val;
-        $r['n_lancamentos'] = (int) ($r['n_lancamentos'] ?? 0);
-        $r['n_chamados']    = (int) ($r['n_chamados'] ?? 0);
+        $r['quantidade']     = $qtd;
+        $r['valor_total']    = $val;
+        $r['valor_unitario'] = $qtd > 0 ? round($val / $qtd, 4) : 0.0;
+        $r['n_lancamentos']  = (int) ($r['n_lancamentos'] ?? 0);
+        $r['n_chamados']     = (int) ($r['n_chamados'] ?? 0);
 
         if ($mov === 'devolvido') {
             $ret['totais']['qtd_devolvida'] += $qtd;
@@ -3710,7 +3972,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
     }
     unset($r);
 
-    $ret['totais']['custo_liquido'] = $ret['totais']['valor_usado'] - $ret['totais']['valor_devolvido'];
+    $ret['totais']['custo_liquido'] = $ret['totais']['valor_usado'];
     $ret['rows'] = $rows;
 
     return $ret;
@@ -3749,7 +4011,7 @@ function repo_medicao_bm_utilizado_quantidades_por_item(int $empresaRaizId, stri
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
-          AND ci.movimento = 'utilizado'
+          AND " . repo_chamados_sql_movimento_medicao_custo('ci') . "
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0
         ORDER BY MAX(it.codigo) ASC, MAX(it.nome) ASC
@@ -3773,7 +4035,8 @@ function repo_medicao_bm_utilizado_quantidades_por_item(int $empresaRaizId, stri
 }
 
 /**
- * Agrupa itens utilizados no CRM por período de lançamento (criado_em; fallback na abertura do chamado).
+ * Agrupa itens utilizados no CRM por mês de abertura do chamado Validado (aberto_em).
+ * Alinhado ao export «Completo» e à importação BM (itens com criado_em na data da importação).
  * Usado na exportação boletim BM v2 — «medido no período» físico/financeiro.
  *
  * @return list<array{item_id:int, item_codigo:string, item_nome:string, unidade:string, valor_unitario:float, quantidade:float, valor_subtotal:float, estoque_saldo:float}>
@@ -3808,9 +4071,9 @@ function repo_medicao_bm_utilizado_por_item_periodo_lancamento(int $empresaRaizI
         INNER JOIN chamados ch ON ch.id = ci.chamado_id
         INNER JOIN cliente_itens it ON it.id = ci.item_id
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-          AND DATE(COALESCE(ci.criado_em, ch.aberto_em)) BETWEEN ? AND ?
+          AND DATE(ch.aberto_em) BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
-          AND ci.movimento = 'utilizado'
+          AND " . repo_chamados_sql_movimento_medicao_custo('ci') . "
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0 OR SUM(ci.subtotal) <> 0
         ORDER BY MAX(it.codigo) ASC, MAX(it.nome) ASC
@@ -3878,7 +4141,11 @@ function repo_medicao_bm_imports_totals_before_ym(int $clienteMatrizId, string $
         if ($c === '') {
             continue;
         }
-        $out[$c] = [
+        $key = medicao_bm_boletim_key_from_cod($c);
+        if ($key === '') {
+            $key = 'RAW:' . $c;
+        }
+        $out[$key] = [
             'qtd'   => (float) ($r['qtd_bm'] ?? 0),
             'valor' => (float) ($r['valor_bm'] ?? 0),
         ];
@@ -3964,8 +4231,74 @@ function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
 }
 
 /**
+ * Total de chamados Validado (ativos) no escopo da matriz — diagnóstico da listagem de medição.
+ */
+function repo_medicao_count_validado_escopo(int $empresaRaizId): int
+{
+    if ($empresaRaizId <= 0) {
+        return 0;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return 0;
+    }
+    try {
+        $sql = '
+            SELECT COUNT(*)
+            FROM chamados ch
+            WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+              AND ' . repo_chamados_status_sql_medicao_bm() . '
+              ' . _repo_chamados_sql_apenas_ativos('ch');
+        $st = $pdo->prepare($sql);
+        $st->execute([$empresaRaizId, $empresaRaizId]);
+
+        return (int) $st->fetchColumn();
+    } catch (Throwable $e) {
+        if (function_exists('app_debug_mode') && app_debug_mode()) {
+            error_log('repo_medicao_count_validado_escopo: ' . $e->getMessage());
+        }
+
+        return 0;
+    }
+}
+
+/**
+ * Chamados ativos (não Validado/Cancelado) com abertura no mês civil corrente — para aviso na listagem de medição.
+ */
+function repo_medicao_count_nao_validados_mes_corrente(int $empresaRaizId): int
+{
+    if ($empresaRaizId <= 0) {
+        return 0;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return 0;
+    }
+    try {
+        $sql = '
+            SELECT COUNT(DISTINCT ch.id)
+            FROM chamados ch
+            WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+              AND ch.status NOT IN (\'Validado\', \'Cancelado\')
+              AND DATE_FORMAT(ch.aberto_em, \'%Y-%m\') = DATE_FORMAT(CURDATE(), \'%Y-%m\')
+              ' . _repo_chamados_sql_apenas_ativos('ch') . '
+        ';
+        $st = $pdo->prepare($sql);
+        $st->execute([$empresaRaizId, $empresaRaizId]);
+
+        return (int) $st->fetchColumn();
+    } catch (Throwable $e) {
+        if (function_exists('app_debug_mode') && app_debug_mode()) {
+            error_log('repo_medicao_count_nao_validados_mes_corrente: ' . $e->getMessage());
+        }
+
+        return 0;
+    }
+}
+
+/**
  * Resumo por mês civil na matriz — para listagem de medições mensais.
- * Inclui meses com chamados (data de abertura) e meses que só existem por importação BM.
+ * Inclui meses com chamados Validado (data de abertura) e meses que só existem por importação BM.
  *
  * @return list<array{ym:string,data_de:string,data_ate:string,n_chamados:int,valor_materiais:float,valor_servicos:float,valor_total:float}>
  */
@@ -3980,26 +4313,27 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
     }
     $limiteLinhas = max(1, min(120, $limiteLinhas));
     try {
-        $sql = "
+        $sql = '
             SELECT
-                DATE_FORMAT(ch.aberto_em, '%Y-%m') AS ym,
+                DATE_FORMAT(ch.aberto_em, \'%Y-%m\') AS ym,
                 COUNT(DISTINCT ch.id) AS n_chamados,
                 COALESCE(SUM(COALESCE(agg.valor_materiais, 0)), 0) AS valor_materiais,
                 COALESCE(SUM(COALESCE(agg.valor_servicos, 0)), 0) AS valor_servicos
             FROM chamados ch
             LEFT JOIN (
                 SELECT ci.chamado_id,
-                    SUM(CASE WHEN it.tipo = 'produto' AND ci.movimento = 'utilizado' THEN ci.subtotal ELSE 0 END) AS valor_materiais,
-                    SUM(CASE WHEN it.tipo = 'servico' AND ci.movimento = 'utilizado' THEN ci.subtotal ELSE 0 END) AS valor_servicos
+                    SUM(CASE WHEN it.tipo = \'produto\' AND ci.movimento = \'utilizado\' THEN ci.subtotal ELSE 0 END) AS valor_materiais,
+                    SUM(CASE WHEN it.tipo = \'servico\' AND ci.movimento = \'utilizado\' THEN ci.subtotal ELSE 0 END) AS valor_servicos
                 FROM chamado_itens ci
                 INNER JOIN cliente_itens it ON it.id = ci.item_id
                 GROUP BY ci.chamado_id
             ) agg ON agg.chamado_id = ch.id
             WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-              AND " . repo_chamados_status_sql_medicao_bm() . "
-            GROUP BY DATE_FORMAT(ch.aberto_em, '%Y-%m')
+              AND ' . repo_chamados_status_sql_medicao_bm() . '
+              ' . _repo_chamados_sql_apenas_ativos('ch') . '
+            GROUP BY DATE_FORMAT(ch.aberto_em, \'%Y-%m\')
             ORDER BY ym DESC
-            LIMIT 240";
+            LIMIT 240';
         $st = $pdo->prepare($sql);
         $st->execute([$empresaRaizId, $empresaRaizId]);
         $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -4054,6 +4388,40 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
             }
         }
 
+        if (function_exists('repo_medicao_custos_table_exists') && repo_medicao_custos_table_exists()) {
+            $stCustos = $pdo->prepare(
+                'SELECT ref_ym AS ym, COALESCE(SUM(valor_total), 0) AS valor_custos
+                 FROM medicao_custos
+                 WHERE cliente_matriz_id = ? AND status = \'Aprovado\'
+                 GROUP BY ref_ym'
+            );
+            $stCustos->execute([$empresaRaizId]);
+            foreach ($stCustos->fetchAll(PDO::FETCH_ASSOC) ?: [] as $cr) {
+                $ym = (string) ($cr['ym'] ?? '');
+                if ($ym === '' || !preg_match('/^\d{4}-\d{2}$/', $ym)) {
+                    continue;
+                }
+                $vc = round((float) ($cr['valor_custos'] ?? 0), 2);
+                if ($vc <= 0) {
+                    continue;
+                }
+                if (!isset($byYm[$ym])) {
+                    $dataDe = $ym . '-01';
+                    $byYm[$ym] = [
+                        'ym'               => $ym,
+                        'data_de'          => $dataDe,
+                        'data_ate'         => date('Y-m-t', strtotime($dataDe)),
+                        'n_chamados'       => 0,
+                        'valor_materiais'  => 0.0,
+                        'valor_servicos'   => 0.0,
+                        'valor_total'      => 0.0,
+                    ];
+                }
+                $byYm[$ym]['valor_custos_adicionais'] = $vc;
+                $byYm[$ym]['valor_total'] = round((float) ($byYm[$ym]['valor_total'] ?? 0) + $vc, 2);
+            }
+        }
+
         $merged = array_values($byYm);
         usort($merged, static function (array $a, array $b): int {
             return strcmp((string) ($b['ym'] ?? ''), (string) ($a['ym'] ?? ''));
@@ -4061,6 +4429,10 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
 
         return array_slice($merged, 0, $limiteLinhas);
     } catch (Throwable $e) {
+        if (function_exists('app_debug_mode') && app_debug_mode()) {
+            error_log('repo_medicao_resumo_mensal_list: ' . $e->getMessage());
+        }
+
         return [];
     }
 }
@@ -4078,7 +4450,9 @@ function repo_medicao_import_substituir(
     ?string $importadoPor,
     ?int $idxQtdMedido,
     ?int $idxValorMedido,
-    array $linhas
+    array $linhas,
+    int $importadorUserId = 0,
+    bool $notificarDestinatarios = true
 ): array {
     $ret = ['ok' => false, 'erro' => ''];
     if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
@@ -4140,6 +4514,12 @@ function repo_medicao_import_substituir(
 
         $pdo->commit();
         $ret['ok'] = true;
+
+        if ($linhas !== []) {
+            require_once __DIR__ . '/medicao_relatorio_import.php';
+            medicao_import_sync_catalogo_from_bm_linhas($clienteMatrizId, $linhas);
+        }
+
         audit_log_registar('medicao.importar', 'medicao', null, $clienteMatrizId > 0 ? $clienteMatrizId : null, [
             'ref_ym'        => $refYm,
             'nome_arquivo'  => function_exists('mb_substr') ? mb_substr($nomeArquivo, 0, 200, 'UTF-8') : substr($nomeArquivo, 0, 200),
@@ -4148,6 +4528,17 @@ function repo_medicao_import_substituir(
                 ? (function_exists('mb_substr') ? mb_substr($importadoPor, 0, 80, 'UTF-8') : substr($importadoPor, 0, 80))
                 : '',
         ]);
+        if ($notificarDestinatarios) {
+            require_once __DIR__ . '/notificacoes.php';
+            notificar_medicao_bm_importado(
+                $clienteMatrizId,
+                $refYm,
+                $importadorUserId,
+                'planilha',
+                count($linhas),
+                $nomeArquivo
+            );
+        }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -4344,6 +4735,90 @@ function repo_delete_chamado(int $id): bool
 }
 
 /**
+ * Conta chamados ativos no escopo (matriz + filiais). null = todo o sistema.
+ */
+function repo_chamados_contar_ativos(?int $clienteIdEscopo = null): int
+{
+    $pdo = db();
+    if (!$pdo) {
+        return 0;
+    }
+    $where  = ['1=1'];
+    $params = [];
+    _repo_chamados_where_ativo($where, '');
+    if ($clienteIdEscopo !== null && $clienteIdEscopo > 0) {
+        $where[]  = 'ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteIdEscopo;
+        $params[] = $clienteIdEscopo;
+    }
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM chamados ch WHERE ' . implode(' AND ', $where));
+    $stmt->execute($params);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Inativa ou remove todos os chamados ativos no escopo. Retorna quantidade afetada.
+ */
+function repo_chamados_excluir_todos_ativos(?int $clienteIdEscopo = null): int
+{
+    $pdo = db();
+    if (!$pdo) {
+        return 0;
+    }
+    $where  = ['1=1'];
+    $params = [];
+    _repo_chamados_where_ativo($where, '');
+    if ($clienteIdEscopo !== null && $clienteIdEscopo > 0) {
+        $where[]  = 'ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteIdEscopo;
+        $params[] = $clienteIdEscopo;
+    }
+    $sqlWhere = implode(' AND ', $where);
+
+    if (repo_chamados_tem_exclusao_logica()) {
+        $uid = repo_usuario_sessao_id();
+        $st  = $pdo->prepare("
+            UPDATE chamados ch
+            SET ativo = 0,
+                excluido_em = NOW(),
+                excluido_por_user_id = ?
+            WHERE $sqlWhere
+        ");
+        $st->execute(array_merge([$uid], $params));
+        $n = $st->rowCount();
+        if ($n > 0) {
+            audit_log_registar('chamados.excluir_todos', 'chamado', null, $clienteIdEscopo > 0 ? $clienteIdEscopo : null, [
+                'total'           => $n,
+                'exclusao_tipo'   => 'logica',
+                'cliente_escopo'  => $clienteIdEscopo,
+            ]);
+        }
+
+        return $n;
+    }
+
+    $st = $pdo->prepare("SELECT ch.id FROM chamados ch WHERE $sqlWhere");
+    $st->execute($params);
+    $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    $n   = 0;
+    foreach ($ids as $id) {
+        if (repo_delete_chamado($id)) {
+            $n++;
+        }
+    }
+    if ($n > 0) {
+        audit_log_registar('chamados.excluir_todos', 'chamado', null, $clienteIdEscopo > 0 ? $clienteIdEscopo : null, [
+            'total'          => $n,
+            'exclusao_tipo'  => 'fisica',
+            'cliente_escopo' => $clienteIdEscopo,
+        ]);
+    }
+
+    return $n;
+}
+
+/**
  * Dúvidas de suporte só do cliente (portal).
  *
  * @return list<array<string,mixed>>
@@ -4522,12 +4997,18 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
         if ($cid !== null) {
             $chF = 'cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
             $chAtivo = _repo_chamados_sql_apenas_ativos();
+            $st = $pdo->prepare("SELECT COUNT(*) FROM chamados WHERE 1=1 AND $chF" . $chAtivo);
+            $st->execute([$cid, $cid]);
+            $chTotal = (int) $st->fetchColumn();
             $st = $pdo->prepare("SELECT COUNT(*) FROM chamados WHERE status = 'Aberto' AND $chF" . $chAtivo);
             $st->execute([$cid, $cid]);
             $abertos = (int) $st->fetchColumn();
             $st = $pdo->prepare("SELECT COUNT(*) FROM chamados WHERE status = 'Em andamento' AND $chF" . $chAtivo);
             $st->execute([$cid, $cid]);
             $andamento = (int) $st->fetchColumn();
+            $st = $pdo->prepare("SELECT COUNT(*) FROM chamados WHERE status NOT IN ('Validado','Cancelado') AND $chF" . $chAtivo);
+            $st->execute([$cid, $cid]);
+            $semValidadoCancelado = (int) $st->fetchColumn();
             $st = $pdo->prepare("SELECT COUNT(*) FROM chamados WHERE prioridade IN ('Alta','Urgente') AND status NOT IN ('Resolvido','Fechado','Cancelado') AND $chF" . $chAtivo);
             $st->execute([$cid, $cid]);
             $urgentes = (int) $st->fetchColumn();
@@ -4557,8 +5038,10 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             $ativos = (int) $st->fetchColumn();
         } else {
             $chAtivo = _repo_chamados_sql_apenas_ativos();
+            $chTotal = (int) $pdo->query('SELECT COUNT(*) FROM chamados WHERE 1=1' . $chAtivo)->fetchColumn();
             $abertos = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE status = 'Aberto'" . $chAtivo)->fetchColumn();
             $andamento = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE status = 'Em andamento'" . $chAtivo)->fetchColumn();
+            $semValidadoCancelado = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE status NOT IN ('Validado','Cancelado')" . $chAtivo)->fetchColumn();
             $urgentes = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE prioridade IN ('Alta','Urgente') AND status NOT IN ('Resolvido','Fechado','Cancelado')" . $chAtivo)->fetchColumn();
             $res7d = (int) $pdo->query("
                 SELECT COUNT(*) FROM chamados
@@ -4590,31 +5073,46 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             if ($midMedicao <= 0) {
                 $midMedicao = $cid;
             }
-            $st = $pdo->prepare('
-                SELECT COALESCE(SUM(mil.valor_medido_periodo), 0)
-                FROM medicao_import_linhas mil
-                INNER JOIN medicao_imports mi ON mi.id = mil.import_id
-                WHERE mi.ref_ym = ? AND mi.cliente_matriz_id = ?
+            $st = $pdo->prepare("
+                SELECT COALESCE(SUM(ci.subtotal), 0)
+                FROM chamado_itens ci
+                INNER JOIN chamados ch ON ch.id = ci.chamado_id
+                WHERE ci.movimento = 'utilizado'
+                  AND ch.status = 'Validado'
+                  AND DATE(ch.aberto_em) >= ?
+                  AND DATE(ch.aberto_em) <= ?
+                  AND ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+                  " . _repo_chamados_sql_apenas_ativos('ch') . '
             ');
-            $st->execute([$refYmDash, $midMedicao]);
+            $mesIni = $refYmDash . '-01';
+            $mesFim = date('Y-m-t', strtotime($mesIni));
+            $st->execute([$mesIni, $mesFim, $cid, $cid]);
             $medicaoMesValor = (float) $st->fetchColumn();
         } else {
             $pontosTotal = (int) $pdo->query('SELECT COUNT(*) FROM pontos_iluminacao')->fetchColumn();
-            $st = $pdo->prepare('
-                SELECT COALESCE(SUM(mil.valor_medido_periodo), 0)
-                FROM medicao_import_linhas mil
-                INNER JOIN medicao_imports mi ON mi.id = mil.import_id
-                WHERE mi.ref_ym = ?
+            $st = $pdo->prepare("
+                SELECT COALESCE(SUM(ci.subtotal), 0)
+                FROM chamado_itens ci
+                INNER JOIN chamados ch ON ch.id = ci.chamado_id
+                WHERE ci.movimento = 'utilizado'
+                  AND ch.status = 'Validado'
+                  AND DATE(ch.aberto_em) >= ?
+                  AND DATE(ch.aberto_em) <= ?
+                  " . _repo_chamados_sql_apenas_ativos('ch') . '
             ');
-            $st->execute([$refYmDash]);
+            $mesIni = $refYmDash . '-01';
+            $mesFim = date('Y-m-t', strtotime($mesIni));
+            $st->execute([$mesIni, $mesFim]);
             $medicaoMesValor = (float) $st->fetchColumn();
         }
 
         return [
-            'ch_abertos'       => $abertos,
-            'ch_andamento'     => $andamento,
-            'ch_urgentes'      => $urgentes,
-            'ch_resolvidos_7d' => $res7d,
+            'ch_total'                    => $chTotal ?? 0,
+            'ch_sem_validado_cancelado'   => $semValidadoCancelado ?? 0,
+            'ch_abertos'                  => $abertos,
+            'ch_andamento'                => $andamento,
+            'ch_urgentes'                 => $urgentes,
+            'ch_resolvidos_7d'            => $res7d,
             'contas_pendentes' => $pendContas,
             'valor_em_aberto'  => $valorAberto,
             'suporte_abertas'  => $supAbertas,
@@ -4813,10 +5311,29 @@ function repo_create_usuario(array $d): ?int
     $pdo = db();
     if (!$pdo) return null;
 
-    $hash = password_hash($d['senha'] ?? '', PASSWORD_BCRYPT);
+    $senhaPlana = (string) ($d['senha'] ?? '');
+    if (strlen($senhaPlana) < 6) {
+        return null;
+    }
+    $hash = password_hash($senhaPlana, PASSWORD_BCRYPT);
     $perfil = strtolower(trim((string) ($d['perfil'] ?? 'cliente')));
     if (!in_array($perfil, ['admin', 'cliente', 'operador', 'gestor'], true)) {
         return null;
+    }
+    $nome = trim((string) ($d['nome'] ?? ''));
+    if ($nome === '') {
+        return null;
+    }
+    $email = trim((string) ($d['email'] ?? ''));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return null;
+    }
+    if (repo_email_existe($email)) {
+        return null;
+    }
+    $iniciais = trim((string) ($d['iniciais'] ?? ''));
+    if ($iniciais === '') {
+        $iniciais = repo_usuario_calcular_iniciais($nome);
     }
     $mpf    = null;
     $cid = !empty($d['cliente_id']) ? (int) $d['cliente_id'] : null;
@@ -4824,6 +5341,16 @@ function repo_create_usuario(array $d): ?int
     if (in_array($perfil, ['operador', 'gestor'], true)) {
         $cid = null;
         if ($eid === null || $eid <= 0) {
+            return null;
+        }
+    } elseif ($perfil === 'cliente') {
+        $eid = null;
+        if ($cid === null || $cid <= 0) {
+            return null;
+        }
+        $chk = $pdo->prepare('SELECT id FROM clientes WHERE id = ? LIMIT 1');
+        $chk->execute([$cid]);
+        if (!$chk->fetchColumn()) {
             return null;
         }
     } else {
@@ -4835,14 +5362,14 @@ function repo_create_usuario(array $d): ?int
             VALUES (?,?,?,?,?,?,?,?,1)
         ');
         $stmt->execute([
-            $d['nome']       ?? '',
-            trim($d['email'] ?? ''),
+            $nome,
+            $email,
             $hash,
             $perfil,
             $mpf,
             $cid,
             $eid,
-            $d['iniciais']   ?? null,
+            $iniciais,
         ]);
     } else {
         $stmt = $pdo->prepare('
@@ -4850,14 +5377,14 @@ function repo_create_usuario(array $d): ?int
             VALUES (?,?,?,?,?,?,?,?)
         ');
         $stmt->execute([
-            $d['nome']       ?? '',
-            trim($d['email'] ?? ''),
+            $nome,
+            $email,
             $hash,
             $perfil,
             $mpf,
             $cid,
             $eid,
-            $d['iniciais']   ?? null,
+            $iniciais,
         ]);
     }
     return (int) $pdo->lastInsertId();
@@ -4888,18 +5415,23 @@ function repo_create_chamado(array $d): ?int
         : trim((string) ($d['endereco_completo'] ?? ''));
     $endereco = $endereco !== '' ? $endereco : null;
     $pontoId = !empty($d['ponto_iluminacao_id']) ? (int) $d['ponto_iluminacao_id'] : null;
+    $ponto   = null;
     if ($pontoId !== null && $pontoId > 0) {
         $ponto = repo_ponto_iluminacao($pontoId);
         if ($ponto && (int) ($ponto['cliente_id'] ?? 0) === (int) ($d['cliente_id'] ?? 0)) {
-            if ($endereco === null && !empty($ponto['endereco_completo'])) {
-                $endereco = (string) $ponto['endereco_completo'];
-            }
-            if ($la === null && $lo === null && $ponto['latitude'] !== null && $ponto['longitude'] !== null) {
-                $la = (float) $ponto['latitude'];
-                $lo = (float) $ponto['longitude'];
-            }
+            $d = chamado_os_aplicar_dados_ponto($d, $ponto, true);
+            $composedAddr = chamado_os_compor_endereco_completo($d);
+            $endereco = $composedAddr !== null && $composedAddr !== ''
+                ? $composedAddr
+                : trim((string) ($d['endereco_completo'] ?? ''));
+            $endereco = $endereco !== '' ? $endereco : null;
+            [$la, $lo] = _repo_parse_latlng_pair(
+                isset($d['latitude']) ? (string) $d['latitude'] : null,
+                isset($d['longitude']) ? (string) $d['longitude'] : null
+            );
         } else {
             $pontoId = null;
+            $ponto   = null;
         }
     } else {
         $pontoId = null;
@@ -4965,9 +5497,40 @@ function repo_create_chamado(array $d): ?int
             'ponto_iluminacao_id'  => $pontoId,
             'contribuinte_nome'    => function_exists('mb_substr') ? mb_substr(trim((string) ($d['contribuinte_nome'] ?? '')), 0, 120, 'UTF-8') : substr(trim((string) ($d['contribuinte_nome'] ?? '')), 0, 120),
         ]);
+        require_once __DIR__ . '/notificacoes.php';
+        $autorNotif = (int) ($d['criado_por_user_id'] ?? 0);
+        notificar_chamado_criado($nid, $autorNotif);
     }
 
     return $nid;
+}
+
+/**
+ * Grava no chamado o endereço/coordenadas do poste quando o chamado ainda não tem endereço.
+ */
+function repo_chamado_sincronizar_endereco_do_ponto(int $chamadoId): bool
+{
+    if ($chamadoId <= 0) {
+        return false;
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return false;
+    }
+    $pid = (int) ($ch['ponto_iluminacao_id'] ?? 0);
+    if ($pid <= 0) {
+        return false;
+    }
+    $ponto = repo_ponto_iluminacao($pid);
+    if (!$ponto || (int) ($ponto['cliente_id'] ?? 0) !== (int) ($ch['cliente_id'] ?? 0)) {
+        return false;
+    }
+    if (chamado_tem_endereco_cadastrado($ch, null)) {
+        return true;
+    }
+    $d = chamado_os_aplicar_dados_ponto($ch, $ponto, false);
+
+    return repo_update_chamado_os_dados($chamadoId, $d);
 }
 
 /**
@@ -5011,10 +5574,23 @@ function repo_update_chamado_os_dados(int $id, array $d): bool
         : null;
 
     $pontoId = !empty($d['ponto_iluminacao_id']) ? (int) $d['ponto_iluminacao_id'] : null;
+    $ponto   = null;
     if ($pontoId !== null && $pontoId > 0) {
         $ponto = repo_ponto_iluminacao($pontoId);
         if (!$ponto || (int) ($ponto['cliente_id'] ?? 0) !== $clienteId) {
             $pontoId = null;
+            $ponto   = null;
+        } else {
+            $d = chamado_os_aplicar_dados_ponto($d, $ponto, true);
+            $composedAddr = chamado_os_compor_endereco_completo($d);
+            $endereco = $composedAddr !== null && $composedAddr !== ''
+                ? $composedAddr
+                : trim((string) ($d['endereco_completo'] ?? ''));
+            $endereco = $endereco !== '' ? $endereco : null;
+            [$la, $lo] = _repo_parse_latlng_pair(
+                isset($d['latitude']) ? (string) $d['latitude'] : null,
+                isset($d['longitude']) ? (string) $d['longitude'] : null
+            );
         }
     } else {
         $pontoId = null;
@@ -5167,15 +5743,22 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
 
 function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null): bool
 {
-    static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Fechado', 'Cancelado'];
+    static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
     if (!in_array($status, $allowed, true)) {
         return false;
     }
-    if ($status === 'Cancelado') {
-        $p = strtolower(trim((string) $perfilActor));
-        if (!in_array($p, ['gestor', 'admin', 'super_admin', 'cliente'], true)) {
-            return false;
-        }
+    $p = strtolower(trim((string) $perfilActor));
+    /** Admin: validar, fechar e cancelar. Gestor: até Resolvido (e fluxos anteriores). */
+    $gestaoPlena = ($p === 'admin');
+    $gestaoOperacional = in_array($p, ['admin', 'gestor'], true);
+    if ($p === 'gestor' && in_array($status, ['Validado', 'Fechado', 'Cancelado'], true)) {
+        return false;
+    }
+    if ($status === 'Cancelado' && !$gestaoPlena && $p !== 'cliente') {
+        return false;
+    }
+    if ($status === 'Validado' && !$gestaoPlena && $p !== 'cliente') {
+        return false;
     }
     $pdo = db();
     if (!$pdo) {
@@ -5185,8 +5768,21 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     if (!$antes) {
         return false;
     }
-    if ($status === 'Resolvido' && !repo_chamado_tem_coordenadas_validas($antes)) {
-        return false;
+    if ($status === 'Resolvido' && !$gestaoOperacional) {
+        $pontoSt = null;
+        $pidSt = (int) ($antes['ponto_iluminacao_id'] ?? 0);
+        if ($pidSt > 0) {
+            $pontoSt = repo_ponto_iluminacao($pidSt);
+        }
+        if (!repo_chamado_tem_coordenadas_validas($antes, $pontoSt)) {
+            return false;
+        }
+    }
+    if ($status === 'Validado' && !$gestaoPlena) {
+        $stAnt = (string) ($antes['status'] ?? '');
+        if ($stAnt !== 'Resolvido' && $stAnt !== 'Fechado') {
+            return false;
+        }
     }
     $stmt  = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
     $ok    = $stmt->execute([$status, $id]);
@@ -5196,6 +5792,38 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
             'status_anterior' => (string) ($antes['status'] ?? ''),
             'status_novo'     => $status,
         ]);
+        if ((string) ($antes['status'] ?? '') !== $status && function_exists('repo_notificacao_insert')) {
+            require_once __DIR__ . '/notificacoes.php';
+            $tipoNot = 'chamado_status';
+            if ($status === 'Resolvido') {
+                $tituloSt = sprintf('Chamado #%d foi resolvido', $id);
+                $descSt   = 'O atendimento foi marcado como resolvido e aguarda validação, se aplicável.';
+            } elseif ($status === 'Validado') {
+                $tituloSt = sprintf('Chamado #%d validado', $id);
+                $descSt   = 'O chamado foi conferido e validado pela gestão.';
+            } elseif ($status === 'Em andamento') {
+                $tituloSt = sprintf('Chamado #%d em atendimento', $id);
+                $descSt   = 'O chamado entrou em atendimento. Acompanhe o progresso.';
+            } elseif ($status === 'Aguardando Aprovação') {
+                $tituloSt = sprintf('Chamado #%d aguarda aprovação', $id);
+                $descSt   = 'O chamado aguarda aprovação da gestão.';
+            } else {
+                $tituloSt = sprintf('Chamado #%d: %s', $id, $status);
+                $descSt   = 'Status alterado de "' . (string) ($antes['status'] ?? '—') . '" para "' . $status . '".';
+            }
+            if ($status === 'Aguardando Aprovação') {
+                $dest = repo_notificacao_destinatarios_chamado($id, true);
+            } elseif ($status === 'Resolvido' || $status === 'Validado') {
+                $dest = repo_notificacao_destinatarios_chamado($id, false);
+            } else {
+                $dest = repo_notificacao_destinatarios_chamado($id, true);
+            }
+            foreach (array_unique($dest) as $uidDest) {
+                if ($uidDest > 0) {
+                    repo_notificacao_insert((int) $uidDest, $id, null, $tituloSt, $descSt, $tipoNot);
+                }
+            }
+        }
     }
 
     return $ok;
@@ -5240,6 +5868,68 @@ function repo_cliente_catalogo_dono_id(int $clienteId): int
     $empresaId = isset($cli['empresa_id']) && $cli['empresa_id'] !== null ? (int) $cli['empresa_id'] : 0;
 
     return $empresaId > 0 ? $empresaId : $clienteId;
+}
+
+function repo_cliente_itens_estoque_capacidade_column_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+
+        return false;
+    }
+    try {
+        $st    = $pdo->query("SHOW COLUMNS FROM cliente_itens LIKE 'estoque_capacidade'");
+        $row   = $st ? $st->fetch(PDO::FETCH_ASSOC) : false;
+        $cache = $row !== false;
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+/**
+ * Saldo de referência para cálculo de estoque baixo (10% do valor de referência).
+ */
+function catalogo_estoque_referencia(array $it): float
+{
+    if (repo_cliente_itens_estoque_capacidade_column_exists()) {
+        $cap = (float) ($it['estoque_capacidade'] ?? 0);
+        if ($cap > 0) {
+            return $cap;
+        }
+    }
+    $saldo = (float) ($it['estoque_saldo'] ?? 0);
+
+    return $saldo > 0 ? $saldo : 0.0;
+}
+
+function catalogo_estoque_limiar_baixo(array $it): float
+{
+    $ref = catalogo_estoque_referencia($it);
+    if ($ref <= 0) {
+        return 0.0;
+    }
+
+    return (float) floor($ref * 0.10);
+}
+
+function catalogo_item_estoque_baixo(array $it): bool
+{
+    if (empty($it['ativo']) || !repo_cliente_itens_estoque_saldo_column_exists()) {
+        return false;
+    }
+    $limiar = catalogo_estoque_limiar_baixo($it);
+    if ($limiar <= 0) {
+        return false;
+    }
+
+    return (float) ($it['estoque_saldo'] ?? 0) <= $limiar;
 }
 
 function repo_cliente_itens_estoque_saldo_column_exists(): bool
@@ -5417,6 +6107,64 @@ function repo_cliente_item_por_id(int $itemId, int $clienteId): ?array
 }
 
 /**
+ * Localiza item do catálogo pelo código (trim + comparação exata, depois UPPER).
+ *
+ * @return array{id: int, valor_unitario: float}|null
+ */
+function repo_cliente_item_row_por_codigo(int $clienteId, string $codigo, bool $apenasAtivos = true): ?array
+{
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0) {
+        return null;
+    }
+    $donorId = repo_cliente_catalogo_dono_id($clienteId);
+    if ($donorId <= 0) {
+        return null;
+    }
+    [, , , $codigoNorm] = repo_cliente_item_campos_normalizados('', null, 'UN', $codigo);
+    if ($codigoNorm === null || $codigoNorm === '') {
+        return null;
+    }
+
+    $ativoSql = $apenasAtivos ? ' AND ativo = 1' : '';
+    $params   = [$donorId, $donorId, $codigoNorm];
+
+    $fetch = static function (PDO $pdo, string $sql, array $params): ?array {
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    };
+
+    $row = $fetch(
+        $pdo,
+        'SELECT id, valor_unitario FROM cliente_itens
+         WHERE (cliente_id = ? OR empresa_id = ?) AND codigo = ?' . $ativoSql . '
+         ORDER BY id ASC LIMIT 1',
+        $params
+    );
+    if ($row === null) {
+        $row = $fetch(
+            $pdo,
+            'SELECT id, valor_unitario FROM cliente_itens
+             WHERE (cliente_id = ? OR empresa_id = ?) AND codigo IS NOT NULL
+               AND UPPER(TRIM(codigo)) = UPPER(?)' . $ativoSql . '
+             ORDER BY id ASC LIMIT 1',
+            $params
+        );
+    }
+    if ($row === null) {
+        return null;
+    }
+
+    return [
+        'id'              => (int) ($row['id'] ?? 0),
+        'valor_unitario'  => (float) ($row['valor_unitario'] ?? 0),
+    ];
+}
+
+/**
  * Ajusta strings ao limite das colunas cliente_itens (evita falha em SQL_MODE strict).
  *
  * @return array{0: string, 1: ?string, 2: string, 3: ?string}
@@ -5499,17 +6247,12 @@ function repo_cliente_item_salvar(
         return ['ok' => false, 'err' => 'Informe o nome.', 'id' => null];
     }
     if ($codigo !== null && $codigo !== '') {
-        $dupSql = 'SELECT id FROM cliente_itens WHERE (cliente_id = ? OR empresa_id = ?) AND codigo = ?';
-        $dupParams = [$clienteId, $clienteId, $codigo];
-        if ($id !== null && $id > 0) {
-            $dupSql .= ' AND id <> ?';
-            $dupParams[] = $id;
-        }
-        $dupSql .= ' LIMIT 1';
-        $dupSt = $pdo->prepare($dupSql);
-        $dupSt->execute($dupParams);
-        if ($dupSt->fetchColumn()) {
-            return ['ok' => false, 'err' => 'Já existe um item com este código (ID) no catálogo.', 'id' => null];
+        $dupRow = repo_cliente_item_row_por_codigo($clienteId, $codigo, false);
+        if ($dupRow !== null) {
+            $dupId = (int) ($dupRow['id'] ?? 0);
+            if ($id === null || $id <= 0 || $dupId !== $id) {
+                return ['ok' => false, 'err' => 'Já existe um item com este código (ID) no catálogo.', 'id' => null];
+            }
         }
     }
     $ativo = 1;
@@ -5537,6 +6280,14 @@ function repo_cliente_item_salvar(
                 $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $desc, $ativo, $id, $clienteId, $clienteId]);
             }
 
+            if ($ok && repo_cliente_itens_estoque_capacidade_column_exists()) {
+                $pdo->prepare('
+                    UPDATE cliente_itens
+                    SET estoque_capacidade = GREATEST(COALESCE(estoque_capacidade, 0), estoque_saldo)
+                    WHERE id = ? LIMIT 1
+                ')->execute([$id]);
+            }
+
             return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao atualizar.', 'id' => $ok ? $id : null];
         }
         if ($temEstoque) {
@@ -5545,6 +6296,16 @@ function repo_cliente_item_salvar(
                 VALUES (?,?,?,?,?,?,?,?,?,?,0)
             ');
             $ok = $st->execute([$clienteId, $clienteId, $tipo, $nome, $codigo, $unidade, $valorUnitario, $estoqueSaldo, $desc, $ativo]);
+            $nid = (int) $pdo->lastInsertId();
+            if ($ok && $nid > 0 && repo_cliente_itens_estoque_capacidade_column_exists()) {
+                $pdo->prepare('
+                    UPDATE cliente_itens
+                    SET estoque_capacidade = GREATEST(estoque_saldo, 0)
+                    WHERE id = ? LIMIT 1
+                ')->execute([$nid]);
+            }
+
+            return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao inserir.', 'id' => $ok ? $nid : null];
         } else {
             $st = $pdo->prepare('
                 INSERT INTO cliente_itens (cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, descricao, ativo, ordem)
@@ -5762,6 +6523,138 @@ function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): arra
 }
 
 /**
+ * Valor unitário e subtotal efetivos da linha (fallback ao catálogo quando gravado zerado).
+ *
+ * @return array{0: float, 1: float} [valor_unitario, subtotal]
+ */
+function repo_chamado_item_valores_resolvidos(float $vuLinha, float $subLinha, float $qtd, float $vuCatalogo): array
+{
+    $vu = $vuLinha > 0 ? $vuLinha : ($vuCatalogo > 0 ? $vuCatalogo : 0.0);
+    if ($vu > 0 && $qtd > 0) {
+        return [$vu, round($qtd * $vu, 4)];
+    }
+    $sub = $subLinha > 0 ? $subLinha : 0.0;
+
+    return [$vu, $sub];
+}
+
+/**
+ * Movimento efetivo para listagem (corrige linhas de catálogo «Criado» gravadas como utilizado).
+ */
+function repo_chamado_item_movimento_efetivo(array $row): string
+{
+    $m = strtolower(trim((string) ($row['movimento'] ?? 'utilizado')));
+    if ($m === 'devolvido') {
+        return 'devolvido';
+    }
+    if (repo_cliente_itens_catalogo_fluxo_status_column_exists()
+        && trim((string) ($row['catalogo_fluxo_status'] ?? '')) === 'Criado') {
+        return 'devolvido';
+    }
+
+    return 'utilizado';
+}
+
+/**
+ * Persiste movimento devolvido em linhas ligadas a itens de catálogo criados como devolutivo.
+ */
+function repo_chamado_itens_sync_movimento_devolutivo_catalogo(int $chamadoId): void
+{
+    if ($chamadoId <= 0 || !repo_cliente_itens_catalogo_fluxo_status_column_exists()) {
+        return;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return;
+    }
+    try {
+        $st = $pdo->prepare("
+            SELECT ci.id, ci.item_id, ci.quantidade
+            FROM chamado_itens ci
+            INNER JOIN cliente_itens i ON i.id = ci.item_id
+            WHERE ci.chamado_id = ?
+              AND i.catalogo_fluxo_status = 'Criado'
+              AND ci.movimento = 'utilizado'
+        ");
+        $st->execute([$chamadoId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($rows === []) {
+            return;
+        }
+        $pdo->beginTransaction();
+        $up = $pdo->prepare("UPDATE chamado_itens SET movimento = 'devolvido' WHERE id = ? AND chamado_id = ? LIMIT 1");
+        foreach ($rows as $row) {
+            $lid = (int) ($row['id'] ?? 0);
+            $iid = (int) ($row['item_id'] ?? 0);
+            $qtd = (float) ($row['quantidade'] ?? 0);
+            if ($lid <= 0 || $iid <= 0 || $qtd <= 0) {
+                continue;
+            }
+            $up->execute([$lid, $chamadoId]);
+            $deltaCorrecao = repo_cliente_item_estoque_delta_por_movimento('devolvido', $qtd)
+                - repo_cliente_item_estoque_delta_por_movimento('utilizado', $qtd);
+            repo_cliente_item_aplicar_estoque_delta($pdo, $iid, $deltaCorrecao);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('[crm_prefeitura] repo_chamado_itens_sync_movimento_devolutivo_catalogo: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Preenche valor_unitario/subtotal zerados a partir do catálogo (linhas antigas ou devolutivo sem preço).
+ */
+function repo_chamado_itens_backfill_valores_catalogo(int $chamadoId): void
+{
+    $pdo = db();
+    if (!$pdo || $chamadoId <= 0) {
+        return;
+    }
+    try {
+        $st = $pdo->prepare('
+            UPDATE chamado_itens ci
+            INNER JOIN cliente_itens i ON i.id = ci.item_id
+            SET ci.valor_unitario = i.valor_unitario,
+                ci.subtotal = ROUND(ci.quantidade * i.valor_unitario, 4)
+            WHERE ci.chamado_id = ?
+              AND i.valor_unitario > 0
+              AND (ci.valor_unitario IS NULL OR ci.valor_unitario <= 0 OR ci.subtotal IS NULL OR ci.subtotal <= 0)
+        ');
+        $st->execute([$chamadoId]);
+    } catch (Throwable $e) {
+        error_log('[crm_prefeitura] repo_chamado_itens_backfill_valores_catalogo: ' . $e->getMessage());
+    }
+}
+
+/** Recalcula subtotal = quantidade × valor unitário (linhas com preço definido). */
+function repo_chamado_itens_sync_subtotais(int $chamadoId): void
+{
+    $pdo = db();
+    if (!$pdo || $chamadoId <= 0) {
+        return;
+    }
+    try {
+        $st = $pdo->prepare('
+            UPDATE chamado_itens ci
+            INNER JOIN cliente_itens i ON i.id = ci.item_id
+            SET ci.valor_unitario = IF(ci.valor_unitario > 0, ci.valor_unitario, i.valor_unitario),
+                ci.subtotal = ROUND(
+                    ci.quantidade * IF(ci.valor_unitario > 0, ci.valor_unitario, i.valor_unitario),
+                    4
+                )
+            WHERE ci.chamado_id = ?
+              AND IF(ci.valor_unitario > 0, ci.valor_unitario, i.valor_unitario) > 0
+        ');
+        $st->execute([$chamadoId]);
+    } catch (Throwable $e) {
+        error_log('[crm_prefeitura] repo_chamado_itens_sync_subtotais: ' . $e->getMessage());
+    }
+}
+
+/**
  * Linhas de materiais no chamado (com nome do catálogo).
  *
  * @return list<array<string,mixed>>
@@ -5772,24 +6665,41 @@ function repo_chamado_itens_list(int $chamadoId): array
     if (!$pdo || $chamadoId <= 0) {
         return [];
     }
-    $st = $pdo->prepare('
+    repo_chamado_itens_backfill_valores_catalogo($chamadoId);
+    repo_chamado_itens_sync_subtotais($chamadoId);
+    repo_chamado_itens_sync_movimento_devolutivo_catalogo($chamadoId);
+    $colFluxo = repo_cliente_itens_catalogo_fluxo_status_column_exists()
+        ? 'i.catalogo_fluxo_status'
+        : "NULL AS catalogo_fluxo_status";
+    $st = $pdo->prepare("
         SELECT ci.id, ci.chamado_id, ci.item_id, ci.movimento, ci.quantidade, ci.valor_unitario, ci.subtotal, ci.observacao,
-               i.nome AS item_nome, i.tipo AS item_tipo, i.codigo AS item_codigo, i.unidade AS catalogo_unidade
+               i.nome AS item_nome, i.tipo AS item_tipo, i.codigo AS item_codigo, i.unidade AS catalogo_unidade,
+               i.descricao AS item_descricao, i.valor_unitario AS catalogo_valor_unitario,
+               {$colFluxo}
         FROM chamado_itens ci
         INNER JOIN cliente_itens i ON i.id = ci.item_id
         WHERE ci.chamado_id = ?
         ORDER BY ci.id ASC
-    ');
+    ");
     $st->execute([$chamadoId]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     foreach ($rows as &$r) {
         $r['id']             = (int) $r['id'];
         $r['chamado_id']     = (int) $r['chamado_id'];
         $r['item_id']        = (int) $r['item_id'];
-        $r['movimento']      = (string) ($r['movimento'] ?? 'utilizado');
-        $r['quantidade']     = (float) $r['quantidade'];
-        $r['valor_unitario'] = (float) $r['valor_unitario'];
-        $r['subtotal']       = (float) $r['subtotal'];
+        $r['movimento']             = repo_chamado_item_movimento_efetivo($r);
+        $r['catalogo_fluxo_status'] = trim((string) ($r['catalogo_fluxo_status'] ?? ''));
+        $r['quantidade']            = (float) $r['quantidade'];
+        $catVu               = (float) ($r['catalogo_valor_unitario'] ?? 0);
+        [$vu, $sub]          = repo_chamado_item_valores_resolvidos(
+            (float) ($r['valor_unitario'] ?? 0),
+            (float) ($r['subtotal'] ?? 0),
+            (float) ($r['quantidade'] ?? 0),
+            $catVu
+        );
+        $r['valor_unitario'] = $vu;
+        $r['subtotal']       = $sub;
+        unset($r['catalogo_valor_unitario']);
     }
     unset($r);
 
@@ -5798,20 +6708,32 @@ function repo_chamado_itens_list(int $chamadoId): array
 
 function repo_chamado_itens_valor_total(int $chamadoId): float
 {
-    $pdo = db();
-    if (!$pdo || $chamadoId <= 0) {
+    if ($chamadoId <= 0) {
         return 0.0;
     }
-    $st = $pdo->prepare("SELECT COALESCE(SUM(subtotal),0) FROM chamado_itens WHERE chamado_id = ? AND movimento = 'utilizado'");
-    $st->execute([$chamadoId]);
+    $total = 0.0;
+    foreach (repo_chamado_itens_list($chamadoId) as $row) {
+        if (repo_chamado_item_movimento_efetivo($row) === 'devolvido') {
+            continue;
+        }
+        $total += (float) ($row['subtotal'] ?? 0);
+    }
 
-    return (float) $st->fetchColumn();
+    return $total;
 }
 
 /**
  * @return array{ok: bool, err: string}
  */
-function repo_chamado_item_adicionar(int $chamadoId, int $itemId, float $quantidade, string $movimento = 'utilizado', ?string $observacao = null): array
+function repo_chamado_item_adicionar(
+    int $chamadoId,
+    int $itemId,
+    float $quantidade,
+    string $movimento = 'utilizado',
+    ?string $observacao = null,
+    ?float $valorUnitarioInformado = null,
+    ?float $subtotalInformado = null
+): array
 {
     $pdo = db();
     if (!$pdo || $chamadoId <= 0 || $itemId <= 0 || $quantidade <= 0) {
@@ -5835,8 +6757,14 @@ function repo_chamado_item_adicionar(int $chamadoId, int $itemId, float $quantid
     if ($movimento === 'devolvido' && $tipoItem !== 'produto') {
         return ['ok' => false, 'err' => 'Recolhimentos aceitam apenas produtos (materiais) do catálogo.'];
     }
-    $vu = (float) ($it['valor_unitario'] ?? 0);
-    $sub = round($quantidade * $vu, 4);
+    if (repo_cliente_itens_catalogo_fluxo_status_column_exists()
+        && trim((string) ($it['catalogo_fluxo_status'] ?? '')) === 'Criado') {
+        $movimento = 'devolvido';
+    }
+    $vuCat = (float) ($it['valor_unitario'] ?? 0);
+    $vuInf = $valorUnitarioInformado !== null ? (float) $valorUnitarioInformado : 0.0;
+    $subInf = $subtotalInformado !== null ? (float) $subtotalInformado : 0.0;
+    [$vu, $sub] = repo_chamado_item_valores_resolvidos($vuInf, $subInf, $quantidade, $vuCat);
     $criadoPor = repo_usuario_sessao_id();
     $obs = trim((string) $observacao);
     $obsVal = $obs !== '' ? $obs : null;
@@ -5897,7 +6825,8 @@ function repo_chamado_item_atualizar_quantidade(int $linhaId, int $chamadoId, fl
         return false;
     }
     $st = $pdo->prepare('
-        SELECT ci.item_id, ci.quantidade, ci.valor_unitario, ci.movimento, i.nome AS item_nome, ch.cliente_id
+        SELECT ci.item_id, ci.quantidade, ci.valor_unitario, ci.subtotal, ci.movimento,
+               i.nome AS item_nome, i.valor_unitario AS catalogo_valor_unitario, ch.cliente_id
         FROM chamado_itens ci
         INNER JOIN cliente_itens i ON i.id = ci.item_id
         INNER JOIN chamados ch ON ch.id = ci.chamado_id
@@ -5912,13 +6841,17 @@ function repo_chamado_item_atualizar_quantidade(int $linhaId, int $chamadoId, fl
     $itemId   = (int) ($row['item_id'] ?? 0);
     $qtdAnt   = (float) ($row['quantidade'] ?? 0);
     $mov      = (string) ($row['movimento'] ?? 'utilizado');
-    $vu       = (float) ($row['valor_unitario'] ?? 0);
-    $sub      = round($quantidade * $vu, 4);
+    [$vu, $sub] = repo_chamado_item_valores_resolvidos(
+        (float) ($row['valor_unitario'] ?? 0),
+        (float) ($row['subtotal'] ?? 0),
+        $quantidade,
+        (float) ($row['catalogo_valor_unitario'] ?? 0)
+    );
     $deltaEst = repo_cliente_item_estoque_delta_por_movimento($mov, $quantidade - $qtdAnt);
     try {
         $pdo->beginTransaction();
-        $up = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, subtotal = ? WHERE id = ? AND chamado_id = ?');
-        $ok = (bool) $up->execute([$quantidade, $sub, $linhaId, $chamadoId]);
+        $up = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, valor_unitario = ?, subtotal = ? WHERE id = ? AND chamado_id = ?');
+        $ok = (bool) $up->execute([$quantidade, $vu, $sub, $linhaId, $chamadoId]);
         if (!$ok) {
             $pdo->rollBack();
 
@@ -5954,7 +6887,8 @@ function repo_chamado_item_atualizar_linha(int $linhaId, int $chamadoId, float $
         return false;
     }
     $st = $pdo->prepare('
-        SELECT ci.item_id, ci.quantidade, ci.valor_unitario, ci.movimento, i.nome AS item_nome, ch.cliente_id
+        SELECT ci.item_id, ci.quantidade, ci.valor_unitario, ci.subtotal, ci.movimento,
+               i.nome AS item_nome, i.valor_unitario AS catalogo_valor_unitario, ch.cliente_id
         FROM chamado_itens ci
         INNER JOIN cliente_itens i ON i.id = ci.item_id
         INNER JOIN chamados ch ON ch.id = ci.chamado_id
@@ -5969,14 +6903,18 @@ function repo_chamado_item_atualizar_linha(int $linhaId, int $chamadoId, float $
     $itemId   = (int) ($row['item_id'] ?? 0);
     $qtdAnt   = (float) ($row['quantidade'] ?? 0);
     $mov      = (string) ($row['movimento'] ?? 'utilizado');
-    $vu       = (float) ($row['valor_unitario'] ?? 0);
-    $sub      = round($quantidade * $vu, 4);
+    [$vu, $sub] = repo_chamado_item_valores_resolvidos(
+        (float) ($row['valor_unitario'] ?? 0),
+        (float) ($row['subtotal'] ?? 0),
+        $quantidade,
+        (float) ($row['catalogo_valor_unitario'] ?? 0)
+    );
     $obs      = trim((string) $observacao);
     $deltaEst = repo_cliente_item_estoque_delta_por_movimento($mov, $quantidade - $qtdAnt);
     try {
         $pdo->beginTransaction();
-        $up = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, subtotal = ?, observacao = ? WHERE id = ? AND chamado_id = ?');
-        $ok = (bool) $up->execute([$quantidade, $sub, $obs !== '' ? $obs : null, $linhaId, $chamadoId]);
+        $up = $pdo->prepare('UPDATE chamado_itens SET quantidade = ?, valor_unitario = ?, subtotal = ?, observacao = ? WHERE id = ? AND chamado_id = ?');
+        $ok = (bool) $up->execute([$quantidade, $vu, $sub, $obs !== '' ? $obs : null, $linhaId, $chamadoId]);
         if (!$ok) {
             $pdo->rollBack();
 
@@ -6328,12 +7266,6 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
     if (in_array($stAtual, ['Resolvido', 'Fechado'], true)) {
         return ['ok' => true, 'err' => ''];
     }
-    if (!repo_chamado_tem_coordenadas_validas($ch)) {
-        return [
-            'ok'  => false,
-            'err' => 'Cadastre latitude e longitude válidas no chamado antes de finalizar o atendimento.',
-        ];
-    }
     if (!empty($ch['finalizado_operador_em']) && !in_array($stAtual, ['Aberto', 'Em andamento'], true)) {
         return ['ok' => true, 'err' => ''];
     }
@@ -6429,6 +7361,76 @@ function repo_notificacoes_table_exists(): bool
 }
 
 /**
+ * SQL extra para notificar apenas usuários com conta ativa.
+ */
+function _repo_notificacao_sql_usuario_ativo(): string
+{
+    return repo_usuarios_ativo_column_exists() ? ' AND COALESCE(ativo, 1) = 1' : '';
+}
+
+/**
+ * Gestores da empresa/prefeitura dona do chamado (empresa_id ou cliente_id legado).
+ */
+function _repo_notificacao_ids_gestores_empresa(PDO $pdo, int $empresaRaiz): array
+{
+    if ($empresaRaiz <= 0) {
+        return [];
+    }
+    $ativo = _repo_notificacao_sql_usuario_ativo();
+    $st    = $pdo->prepare(
+        "SELECT id FROM usuarios WHERE perfil = 'gestor' AND (
+            empresa_id = ? OR cliente_id IN (
+                SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
+            )
+        ){$ativo}"
+    );
+    $st->execute([$empresaRaiz, $empresaRaiz, $empresaRaiz]);
+
+    return array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN, 0) ?: []);
+}
+
+/**
+ * Gestores e usuários portal (perfil cliente) da matriz — alertas de medição/BM.
+ *
+ * @return list<int>
+ */
+function repo_notificacao_destinatarios_medicao_bm(int $clienteMatrizId): array
+{
+    $pdo = db();
+    if (!$pdo || $clienteMatrizId <= 0 || !repo_notificacoes_table_exists()) {
+        return [];
+    }
+    $raiz = repo_cliente_catalogo_dono_id($clienteMatrizId);
+    if ($raiz <= 0) {
+        $raiz = repo_cliente_matriz_raiz_id($clienteMatrizId);
+    }
+    if ($raiz <= 0) {
+        $raiz = $clienteMatrizId;
+    }
+    $ativoSql = _repo_notificacao_sql_usuario_ativo();
+    $ids      = _repo_notificacao_ids_gestores_empresa($pdo, $raiz);
+
+    try {
+        $st = $pdo->prepare(
+            "SELECT id FROM usuarios WHERE perfil = 'cliente' AND cliente_id IN (
+                SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
+            ){$ativoSql}"
+        );
+        $st->execute([$raiz, $raiz]);
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN, 0) ?: [] as $v) {
+            $id = (int) $v;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+    } catch (Throwable $e) {
+        // mantém gestores já coletados
+    }
+
+    return array_values(array_unique($ids));
+}
+
+/**
  * Destinatários que devem receber alerta de nova mensagem no chamado.
  *
  * @return list<int>
@@ -6445,6 +7447,7 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
     }
     $empresaRaiz = repo_cliente_catalogo_dono_id((int) ($ch['cliente_id'] ?? 0));
     $ids           = [];
+    $ativoSql      = _repo_notificacao_sql_usuario_ativo();
 
     $pushIds = static function (array $rows) use (&$ids): void {
         foreach ($rows as $v) {
@@ -6457,29 +7460,23 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
 
     try {
         if ($somenteMensagemInterna) {
-            $st = $pdo->query('SELECT id FROM usuarios WHERE perfil = \'admin\'');
+            $st = $pdo->query("SELECT id FROM usuarios WHERE perfil = 'admin'{$ativoSql}");
             $pushIds($st ? $st->fetchAll(PDO::FETCH_COLUMN, 0) : []);
-            if ($empresaRaiz > 0) {
-                $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'gestor\' AND empresa_id = ?');
-                $st->execute([$empresaRaiz]);
-                $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
-            }
+            $pushIds(_repo_notificacao_ids_gestores_empresa($pdo, $empresaRaiz));
 
             return array_values(array_unique($ids));
         }
 
-        $st = $pdo->query('SELECT id FROM usuarios WHERE perfil = \'admin\'');
+        $st = $pdo->query("SELECT id FROM usuarios WHERE perfil = 'admin'{$ativoSql}");
         $pushIds($st ? $st->fetchAll(PDO::FETCH_COLUMN, 0) : []);
 
         if ($empresaRaiz > 0) {
-            $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'gestor\' AND empresa_id = ?');
-            $st->execute([$empresaRaiz]);
-            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+            $pushIds(_repo_notificacao_ids_gestores_empresa($pdo, $empresaRaiz));
 
             $st = $pdo->prepare(
-                'SELECT id FROM usuarios WHERE perfil = \'cliente\' AND cliente_id IN (
+                "SELECT id FROM usuarios WHERE perfil = 'cliente' AND cliente_id IN (
                     SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
-                )'
+                ){$ativoSql}"
             );
             $st->execute([$empresaRaiz, $empresaRaiz]);
             $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
@@ -6497,13 +7494,13 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
         }
 
         if ($empresaRaiz > 0) {
-            $st = $pdo->prepare('SELECT id FROM usuarios WHERE perfil = \'operador\' AND empresa_id = ?');
+            $st = $pdo->prepare("SELECT id FROM usuarios WHERE perfil = 'operador' AND empresa_id = ?{$ativoSql}");
             $st->execute([$empresaRaiz]);
             $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
             $st2 = $pdo->prepare(
-                'SELECT id FROM usuarios WHERE perfil = \'operador\' AND cliente_id IN (
+                "SELECT id FROM usuarios WHERE perfil = 'operador' AND cliente_id IN (
                     SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
-                )'
+                ){$ativoSql}"
             );
             $st2->execute([$empresaRaiz, $empresaRaiz]);
             $pushIds($st2->fetchAll(PDO::FETCH_COLUMN, 0));
@@ -6558,7 +7555,7 @@ function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
     $limit = max(1, min(100, $limit));
     try {
         $st = $pdo->prepare(
-            'SELECT id, chamado_id, titulo, descricao, lida,
+            'SELECT id, chamado_id, tipo, titulo, descricao, lida,
                     DATE_FORMAT(data_criacao, \'%Y-%m-%d %H:%i:%s\') AS data_criacao
              FROM notificacoes
              WHERE usuario_id = ?
@@ -6571,10 +7568,19 @@ function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
             $cid           = (int) ($r['chamado_id'] ?? 0);
             $r['id']       = (int) ($r['id'] ?? 0);
             $r['chamado_id'] = $cid;
+            $r['tipo']     = (string) ($r['tipo'] ?? '');
             $r['lida']     = (int) ($r['lida'] ?? 0);
             $r['titulo']   = (string) ($r['titulo'] ?? '');
             $r['descricao'] = isset($r['descricao']) ? ($r['descricao'] !== '' ? (string) $r['descricao'] : null) : null;
-            $r['link']     = 'chamado_detalhe.php?id=' . $cid;
+            $tipoNot = (string) ($r['tipo'] ?? '');
+            if (in_array($tipoNot, ['medicao_custo_pendente', 'medicao_bm_importado'], true)
+                && preg_match('/(\d{4}-\d{2})/', $r['titulo'], $mYm)) {
+                $r['link'] = $tipoNot === 'medicao_bm_importado'
+                    ? 'medicao_mes.php?mes=' . $mYm[1]
+                    : 'medicao_ver.php?mes=' . $mYm[1];
+            } else {
+                $r['link'] = 'chamado_detalhe.php?id=' . $cid;
+            }
         }
         unset($r);
 
@@ -7239,8 +8245,14 @@ function repo_usuario_calcular_iniciais(string $nome): string
     if ($nome === '') {
         return '??';
     }
+    $limpo = preg_replace('/\s*\([^)]*\)\s*$/u', '', $nome);
+    $nome  = trim($limpo !== null && $limpo !== '' ? $limpo : $nome);
     $parts = preg_split('/\s+/u', $nome, -1, PREG_SPLIT_NO_EMPTY);
-    if (!$parts) {
+    $parts = array_values(array_filter(
+        $parts,
+        static fn (string $p): bool => preg_match('/\p{L}/u', $p) === 1
+    ));
+    if ($parts === []) {
         return '??';
     }
     if (function_exists('mb_substr') && function_exists('mb_strtoupper')) {
@@ -7305,6 +8317,11 @@ function _repo_usuario_enriquecer(PDO $pdo, array $u): array
     if (array_key_exists('empresa_id', $u) && $u['empresa_id'] !== null) {
         $u['empresa_id'] = (int) $u['empresa_id'];
     }
+    $ini = trim((string) ($u['iniciais'] ?? ''));
+    if ($ini === '' && trim((string) ($u['nome'] ?? '')) !== '') {
+        $ini = repo_usuario_calcular_iniciais((string) $u['nome']);
+    }
+    $u['iniciais'] = $ini !== '' ? $ini : 'US';
     return $u;
 }
 
@@ -7552,6 +8569,38 @@ function repo_usuarios_list_for_admin(string $perfilFil, string $q, int $page, i
  *
  * @return array{ok: bool, err: string}
  */
+/**
+ * Exclusão permanente por gestor da empresa (operadores/clientes no escopo).
+ *
+ * @return array{ok: bool, err: string}
+ */
+function repo_usuario_delete_by_gestor(int $targetId, int $gestorUserId, int $empresaId): array
+{
+    if ($targetId <= 0 || $gestorUserId <= 0 || $empresaId <= 0) {
+        return ['ok' => false, 'err' => 'Pedido inválido.'];
+    }
+    if ($targetId === $gestorUserId) {
+        return ['ok' => false, 'err' => 'Não é possível excluir o seu próprio utilizador.'];
+    }
+    $alvo = repo_user_by_id($targetId);
+    if (!$alvo) {
+        return ['ok' => false, 'err' => 'Utilizador não encontrado.'];
+    }
+    $perfilAlvo = (string) ($alvo['perfil'] ?? '');
+    if (in_array($perfilAlvo, ['admin'], true)) {
+        return ['ok' => false, 'err' => 'Sem permissão para excluir este perfil.'];
+    }
+    $uEid = isset($alvo['empresa_id']) && $alvo['empresa_id'] !== null ? (int) $alvo['empresa_id'] : 0;
+    $uCid = isset($alvo['cliente_id']) && $alvo['cliente_id'] !== null ? (int) $alvo['cliente_id'] : 0;
+    $noEscopo = ($uEid === $empresaId)
+        || ($perfilAlvo === 'cliente' && $uCid > 0 && repo_cliente_pertence_empresa($uCid, $empresaId));
+    if (!$noEscopo) {
+        return ['ok' => false, 'err' => 'Utilizador fora do escopo da sua empresa.'];
+    }
+
+    return repo_usuario_delete_by_admin($targetId, $gestorUserId);
+}
+
 function repo_usuario_delete_by_admin(int $targetId, int $actorAdminId): array
 {
     $pdo = db();
@@ -8142,4 +9191,5 @@ function repo_saas_modulos_habilitados_map(string $grupo): array
 }
 
 require_once __DIR__ . '/os_pedido_repo.php';
+require_once __DIR__ . '/medicao_custo_repo.php';
 

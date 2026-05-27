@@ -26,7 +26,7 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
     <?php if ($embedForm): ?>
     <span class="panel-sub">Altere nome, e-mail ou senha. O perfil não pode ser alterado nesta tela.</span>
     <?php else: ?>
-    <span class="panel-sub">Perfil define o acesso ao painel interno ou ao portal do cliente</span>
+    <span class="panel-sub">Perfil define o acesso ao painel interno ou ao portal do cliente. Contas novas ficam ativas de imediato — não há confirmação por e-mail; defina a senha ao criar ou em «Nova senha» abaixo.</span>
     <?php endif; ?>
   </div>
 
@@ -144,6 +144,18 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
     <div class="form-actions" style="padding:0;border:0;background:transparent;">
       <a href="<?= htmlspecialchars($cancelHref, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-secondary"<?= $embedForm ? ' target="_top"' : '' ?>>Cancelar</a>
       <button type="submit" class="btn btn-primary">Salvar</button>
+      <?php if (!empty($escopoUe) && (int) ($me['id'] ?? 0) !== $userId): ?>
+      <button type="submit" form="form-excluir-usuario" class="btn btn-danger"
+        onclick="return confirm('Excluir este utilizador permanentemente? Esta ação não pode ser desfeita.');">Excluir</button>
+      <?php endif; ?>
     </div>
   </div>
 </form>
+<?php if (!empty($escopoUe) && (int) ($me['id'] ?? 0) !== $userId): ?>
+<form id="form-excluir-usuario" method="post" action="usuario_editar.php?id=<?= (int) $userId ?>" target="_top" style="display:none;">
+  <input type="hidden" name="acao" value="excluir_usuario">
+  <?php if ($embedForm && $returnUrlHidden !== ''): ?>
+  <input type="hidden" name="return_url" value="<?= htmlspecialchars($returnUrlHidden, ENT_QUOTES, 'UTF-8') ?>">
+  <?php endif; ?>
+</form>
+<?php endif; ?>

@@ -32,6 +32,10 @@ const MEDICAO_BM_XLSX_SIZE_TITLE_SUB = 11;
 const MEDICAO_BM_XLSX_SIZE_TOTAL = 11;
 /** Altura de linha compacta (pt). */
 const MEDICAO_BM_XLSX_ROW_HEIGHT = 16.0;
+/** Altura máxima de linha de dados (descrição com várias linhas). */
+const MEDICAO_BM_XLSX_ROW_HEIGHT_MAX = 96.0;
+/** Incremento por linha visual na coluna descrição (pt). */
+const MEDICAO_BM_XLSX_ROW_LINE_PT = 13.5;
 /** Título principal (faixa hero; próximo do modelo institucional ~55 pt). */
 const MEDICAO_BM_XLSX_ROW_TITLE = 54.0;
 /** Linhas de meta / contrato sob o título. */
@@ -66,6 +70,31 @@ const MEDICAO_BM_BORDER_LIGHT = 'DADDF0';
 const MEDICAO_BM_BORDER_STRONG = 'BFC3D9';
 const MEDICAO_BM_WHITE = 'FFFFFF';
 const MEDICAO_BM_TOTAL_BORDER = 'C9C6F4';
+/** Fundo das linhas devolvidas/recolhidas (sucata) no boletim — fora dos totais de medição. */
+const MEDICAO_BM_BG_SUCATA = 'F3F4F6';
+
+/**
+ * @return array<string, mixed>
+ */
+function medicao_bm_boletim_style_linha_sucata(): array
+{
+    $font = medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MUTED);
+    $font['italic'] = true;
+
+    return [
+        'fill' => medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BG_SUCATA),
+        'font' => $font,
+    ];
+}
+
+function medicao_bm_boletim_aplicar_estilo_linha_sucata(Worksheet $sheet, int $row, string $lastCol = 'P'): void
+{
+    if ($row <= 0) {
+        return;
+    }
+    $lc = $lastCol !== '' ? $lastCol : 'P';
+    $sheet->getStyle('A' . $row . ':' . $lc . $row)->applyFromArray(medicao_bm_boletim_style_linha_sucata());
+}
 
 /**
  * @return array<string, mixed>
@@ -110,16 +139,12 @@ function medicao_bm_boletim_style_font(bool $bold, int $size, string $colorRgb):
  */
 function medicao_bm_boletim_style_align_vc(bool $wrap, string $horizontal = Alignment::HORIZONTAL_GENERAL): array
 {
-    $align = [
-        'vertical'   => Alignment::VERTICAL_CENTER,
-        'horizontal' => $horizontal,
-        'wrapText'   => $wrap,
+    return [
+        'vertical'     => $wrap ? Alignment::VERTICAL_TOP : Alignment::VERTICAL_CENTER,
+        'horizontal'   => $horizontal,
+        'wrapText'     => $wrap,
+        'shrinkToFit'  => false,
     ];
-    if (!$wrap) {
-        $align['shrinkToFit'] = true;
-    }
-
-    return $align;
 }
 
 /**
@@ -202,7 +227,7 @@ function medicao_bm_boletim_style_arrays_tipografia(): array
         ],
         'body_desc' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
-            'alignment' => medicao_bm_boletim_style_align_vc(false, Alignment::HORIZONTAL_LEFT),
+            'alignment' => medicao_bm_boletim_style_align_vc(true, Alignment::HORIZONTAL_LEFT),
         ],
         'numeric' => [
             'font'      => medicao_bm_boletim_style_font(false, MEDICAO_BM_XLSX_SIZE_BASE, MEDICAO_BM_TEXT_MAIN),
@@ -488,40 +513,52 @@ function medicao_bm_boletim_aplicar_layout_sem_quebra(
     $moneyCols    = $ctx['money_cols'] ?? ['I', 'J', 'K', 'L'];
     $qtyCols      = $ctx['qty_cols'] ?? ['D', 'E', 'F', 'G', 'H', 'M'];
     $leftCols     = $ctx['left_cols'] ?? ['A', 'B', 'C'];
+    $descCol      = (string) ($ctx['desc_col'] ?? 'B');
 
     $range = $firstColLetter . $firstRow . ':' . $lastColLetter . $lastRow;
     $sheet->getStyle($range)->getAlignment()
         ->setVertical(Alignment::VERTICAL_CENTER)
         ->setWrapText(false)
-        ->setShrinkToFit(true);
+        ->setShrinkToFit(false);
 
     if ($headerRow !== null && $headerRow >= $firstRow && $headerRow <= $lastRow) {
         $hdr = 'A' . $headerRow . ':' . $lastColLetter . $headerRow;
         $sheet->getStyle($hdr)->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_CENTER)
             ->setVertical(Alignment::VERTICAL_CENTER)
-            ->setWrapText(false)
-            ->setShrinkToFit(true);
+            ->setWrapText(true)
+            ->setShrinkToFit(false);
     }
 
     if ($firstDataRow !== null && $lastDataRow !== null && $firstDataRow <= $lastDataRow) {
         foreach ($leftCols as $col) {
+            if ($col === $descCol) {
+                continue;
+            }
             $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_LEFT)
+                ->setVertical(Alignment::VERTICAL_CENTER)
                 ->setWrapText(false)
-                ->setShrinkToFit(true);
+                ->setShrinkToFit(false);
         }
+        $sheet->getStyle($descCol . $firstDataRow . ':' . $descCol . $lastDataRow)->getAlignment()
+            ->setHorizontal(Alignment::HORIZONTAL_LEFT)
+            ->setVertical(Alignment::VERTICAL_TOP)
+            ->setWrapText(true)
+            ->setShrinkToFit(false);
         foreach ($qtyCols as $col) {
             $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_RIGHT)
+                ->setVertical(Alignment::VERTICAL_CENTER)
                 ->setWrapText(false)
-                ->setShrinkToFit(true);
+                ->setShrinkToFit(false);
         }
         foreach ($moneyCols as $col) {
             $sheet->getStyle($col . $firstDataRow . ':' . $col . $lastDataRow)->getAlignment()
                 ->setHorizontal(Alignment::HORIZONTAL_RIGHT)
+                ->setVertical(Alignment::VERTICAL_CENTER)
                 ->setWrapText(false)
-                ->setShrinkToFit(true);
+                ->setShrinkToFit(false);
         }
     }
 
@@ -530,8 +567,35 @@ function medicao_bm_boletim_aplicar_layout_sem_quebra(
         $sheet->getStyle('A' . $r . ':' . $lastColLetter . $r)->getAlignment()
             ->setVertical(Alignment::VERTICAL_CENTER)
             ->setWrapText(false)
-            ->setShrinkToFit(true);
+            ->setShrinkToFit(false);
     }
+}
+
+/**
+ * Estima altura de linha (pt) para texto com quebra na coluna descrição.
+ */
+function medicao_bm_boletim_altura_linha_para_descricao(string $text, float $colWidthUnits): float
+{
+    $text = trim(preg_replace('/[ \t]+/u', ' ', $text) ?? $text);
+    if ($text === '') {
+        return MEDICAO_BM_XLSX_ROW_HEIGHT;
+    }
+
+    $charsPerLine = max(14, (int) floor($colWidthUnits * 1.12));
+    $segments     = preg_split('/\R/u', $text) ?: [$text];
+    $lines        = 0;
+    foreach ($segments as $seg) {
+        $seg = trim($seg);
+        $len = mb_strlen($seg, 'UTF-8');
+        $lines += max(1, (int) ceil(max(1, $len) / $charsPerLine));
+    }
+
+    $pad = 5.0;
+
+    return max(
+        MEDICAO_BM_XLSX_ROW_HEIGHT,
+        min(MEDICAO_BM_XLSX_ROW_HEIGHT_MAX, $pad + $lines * MEDICAO_BM_XLSX_ROW_LINE_PT)
+    );
 }
 
 function medicao_bm_boletim_aplicar_alturas_linhas_compactas(
@@ -539,10 +603,19 @@ function medicao_bm_boletim_aplicar_alturas_linhas_compactas(
     int $lastRow,
     int $headerRow,
     int $firstDataRow,
-    int $lastDataRow
+    int $lastDataRow,
+    string $descCol = 'B'
 ): void {
+    $descWidth = (float) $sheet->getColumnDimension($descCol)->getWidth();
+    if ($descWidth <= 0) {
+        $descWidth = MEDICAO_BM_XLSX_COL_DESC_WIDTH;
+    }
+
     for ($r = $firstDataRow; $r <= $lastDataRow; $r++) {
-        $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_HEIGHT);
+        $desc = medicao_bm_boletim_valor_celula_para_largura($sheet, $descCol . $r);
+        $sheet->getRowDimension($r)->setRowHeight(
+            medicao_bm_boletim_altura_linha_para_descricao($desc, $descWidth)
+        );
     }
     $sheet->getRowDimension(1)->setRowHeight(MEDICAO_BM_XLSX_ROW_TITLE);
     if ($lastRow >= 2) {
@@ -591,10 +664,12 @@ function medicao_export_bm_boletim_xlsx_send(
     usort(
         $itensCh,
         static function (array $a, array $b): int {
-            $ca = (string) ($a['item_codigo'] ?? '') . "\0" . (string) ($a['item_nome'] ?? '');
-            $cb = (string) ($b['item_codigo'] ?? '') . "\0" . (string) ($b['item_nome'] ?? '');
-
-            return strcmp($ca, $cb);
+            return medicao_bm_boletim_cmp_item_id_codigo(
+                (int) ($a['item_id'] ?? 0),
+                (int) ($b['item_id'] ?? 0),
+                (string) ($a['item_codigo'] ?? ''),
+                (string) ($b['item_codigo'] ?? '')
+            );
         }
     );
 
@@ -630,7 +705,7 @@ function medicao_export_bm_boletim_xlsx_send(
     $r = $firstDataRow;
     if ($itensCh === []) {
         medicao_bm_boletim_aplicar_estilo_linha($sheet, $bodyStyle, $r);
-        $sheet->setCellValue('B' . $r, 'Nenhum item utilizado em chamados resolvidos neste mês (movimento «utilizado»; status Resolvido).');
+        $sheet->setCellValue('B' . $r, 'Nenhum item utilizado em chamados Validado neste mês (movimento «utilizado»).');
         $lastDataRow = $firstDataRow;
         $r++;
     } else {
@@ -1077,10 +1152,28 @@ function medicao_bm_boletim_numero_sequencia(int $clienteMatrizId, string $refYm
     }
 }
 
-/** Normaliza código de item para união BM / CRM (maiúsculas, trim). */
+/** @deprecated Use medicao_bm_boletim_norm_cod */
 function medicao_bm_boletim_v2_norm_cod(?string $cod): string
 {
-    return strtoupper(trim((string) $cod));
+    return medicao_bm_boletim_norm_cod($cod);
+}
+
+/** @deprecated Use medicao_bm_boletim_key_string */
+function medicao_bm_boletim_v2_key_string(mixed $k): string
+{
+    return medicao_bm_boletim_key_string($k);
+}
+
+/** @deprecated Use medicao_bm_boletim_key_from_cod */
+function medicao_bm_boletim_v2_key_from_cod(string $normCod, int $fallbackItemId = 0): string
+{
+    return medicao_bm_boletim_key_from_cod($normCod, $fallbackItemId);
+}
+
+/** @deprecated Use medicao_bm_boletim_cod_from_key */
+function medicao_bm_boletim_v2_cod_from_key(string $k): string
+{
+    return medicao_bm_boletim_cod_from_key($k);
 }
 
 /**
@@ -1102,11 +1195,14 @@ function medicao_bm_boletim_v2_listar_keys_ordenadas(
 
     foreach ($impLinhas as $il) {
         $raw = isset($il['item_codigo']) ? (string) $il['item_codigo'] : '';
-        $n   = medicao_bm_boletim_v2_norm_cod($raw);
-        $k   = ($n !== '') ? $n : ('MIL:' . (int) ($il['linha_id'] ?? 0));
+        $k   = medicao_bm_boletim_v2_key_from_cod($raw);
+        if ($k === '') {
+            $k = 'MIL:' . (int) ($il['linha_id'] ?? 0);
+        }
         if ($k === 'MIL:0') {
             continue;
         }
+        $k = medicao_bm_boletim_v2_key_string($k);
         if (isset($seen[$k])) {
             continue;
         }
@@ -1116,12 +1212,13 @@ function medicao_bm_boletim_v2_listar_keys_ordenadas(
 
     $restSet = [];
     foreach (array_keys($priorBmNorm) as $k) {
+        $k = medicao_bm_boletim_v2_key_from_cod(medicao_bm_boletim_v2_key_string($k));
         if ($k !== '' && !isset($seen[$k])) {
             $restSet[$k] = true;
         }
     }
     foreach ($crmRows as $r) {
-        $nk = (string) ($r['_bm_key'] ?? '');
+        $nk = medicao_bm_boletim_v2_key_string($r['_bm_key'] ?? '');
         if ($nk !== '' && !isset($seen[$nk])) {
             $restSet[$nk] = true;
         }
@@ -1147,23 +1244,25 @@ function medicao_bm_boletim_v2_compor_linhas(
 ): array {
     $crmRows = repo_medicao_bm_utilizado_por_item_periodo_lancamento($matrizId, $periodoDe, $periodoAte);
     foreach ($crmRows as &$cr) {
-        $nc            = medicao_bm_boletim_v2_norm_cod((string) ($cr['item_codigo'] ?? ''));
         $idItem        = (int) ($cr['item_id'] ?? 0);
-        $cr['_bm_key'] = ($nc !== '') ? $nc : ('ID:' . $idItem);
+        $cr['_bm_key'] = medicao_bm_boletim_v2_key_from_cod((string) ($cr['item_codigo'] ?? ''), $idItem);
     }
     unset($cr);
 
     $crmPorKey = [];
     foreach ($crmRows as $cr) {
-        $crmPorKey[(string) $cr['_bm_key']] = $cr;
+        $bk = medicao_bm_boletim_v2_key_string($cr['_bm_key'] ?? '');
+        if ($bk !== '') {
+            $crmPorKey[$bk] = $cr;
+        }
     }
 
     $priorBmRaw = repo_medicao_bm_imports_totals_before_ym($matrizId, $refYm);
     $priorBm    = [];
     foreach ($priorBmRaw as $c => $vals) {
-        $n       = medicao_bm_boletim_v2_norm_cod((string) $c);
-        if ($n !== '') {
-            $priorBm[$n] = $vals;
+        $bk = medicao_bm_boletim_v2_key_from_cod((string) $c);
+        if ($bk !== '') {
+            $priorBm[$bk] = $vals;
         }
     }
 
@@ -1172,15 +1271,16 @@ function medicao_bm_boletim_v2_compor_linhas(
     $catPorCodRaw  = repo_medicao_bm_catalogo_por_codigo_matriz($matrizId);
     $catPorCodNorm = [];
     foreach ($catPorCodRaw as $cod => $row) {
-        $u = medicao_bm_boletim_v2_norm_cod((string) $cod);
-        if ($u !== '') {
-            $catPorCodNorm[$u] = $row;
+        $bk = medicao_bm_boletim_v2_key_from_cod((string) $cod);
+        if ($bk !== '') {
+            $catPorCodNorm[$bk] = $row;
         }
     }
 
     $orderedKeys = medicao_bm_boletim_v2_listar_keys_ordenadas($impLinhas, $crmRows, $priorBm);
     $seenOrd = array_fill_keys($orderedKeys, true);
     foreach (array_keys($catPorCodNorm) as $ck) {
+        $ck = medicao_bm_boletim_v2_key_string($ck);
         if ($ck !== '' && !isset($seenOrd[$ck])) {
             $orderedKeys[] = $ck;
             $seenOrd[$ck]  = true;
@@ -1191,31 +1291,34 @@ function medicao_bm_boletim_v2_compor_linhas(
         return ['rows' => [], 'valor_medido_total' => 0.0];
     }
 
+    /** @var array<string, array<string,mixed>> $importPorCodNorm */
+    $importPorCodNorm = [];
+    foreach ($impLinhas as $il) {
+        $bk = medicao_bm_boletim_v2_key_from_cod((string) ($il['item_codigo'] ?? ''));
+        if ($bk !== '' && !isset($importPorCodNorm[$bk])) {
+            $importPorCodNorm[$bk] = $il;
+        }
+    }
+
+    $orderedKeys = medicao_bm_boletim_ordenar_keys_por_item_id(
+        $orderedKeys,
+        $catPorCodNorm,
+        $crmPorKey,
+        $importPorCodNorm
+    );
+
     $periodoPhp = strtotime($periodoDe . ' 12:00:00');
     $dataExcel  = $periodoPhp !== false ? ExcelDate::PHPToExcel($periodoPhp) : null;
 
     $valorMedidoSomaTotal = 0.0;
 
-    /** @var array<int, mixed> */
-    $importPorCodNorm = [];
-    foreach ($impLinhas as $il) {
-        $n = medicao_bm_boletim_v2_norm_cod((string) ($il['item_codigo'] ?? ''));
-        if ($n !== '' && !isset($importPorCodNorm[$n])) {
-            $importPorCodNorm[$n] = $il;
-        }
-    }
-
     $rows = [];
 
-    foreach ($orderedKeys as $k) {
-        $codNorm = '';
-        if (strpos($k, 'MIL:') === 0 || strpos($k, 'ID:') === 0) {
-            $codNorm = '';
-        } else {
-            $codNorm = $k;
-        }
+    foreach ($orderedKeys as $kRaw) {
+        $k       = medicao_bm_boletim_v2_key_string($kRaw);
+        $codNorm = medicao_bm_boletim_v2_cod_from_key($k);
 
-        $il      = (($codNorm !== '') && isset($importPorCodNorm[$codNorm])) ? $importPorCodNorm[$codNorm] : null;
+        $il      = isset($importPorCodNorm[$k]) ? $importPorCodNorm[$k] : null;
         $crmLine = isset($crmPorKey[$k]) ? $crmPorKey[$k] : null;
 
         $codigoExibir = '';
@@ -1243,8 +1346,8 @@ function medicao_bm_boletim_v2_compor_linhas(
         }
 
         $catLinha = null;
-        if ($codNorm !== '' && isset($catPorCodNorm[$codNorm])) {
-            $catLinha = $catPorCodNorm[$codNorm];
+        if (isset($catPorCodNorm[$k])) {
+            $catLinha = $catPorCodNorm[$k];
         }
 
         $itemCatalogoRow = null;
@@ -1287,11 +1390,22 @@ function medicao_bm_boletim_v2_compor_linhas(
             $estoqueSaldo = (float) ($crmLine['estoque_saldo'] ?? 0);
         }
 
-        $bmPQ = ($codNorm !== '') && isset($priorBm[$codNorm]) ? (float) ($priorBm[$codNorm]['qtd'] ?? 0) : 0.0;
-        $bmPV = ($codNorm !== '') && isset($priorBm[$codNorm]) ? (float) ($priorBm[$codNorm]['valor'] ?? 0) : 0.0;
+        $bmPQ = isset($priorBm[$k]) ? (float) ($priorBm[$k]['qtd'] ?? 0) : 0.0;
+        $bmPV = isset($priorBm[$k]) ? (float) ($priorBm[$k]['valor'] ?? 0) : 0.0;
 
         $mq = ($crmLine !== null) ? (float) ($crmLine['quantidade'] ?? 0) : 0.0;
         $mv = ($crmLine !== null) ? (float) ($crmLine['valor_subtotal'] ?? 0) : 0.0;
+        if ($il !== null) {
+            $ilQ = (float) ($il['qtd_medido_periodo'] ?? 0);
+            $ilV = (float) ($il['valor_medido_periodo'] ?? 0);
+            if ($crmLine === null) {
+                $mq = $ilQ;
+                $mv = $ilV;
+            } elseif (abs($mq) < 1e-9 && abs($mv) < 1e-9 && ($ilQ > 0 || $ilV > 0)) {
+                $mq = $ilQ;
+                $mv = $ilV;
+            }
+        }
 
         $valorMedidoSomaTotal += $mv;
 
@@ -1326,6 +1440,10 @@ function medicao_bm_boletim_v2_compor_linhas(
             '_saldo_exec_v'     => $saldoVx,
             '_dev_fin_ratio'    => $devFinRatio,
         ];
+    }
+
+    if (function_exists('medicao_bm_boletim_v2_anexar_custos_aprovados')) {
+        $rows = medicao_bm_boletim_v2_anexar_custos_aprovados($rows, $valorMedidoSomaTotal, $matrizId, $refYm);
     }
 
     return [
@@ -1434,7 +1552,7 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $r0 = $headerRow + 1;
     if ($linhasRows === []) {
         $sheet->mergeCells('A' . $r0 . ':' . $lastColLetter . $r0);
-        $sheet->setCellValue('A' . $r0, 'Nenhum item para esta combinação (importação BM vazia e sem materiais utilizados em chamados resolvidos no período).');
+        $sheet->setCellValue('A' . $r0, 'Nenhum item para esta combinação (importação BM vazia e sem materiais utilizados em chamados Validado no período).');
         $lastDataRow = $r0;
     } else {
         foreach ($linhasRows as $i => $row) {
@@ -1474,7 +1592,6 @@ function medicao_export_bm_boletim_v2_xlsx_send(
             $rowStd               = $st['body_row'];
             $rowStd['fill']       = medicao_bm_boletim_style_fill_solid($bg);
             $sheet->getStyle('A' . $r . ':' . $lastColLetter . $r)->applyFromArray($rowStd);
-            $sheet->getRowDimension($r)->setRowHeight(MEDICAO_BM_XLSX_ROW_HEIGHT);
             $sheet->getStyle('B' . $r)->applyFromArray($st['body_desc']);
             $sheet->getStyle('D' . $r . ':' . 'H' . $r)->applyFromArray($st['numeric']);
             $sheet->getStyle('I' . $r . ':' . 'L' . $r)->applyFromArray($st['money']);

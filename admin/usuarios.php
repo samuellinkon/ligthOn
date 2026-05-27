@@ -165,15 +165,15 @@ include __DIR__ . '/../includes/head.php';
     </form>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>Usuário</th>
-            <th>E-mail</th>
-            <th>Perfil</th>
-            <th>Situação</th>
-            <th>Cadastro</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('Usuário', 'usuario'); ?>
+            <?php crm_sort_th('E-mail', 'email'); ?>
+            <?php crm_sort_th('Perfil', 'perfil'); ?>
+            <?php crm_sort_th('Situação', 'situacao'); ?>
+            <?php crm_sort_th('Cadastro', 'cadastro', ['type' => 'date']); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
@@ -183,7 +183,17 @@ include __DIR__ . '/../includes/head.php';
           </tr>
           <?php else: ?>
           <?php foreach ($lista as $u): ?>
-          <tr>
+          <?php
+            $cadSort = (string) ($u['criado_em'] ?? '');
+            $cadIso  = $cadSort !== '' ? date('Y-m-d H:i:s', strtotime($cadSort)) : '';
+          ?>
+          <tr <?= crm_sort_row_attr([
+              'usuario'  => (string) ($u['nome'] ?? ''),
+              'email'    => (string) ($u['email'] ?? ''),
+              'perfil'   => (string) ($u['perfil'] ?? ''),
+              'situacao' => ((int) ($u['ativo'] ?? 1)) === 0 ? 'inativo' : 'ativo',
+              'cadastro' => $cadIso,
+          ]) ?>>
             <td>
               <div class="cell-client">
                 <div class="avatar avatar-sm"><?= htmlspecialchars((string) ($u['iniciais'] ?? '?')) ?></div>

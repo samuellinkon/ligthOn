@@ -41,17 +41,22 @@ function medicao_csv_row_is_relatorio_header_row(array $row): bool
 function medicao_csv_map_relatorio_header_row(array $row): ?array
 {
     $m = [
-        'col_data'   => null,
-        'col_proto'  => null,
-        'col_codigo' => null,
-        'col_desc'   => null,
-        'col_qtd'    => null,
-        'col_vtot'   => null,
-        'col_vunit'  => null,
-        'col_bairro' => null,
-        'col_rua'    => null,
-        'col_tipo'   => null,
-        'col_equipe' => null,
+        'col_data'    => null,
+        'col_proto'   => null,
+        'col_codigo'  => null,
+        'col_desc'    => null,
+        'col_qtd'     => null,
+        'col_vtot'    => null,
+        'col_vunit'   => null,
+        'col_un'      => null,
+        'col_bairro'  => null,
+        'col_rua'     => null,
+        'col_tipo'    => null,
+        'col_equipe'  => null,
+        'col_lat'     => null,
+        'col_lng'     => null,
+        'col_plaqueta'=> null,
+        'col_servicos'=> null,
     ];
     foreach ($row as $j => $c) {
         $u = medicao_csv_header_norm_cell_for_match((string) $c);
@@ -60,7 +65,7 @@ function medicao_csv_map_relatorio_header_row(array $row): ?array
         }
         if (str_starts_with($u, 'DATA')) {
             $m['col_data'] = $j;
-        } elseif (preg_match('/PROTOCOLO|PROCOCOLO|GIP/', $u)) {
+        } elseif (preg_match('/PROTOCOLO|PROCOCOLO|^ID$/', $u)) {
             $m['col_proto'] = $j;
         } elseif ($u === 'CODIGO') {
             $m['col_codigo'] = $j;
@@ -72,6 +77,16 @@ function medicao_csv_map_relatorio_header_row(array $row): ?array
             $m['col_vunit'] = $j;
         } elseif (str_contains($u, 'VALOR') && str_contains($u, 'TOTAL')) {
             $m['col_vtot'] = $j;
+        } elseif ($u === 'UN' || str_starts_with($u, 'UNID')) {
+            $m['col_un'] = $j;
+        } elseif (str_contains($u, 'COORDENADA') && str_contains($u, 'S')) {
+            $m['col_lat'] = $j;
+        } elseif (str_contains($u, 'COORDENADA') && (str_contains($u, 'W') || str_contains($u, 'O'))) {
+            $m['col_lng'] = $j;
+        } elseif (str_contains($u, 'PLAQUETA') || str_contains($u, 'BARRAMENTO')) {
+            $m['col_plaqueta'] = $j;
+        } elseif (str_contains($u, 'SERVICO') || str_contains($u, 'MATERIAIS')) {
+            $m['col_servicos'] = $j;
         } elseif ($u === 'BAIRRO') {
             $m['col_bairro'] = $j;
         } elseif (str_contains($u, 'RUA') || str_contains($u, 'AVENIDA')) {
@@ -182,10 +197,12 @@ function medicao_csv_try_parse_relatorio_detalhado(array $rows): array
         }
         $itemCod = mb_substr($itemCod, 0, 32);
 
+        $unid = $map['col_un'] !== null ? trim((string) ($row[$map['col_un']] ?? '')) : '';
+
         $linhas[] = [
             'item_codigo'          => $itemCod,
             'descricao'            => $descricao,
-            'unidade'              => '',
+            'unidade'              => $unid,
             'qtd_prevista'         => null,
             'qtd_total'            => null,
             'preco_unitario'       => $map['col_vunit'] !== null ? medicao_br_decimal((string) ($row[$map['col_vunit']] ?? '')) : null,
@@ -204,7 +221,150 @@ function medicao_csv_try_parse_relatorio_detalhado(array $rows): array
         'idx_qtd_medido'   => $map['col_qtd'],
         'idx_valor_medido' => $map['col_vtot'],
         'linhas'           => $linhas,
+        'relatorio_map'    => $map,
+        'relatorio_header' => $h,
     ];
+}
+
+/**
+ * Extrai linhas estruturadas e grupos por protocolo (relatório detalhado).
+ *
+ * @param list<list<string>> $rows
+ * @return array{
+ *   ok: bool,
+ *   erro: string,
+ *   linhas: list<array<string,mixed>>,
+ *   grupos: list<array<string,mixed>>,
+ *   n_chamados: int,
+ *   n_itens: int
+ * }
+ */
+function medicao_relatorio_parse_grupos_chamados(array $rows): array
+{
+    $empty = [
+        'ok'         => false,
+        'erro'       => '',
+        'linhas'     => [],
+        'grupos'     => [],
+        'n_chamados' => 0,
+        'n_itens'    => 0,
+    ];
+
+    $parsed = medicao_csv_try_parse_relatorio_detalhado($rows);
+    if (empty($parsed['ok'])) {
+        return array_merge($empty, ['erro' => $parsed['erro'] !== '' ? $parsed['erro'] : 'Formato de relatório detalhado não reconhecido.']);
+    }
+
+    $h   = (int) ($parsed['relatorio_header'] ?? -1);
+    $map = is_array($parsed['relatorio_map'] ?? null) ? $parsed['relatorio_map'] : null;
+    if ($h < 0 || $map === null) {
+        return array_merge($empty, ['erro' => 'Cabeçalho do relatório detalhado não encontrado.']);
+    }
+
+    $grupos = [];
+    $n      = count($rows);
+    for ($r = $h + 1; $r < $n; $r++) {
+        $row = $rows[$r];
+        $desc = trim((string) ($row[$map['col_desc']] ?? ''));
+        if ($desc === '' || str_starts_with($desc, '=')) {
+            continue;
+        }
+
+        $proto = $map['col_proto'] !== null ? trim((string) ($row[$map['col_proto']] ?? '')) : '';
+        $cod   = trim((string) ($row[$map['col_codigo']] ?? ''));
+        $qtd   = medicao_br_decimal((string) ($row[$map['col_qtd']] ?? ''));
+        $vtot  = medicao_br_decimal((string) ($row[$map['col_vtot']] ?? ''));
+        $vunit = $map['col_vunit'] !== null ? medicao_br_decimal((string) ($row[$map['col_vunit']] ?? '')) : null;
+        $unid  = $map['col_un'] !== null ? trim((string) ($row[$map['col_un']] ?? '')) : 'UN';
+
+        if ($cod === '' || $qtd === null || $qtd <= 0) {
+            continue;
+        }
+
+        $protoKey = $proto !== '' && $proto !== '00' ? $proto : ('LINHA-' . (string) $r);
+        if (!isset($grupos[$protoKey])) {
+            $dataRaw = $map['col_data'] !== null ? trim((string) ($row[$map['col_data']] ?? '')) : '';
+            $latRaw  = $map['col_lat'] !== null ? trim((string) ($row[$map['col_lat']] ?? '')) : '';
+            $lngRaw  = $map['col_lng'] !== null ? trim((string) ($row[$map['col_lng']] ?? '')) : '';
+            $lat     = is_numeric($latRaw) ? (float) $latRaw : null;
+            $lng     = is_numeric($lngRaw) ? (float) $lngRaw : null;
+            $bairro  = $map['col_bairro'] !== null ? trim((string) ($row[$map['col_bairro']] ?? '')) : '';
+            $rua     = $map['col_rua'] !== null ? trim((string) ($row[$map['col_rua']] ?? '')) : '';
+            $equipe  = $map['col_equipe'] !== null ? trim((string) ($row[$map['col_equipe']] ?? '')) : '';
+            $tipoOs  = $map['col_tipo'] !== null ? trim((string) ($row[$map['col_tipo']] ?? '')) : '';
+            $plaqueta = $map['col_plaqueta'] !== null ? trim((string) ($row[$map['col_plaqueta']] ?? '')) : '';
+            $servGrp = $map['col_servicos'] !== null ? trim((string) ($row[$map['col_servicos']] ?? '')) : '';
+
+            $grupos[$protoKey] = [
+                'protocolo'      => $protoKey,
+                'data_ymd'       => medicao_planilha_data_para_ymd($dataRaw),
+                'latitude'       => $lat,
+                'longitude'      => $lng,
+                'bairro'         => $bairro,
+                'rua'            => $rua,
+                'equipe'         => $equipe,
+                'tipo_os'        => $tipoOs,
+                'plaqueta'       => $plaqueta,
+                'servicos_grupo' => $servGrp,
+                'itens'          => [],
+            ];
+        }
+
+        $servLinha = $map['col_servicos'] !== null ? trim((string) ($row[$map['col_servicos']] ?? '')) : '';
+        $tipoItem  = medicao_relatorio_inferir_tipo_item($cod, $servLinha);
+
+        $grupos[$protoKey]['itens'][] = [
+            'codigo'         => $cod,
+            'descricao'      => $desc,
+            'unidade'        => $unid !== '' ? $unid : 'UN',
+            'quantidade'     => $qtd,
+            'valor_unitario' => $vunit,
+            'valor_total'    => $vtot,
+            'tipo'           => $tipoItem,
+        ];
+    }
+
+    if ($grupos === []) {
+        return array_merge($empty, ['erro' => 'Nenhum item válido para criar chamados.']);
+    }
+
+    $gruposList = array_values($grupos);
+    $nItens     = 0;
+    foreach ($gruposList as $g) {
+        $nItens += count($g['itens'] ?? []);
+    }
+
+    return [
+        'ok'         => true,
+        'erro'       => '',
+        'linhas'     => $parsed['linhas'],
+        'grupos'     => $gruposList,
+        'n_chamados' => count($gruposList),
+        'n_itens'    => $nItens,
+    ];
+}
+
+function medicao_relatorio_inferir_tipo_item(string $codigo, string $servicosCol): string
+{
+    if (function_exists('medicao_item_tipo_por_codigo_orcamento')) {
+        $porCodigo = medicao_item_tipo_por_codigo_orcamento($codigo);
+        if ($porCodigo !== null) {
+            return $porCodigo;
+        }
+    }
+
+    $s = mb_strtoupper($servicosCol, 'UTF-8');
+    if (str_contains($s, 'MATERIAL')) {
+        return 'produto';
+    }
+    if (str_contains($s, 'SERVICO') || str_contains($s, 'SERVIÇO')) {
+        return 'servico';
+    }
+    if (preg_match('/^\d+$/', trim($codigo))) {
+        return 'produto';
+    }
+
+    return 'servico';
 }
 
 /**

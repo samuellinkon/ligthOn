@@ -53,13 +53,6 @@ foreach ($items as $it) {
   </nav>
 
   <div class="sidebar-footer">
-    <div class="user-box">
-      <div class="avatar"><?= htmlspecialchars((string) ($OP['iniciais'] ?? '?')) ?></div>
-      <div>
-        <div class="user-name"><?= htmlspecialchars((string) ($OP['nome'] ?? '')) ?></div>
-        <div class="user-role"><?= htmlspecialchars((string) (($OP['empresa'] ?? '') !== '' ? $OP['empresa'] : ($OP['tipo'] ?? 'Operador'))) ?></div>
-      </div>
-    </div>
     <a href="<?= $basePath ?>logout.php" class="logout" data-confirm="Deseja realmente sair do sistema?">Sair do sistema</a>
   </div>
 </aside>

@@ -16,10 +16,9 @@
   }
 
   var map = L.map('pontos-iluminacao-route-map', { scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap',
-  }).addTo(map);
+  if (window.CrmLeafletBasemap) {
+    window.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+  }
 
   var orderedPins = ordenarPorVizinhoMaisProximo([Number(origem.lat), Number(origem.lng)], pins);
   var coords = [[Number(origem.lat), Number(origem.lng)]];

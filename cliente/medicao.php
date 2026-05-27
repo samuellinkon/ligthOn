@@ -45,6 +45,8 @@ audit_log_registar('medicao.acessar_lista', 'medicao', null, $clienteId > 0 ? $c
 
 $mesesLista = repo_medicao_resumo_mensal_list($clienteId, 60);
 
+$medicaoValidadoCount = repo_medicao_count_validado_escopo($clienteId);
+
 /** Portal: escopo fixo da matriz (sem seletor de empresa nem importação BM). */
 $escopoEmpresa          = $clienteId;
 $medicaoMostrarImportar = false;
@@ -54,6 +56,7 @@ $topTitle    = 'Medição';
 $topSubtitle = 'Medições mensais';
 $topSearch   = '';
 $topAction   = null;
+$loadMedicaoMeses = true;
 
 include __DIR__ . '/../includes/head.php';
 ?>

@@ -148,15 +148,15 @@ include __DIR__ . '/../includes/head.php';
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table data-crm-sortable>
         <thead>
-          <tr>
-            <th>ID</th>
-            <th>Pergunta</th>
-            <th>Prefeitura</th>
-            <th>Status</th>
-            <th>Data</th>
-            <th class="text-right">Ações</th>
+          <tr class="crm-table-head-sort">
+            <?php crm_sort_th('ID', 'id', ['type' => 'number']); ?>
+            <?php crm_sort_th('Pergunta', 'pergunta'); ?>
+            <?php crm_sort_th('Prefeitura', 'prefeitura'); ?>
+            <?php crm_sort_th('Status', 'status'); ?>
+            <?php crm_sort_th('Data', 'data', ['type' => 'date']); ?>
+            <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
           </tr>
         </thead>
         <tbody>
@@ -164,7 +164,17 @@ include __DIR__ . '/../includes/head.php';
           <tr><td colspan="6" class="muted" style="padding:24px;text-align:center;">Nenhuma dúvida encontrada.</td></tr>
           <?php else: ?>
           <?php foreach ($lista as $s): ?>
-          <tr>
+          <?php
+            $dataSort = (string) ($s['data'] ?? '');
+            $dataIso  = $dataSort !== '' ? date('Y-m-d H:i:s', strtotime($dataSort)) : '';
+          ?>
+          <tr <?= crm_sort_row_attr([
+              'id'         => (string) (int) ($s['id'] ?? 0),
+              'pergunta'   => (string) ($s['pergunta'] ?? ''),
+              'prefeitura' => (string) ($s['cliente'] ?? ''),
+              'status'     => (string) ($s['status'] ?? ''),
+              'data'       => $dataIso,
+          ]) ?>>
             <td class="td-id">#<?= (int) $s['id'] ?></td>
             <td>
               <div class="td-title"><?= htmlspecialchars((string) ($s['pergunta'] ?? '')) ?></div>

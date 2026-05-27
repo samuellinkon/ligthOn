@@ -155,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    flash_set('ok', 'Usuário #' . $newId . ' criado com sucesso.');
+    flash_set('ok', 'Usuário #' . $newId . ' criado. A conta já está ativa — pode entrar imediatamente com o e-mail e a senha definidos aqui (não há confirmação por e-mail).');
     header('Location: usuario_editar.php?id=' . $newId);
     exit;
 }

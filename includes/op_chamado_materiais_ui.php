@@ -24,15 +24,18 @@ function op_chamado_mat_qtd_fmt(float $q): string
 function op_chamado_mat_linha_payload(array $lm): array
 {
     return [
-        'id'         => (int) ($lm['id'] ?? 0),
-        'item_id'    => (int) ($lm['item_id'] ?? 0),
-        'nome'       => (string) ($lm['item_nome'] ?? ''),
-        'codigo'     => trim((string) ($lm['item_codigo'] ?? '')),
-        'tipo'       => (string) ($lm['item_tipo'] ?? ''),
-        'unidade'    => trim((string) ($lm['catalogo_unidade'] ?? 'UN')) ?: 'UN',
-        'quantidade' => (float) ($lm['quantidade'] ?? 0),
-        'movimento'  => (string) ($lm['movimento'] ?? 'utilizado'),
-        'observacao' => trim((string) ($lm['observacao'] ?? '')),
+        'id'              => (int) ($lm['id'] ?? 0),
+        'item_id'         => (int) ($lm['item_id'] ?? 0),
+        'nome'            => (string) ($lm['item_nome'] ?? ''),
+        'codigo'          => trim((string) ($lm['item_codigo'] ?? '')),
+        'descricao'       => trim((string) ($lm['item_descricao'] ?? '')),
+        'tipo'            => (string) ($lm['item_tipo'] ?? ''),
+        'unidade'         => trim((string) ($lm['catalogo_unidade'] ?? 'UN')) ?: 'UN',
+        'quantidade'      => (float) ($lm['quantidade'] ?? 0),
+        'valor_unitario'  => (float) ($lm['valor_unitario'] ?? 0),
+        'subtotal'        => (float) ($lm['subtotal'] ?? 0),
+        'movimento'       => repo_chamado_item_movimento_efetivo($lm),
+        'observacao'      => trim((string) ($lm['observacao'] ?? '')),
     ];
 }
 
@@ -51,7 +54,7 @@ function op_chamado_mat_json_for_chamado(int $chamadoId, bool $ok, string $err =
     $dev    = [];
     foreach ($list as $lm) {
         $p = op_chamado_mat_linha_payload($lm);
-        if (($p['movimento'] ?? '') === 'devolvido') {
+        if (repo_chamado_item_movimento_efetivo($lm) === 'devolvido') {
             $dev[] = $p;
         } else {
             $usados[] = $p;
@@ -118,4 +121,84 @@ function op_chamado_mat_stack_list_html(array $items, bool $readonly = false): s
     }
 
     return $html;
+}
+
+function op_chamado_detalhe_count_fotos(int $chamadoId): int
+{
+    $n = 0;
+    foreach (repo_chamado_anexos($chamadoId) as $axCnt) {
+        $mimeCnt = strtolower((string) ($axCnt['mime'] ?? ''));
+        $nomeCnt = strtolower((string) ($axCnt['nome_original'] ?? ''));
+        if (strncmp($mimeCnt, 'image/', 8) === 0 || preg_match('/\.(png|jpe?g|gif|webp|bmp)$/i', $nomeCnt)) {
+            $n++;
+        }
+    }
+
+    return $n;
+}
+
+/**
+ * Grava fotos enviadas em $_FILES['imagens'] no chamado.
+ *
+ * @param array<string, mixed> $user
+ * @return array{salvos: int, items_html: list<string>, err: string, teve_arquivo: bool}
+ */
+function op_chamado_detalhe_upload_fotos_from_request(int $chamadoId, array $user, bool $comBotaoRemover = true): array
+{
+    $temArq = !empty($_FILES['imagens']['name']) && (is_array($_FILES['imagens']['name'])
+        ? count(array_filter($_FILES['imagens']['name'], static fn ($n) => $n !== '' && $n !== null)) > 0
+        : (string) ($_FILES['imagens']['name'] ?? '') !== '');
+    if (!$temArq) {
+        return ['salvos' => 0, 'items_html' => [], 'err' => '', 'teve_arquivo' => false];
+    }
+
+    $salvos     = 0;
+    $itemsHtml  = [];
+    $destino    = upload_dir_chamado($chamadoId);
+    $res        = upload_gravar_multiplos($_FILES['imagens'], $destino);
+    $nomeAutor  = (string) ($user['nome'] ?? 'Operador');
+
+    foreach ($res['salvos'] as $arq) {
+        $aid = repo_create_chamado_anexo([
+            'chamado_id'    => $chamadoId,
+            'resposta_id'   => null,
+            'nome_original' => $arq['nome_original'],
+            'nome_arquivo'  => $arq['nome_arquivo'],
+            'mime'          => $arq['mime'],
+            'tamanho'       => $arq['tamanho'],
+            'enviado_por'   => $nomeAutor,
+            'enviado_tipo'  => 'operador',
+        ]);
+        if (!$aid) {
+            continue;
+        }
+        $salvos++;
+        $nomeEsc = htmlspecialchars((string) $arq['nome_original'], ENT_QUOTES, 'UTF-8');
+        $rmBtn   = $comBotaoRemover
+            ? '<button type="button" class="op-photo-grid__remove" data-anexo-id="' . (int) $aid . '"'
+              . ' aria-label="Remover foto ' . $nomeEsc . '">×</button>'
+            : '';
+        $itemsHtml[] =
+            '<div class="op-photo-grid__item" data-anexo-id="' . (int) $aid . '">'
+            . '<a class="op-photo-grid__link" href="chamado_download.php?id=' . (int) $aid . '" target="_blank" rel="noopener">'
+            . '<img src="chamado_download.php?id=' . (int) $aid . '" alt="' . $nomeEsc . '" loading="lazy">'
+            . '</a>'
+            . $rmBtn
+            . '</div>';
+    }
+
+    $err = '';
+    if ($salvos < 1) {
+        $err = 'Nenhuma imagem aceita.';
+    }
+    if (!empty($res['erros'])) {
+        $err = ($err !== '' ? $err . ' ' : '') . implode(' | ', $res['erros']);
+    }
+
+    return [
+        'salvos'       => $salvos,
+        'items_html'   => $itemsHtml,
+        'err'          => $err,
+        'teve_arquivo' => true,
+    ];
 }

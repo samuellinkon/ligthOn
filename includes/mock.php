@@ -36,6 +36,7 @@ if (!function_exists('status_class')) {
             'Urgente'      => 'urgent',
             'Vencido'      => 'urgent',
             'Resolvido'    => 'done',
+            'Validado'     => 'done',
             'Fechado'      => 'done',
             'Cancelado'    => 'cancelled',
             'Pago'         => 'done',
@@ -54,6 +55,8 @@ if (!function_exists('status_class')) {
             'Aprovada'         => 'done',
             'Rejeitada'        => 'urgent',
             'Concluida'        => 'done',
+            'Aprovado'         => 'done',
+            'Rejeitado'        => 'urgent',
         ];
         return $map[$status] ?? 'plain';
     }

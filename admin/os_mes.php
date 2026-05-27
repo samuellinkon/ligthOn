@@ -137,16 +137,16 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>OS</th>
-              <th>Prefeitura</th>
-              <th>Título</th>
-              <th>Status</th>
-              <th class="text-right">Valor (itens)</th>
-              <th class="text-right">Abertura</th>
-              <th class="text-right">Ações</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('OS', 'os', ['type' => 'number']); ?>
+              <?php crm_sort_th('Prefeitura', 'prefeitura'); ?>
+              <?php crm_sort_th('Título', 'titulo'); ?>
+              <?php crm_sort_th('Status', 'status'); ?>
+              <?php crm_sort_th('Valor (itens)', 'valor', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Abertura', 'abertura', ['type' => 'date', 'right' => true]); ?>
+              <?php crm_sort_th('Ações', null, ['class' => 'crm-table-col-acoes', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
@@ -155,7 +155,18 @@ include __DIR__ . '/../includes/head.php';
                 <?php if ($aba === 'aprovadas'): ?>Nenhuma OS aprovada neste mês (com o filtro de busca atual).<?php elseif ($aba === 'rejeitadas'): ?>Nenhuma OS reprovada neste mês (com o filtro de busca atual).<?php else: ?>Nenhuma OS neste mês.<?php endif; ?>
               </td></tr>
             <?php else: foreach ($linhas as $o): ?>
-              <tr>
+              <?php
+                $abSort = (string) ($o['aberto_em'] ?? '');
+                $abIso  = $abSort !== '' ? date('Y-m-d H:i:s', strtotime($abSort)) : '';
+              ?>
+              <tr <?= crm_sort_row_attr([
+                  'os'         => (string) (int) ($o['id'] ?? 0),
+                  'prefeitura' => (string) ($o['cliente_empresa'] ?? ''),
+                  'titulo'     => (string) ($o['titulo'] ?? ''),
+                  'status'     => (string) ($o['status'] ?? ''),
+                  'valor'      => (string) (float) ($o['valor_itens'] ?? 0),
+                  'abertura'   => $abIso,
+              ]) ?>>
                 <td class="td-strong">#<?= (int) $o['id'] ?></td>
                 <td><?= htmlspecialchars((string) ($o['cliente_empresa'] ?? '')) ?></td>
                 <td>

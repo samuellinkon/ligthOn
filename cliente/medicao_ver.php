@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/medicao_custo_repo.php';
 require_once __DIR__ . '/../includes/chamados_list_urls.php';
 
 $CLIENTE = require_auth('cliente');
@@ -72,7 +73,7 @@ $impLinhas = is_array($impPkg['linhas'] ?? null) ? $impPkg['linhas'] : [];
 if (($_GET['export'] ?? '') === 'relatorio_xlsx') {
     try {
         require_once __DIR__ . '/../includes/medicao_export_relatorio_xlsx.php';
-        $sheet = medicao_relatorio_detalhado_sheet_rows($linhas, $impLinhas, $mesRef);
+        $sheet = medicao_relatorio_detalhado_sheet_rows($linhas, $impLinhas, $mesRef, (int) $clienteId);
         audit_log_registar('medicao.exportar_relatorio_xlsx', 'medicao', null, $clienteId > 0 ? $clienteId : null, [
             'ref_ym'         => $mesRef,
             'n_chamados_rel' => count($linhas),
@@ -107,6 +108,7 @@ audit_log_registar('medicao.acessar_resumo', 'medicao', null, $clienteId > 0 ? $
 
 $linhasExibicao = medicao_linhas_exibicao_mes($linhas, $impLinhas);
 $totExibicao    = medicao_tot_resumo_com_import_bm($tot, $impLinhas);
+$totExibicao    = medicao_totais_incluir_custos_aprovados($totExibicao, $clienteId, $mesRef);
 $listagemSoBm   = medicao_listagem_so_import_bm($linhas, $impLinhas);
 
 $impValorSoma = 0.0;
@@ -163,6 +165,7 @@ $topSubtitle = ($clienteMatriz['empresa'] ?? '') . ' · ' . $periodoTxt;
 $topSearch   = '';
 $topAction   = ['label' => 'Medições mensais', 'href' => 'medicao.php', 'icon' => '←'];
 
+$loadMedicaoCustos = true;
 include __DIR__ . '/../includes/head.php';
 ?>
 <style>
@@ -247,7 +250,9 @@ include __DIR__ . '/../includes/head.php';
             </div>
             <div class="icon-box green">R$</div>
           </div>
-          <div class="metric-change muted">Materiais + serviços medidos</div>
+          <div class="metric-change muted"><?= ((float) ($totExibicao['valor_custos_adicionais'] ?? 0)) > 0
+              ? 'Chamados + custos adicionais aprovados'
+              : 'Materiais + serviços medidos' ?></div>
         </div>
         <div class="card metric">
           <div class="metric-top">
@@ -262,43 +267,26 @@ include __DIR__ . '/../includes/head.php';
         <div class="card metric">
           <div class="metric-top">
             <div>
-              <div class="metric-label">Itens devolvidos</div>
+              <div class="metric-label">Sucata / recolhidos</div>
               <div class="metric-value metric-value--compact"><?= (int) ($itensTotais['n_itens_devolvidos'] ?? 0) ?></div>
             </div>
             <div class="icon-box red">DV</div>
           </div>
-          <div class="metric-change muted">Qtd <?= htmlspecialchars(medicao_ver_fmt_qtd((float) ($itensTotais['qtd_devolvida'] ?? 0))) ?> · R$ <?= number_format((float) ($itensTotais['valor_devolvido'] ?? 0), 2, ',', '.') ?></div>
+          <div class="metric-change muted">Qtd <?= htmlspecialchars(medicao_ver_fmt_qtd((float) ($itensTotais['qtd_devolvida'] ?? 0))) ?> · R$ <?= number_format((float) ($itensTotais['valor_devolvido'] ?? 0), 2, ',', '.') ?> · não compõe medição</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="card medicao-view-section">
-    <div class="panel-head">
-      <h4>Custos do mês</h4>
-      <span class="panel-sub">Custo líquido considera usados menos devolvidos.</span>
-    </div>
-    <div class="panel-body">
-      <div class="medicao-view-grid">
-        <div>
-          <div class="metric-label">Materiais aplicados</div>
-          <div class="td-strong">R$ <?= number_format((float) ($totExibicao['valor_materiais'] ?? 0), 2, ',', '.') ?></div>
-        </div>
-        <div>
-          <div class="metric-label">Serviços / itens</div>
-          <div class="td-strong">R$ <?= number_format((float) ($totExibicao['valor_servicos'] ?? 0), 2, ',', '.') ?></div>
-        </div>
-        <div>
-          <div class="metric-label">Devoluções registradas</div>
-          <div class="td-strong">R$ <?= number_format((float) ($itensTotais['valor_devolvido'] ?? 0), 2, ',', '.') ?></div>
-        </div>
-        <div>
-          <div class="metric-label">Custo líquido</div>
-          <div class="td-strong">R$ <?= number_format((float) ($itensTotais['custo_liquido'] ?? 0), 2, ',', '.') ?></div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <?php require __DIR__ . '/../includes/partials/medicao_custos_chamados_resumo.php'; ?>
+
+  <?php
+  $medicaoCustosPodeCriar   = false;
+  $medicaoCustosPodeEditar  = false;
+  $medicaoCustosPodeAprovar = medicao_custo_pode_aprovar($CLIENTE);
+  $medicaoCustosApiUrl      = 'medicao_custos_api.php';
+  require __DIR__ . '/../includes/partials/medicao_custos_secao.php';
+  ?>
 
   <?php if ($impCab): ?>
   <div class="card medicao-view-section">
@@ -341,25 +329,35 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap medicao-view-table">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>Movimento</th>
-              <th>Item</th>
-              <th>Tipo</th>
-              <th>Unid.</th>
-              <th class="text-right">Qtd</th>
-              <th class="text-right">Valor</th>
-              <th class="text-right">Chamados</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Movimento', 'movimento'); ?>
+              <?php crm_sort_th('Item', 'item'); ?>
+              <?php crm_sort_th('Tipo', 'tipo'); ?>
+              <?php crm_sort_th('Unid.', 'unidade'); ?>
+              <?php crm_sort_th('Qtd', 'qtd', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('V. unit.', 'vunit', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('V. total', 'vtotal', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Chamados', 'chamados', ['type' => 'number', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
             <?php if (empty($itensLinhas)): ?>
-            <tr><td colspan="7" class="muted" style="padding:28px;text-align:center;">Nenhum item usado ou devolvido foi lançado nos chamados deste mês.</td></tr>
+            <tr><td colspan="8" class="muted" style="padding:28px;text-align:center;">Nenhum item usado ou devolvido foi lançado nos chamados deste mês.</td></tr>
             <?php else: foreach ($itensLinhas as $item): ?>
             <?php $mov = (string) ($item['movimento'] ?? 'utilizado'); ?>
-            <tr>
-              <td><span class="badge <?= $mov === 'devolvido' ? 'info' : 'success' ?>"><?= $mov === 'devolvido' ? 'Devolvido' : 'Usado' ?></span></td>
+            <tr <?= crm_sort_row_attr([
+                'movimento' => $mov,
+                'item'      => (string) ($item['item_nome'] ?? ''),
+                'tipo'      => (string) ($item['item_tipo'] ?? ''),
+                'unidade'   => (string) ($item['unidade'] ?? ''),
+                'qtd'       => (string) (float) ($item['quantidade'] ?? 0),
+                'vunit'     => (string) (float) ($item['valor_unitario'] ?? 0),
+                'vtotal'    => (string) (float) ($item['valor_total'] ?? 0),
+                'chamados'  => (string) (int) ($item['n_chamados'] ?? 0),
+            ]) ?>>
+              <td><span class="badge <?= $mov === 'devolvido' ? 'info' : 'success' ?>"><?= $mov === 'devolvido' ? 'Sucata' : 'Usado' ?></span></td>
               <td>
                 <div class="td-title"><?= htmlspecialchars((string) ($item['item_nome'] ?? '')) ?></div>
                 <?php if (!empty($item['item_codigo'])): ?>
@@ -369,6 +367,7 @@ include __DIR__ . '/../includes/head.php';
               <td class="td-mute"><?= htmlspecialchars((string) ($item['item_tipo'] ?? '')) ?></td>
               <td class="td-mute"><?= htmlspecialchars((string) ($item['unidade'] ?? '')) ?></td>
               <td class="text-right"><?= htmlspecialchars(medicao_ver_fmt_qtd((float) ($item['quantidade'] ?? 0))) ?></td>
+              <td class="text-right td-mute"><?php $vuItem = (float) ($item['valor_unitario'] ?? 0); echo $vuItem > 0 ? 'R$ ' . number_format($vuItem, 2, ',', '.') : '—'; ?></td>
               <td class="text-right"><strong>R$ <?= number_format((float) ($item['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>
               <td class="text-right td-mute"><?= (int) ($item['n_chamados'] ?? 0) ?></td>
             </tr>
@@ -386,17 +385,17 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap medicao-view-table">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>Data</th>
-              <th>Chamado</th>
-              <th>Título</th>
-              <th>Status</th>
-              <th class="text-right">Materiais</th>
-              <th class="text-right">Serviços</th>
-              <th class="text-right">Devolvidos</th>
-              <th class="text-right">Custo líq.</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Data', 'data', ['type' => 'date']); ?>
+              <?php crm_sort_th('Chamado', 'chamado', ['type' => 'number']); ?>
+              <?php crm_sort_th('Título', 'titulo'); ?>
+              <?php crm_sort_th('Status', 'status'); ?>
+              <?php crm_sort_th('Materiais', 'materiais', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Serviços', 'servicos', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Sucata (ref.)', 'devolvidos', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Valor medido', 'custoliq', ['type' => 'number', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
@@ -406,9 +405,24 @@ include __DIR__ . '/../includes/head.php';
             <?php
               $valorLinha = (float) ($r['valor_total_linha'] ?? 0);
               $valorDev   = (float) ($r['valor_devolvidos'] ?? 0);
-              $valorLiq   = $valorLinha - $valorDev;
+              $valorLiq   = $valorLinha;
+              $abRaw = (string) ($r['aberto_em'] ?? $r['aberto_em_br'] ?? '');
+              $abIso = $abRaw !== '' && $abRaw !== '—' ? date('Y-m-d H:i:s', strtotime($abRaw)) : '';
+              $chIdSort = (int) ($r['id'] ?? 0);
+              if ($chIdSort <= 0) {
+                  $chIdSort = 1000000000 + (int) sprintf('%u', crc32((string) ($r['medicao_bm_item_codigo'] ?? 'bm')));
+              }
             ?>
-            <tr>
+            <tr <?= crm_sort_row_attr([
+                'data'        => $abIso,
+                'chamado'     => (string) $chIdSort,
+                'titulo'      => (string) ($r['titulo'] ?? ''),
+                'status'      => (string) ($r['status'] ?? ''),
+                'materiais'   => (string) (float) ($r['valor_materiais'] ?? 0),
+                'servicos'    => (string) (float) ($r['valor_servicos_itens'] ?? 0),
+                'devolvidos'  => (string) $valorDev,
+                'custoliq'    => (string) $valorLiq,
+            ]) ?>>
               <td class="td-mute"><?= htmlspecialchars((string) ($r['aberto_em_br'] ?? '')) ?></td>
               <td class="td-id">
                 <?php if ((int) ($r['id'] ?? 0) > 0): ?>
@@ -497,5 +511,6 @@ include __DIR__ . '/../includes/head.php';
   });
 })();
 </script>
+<script src="<?= htmlspecialchars($basePath) ?>assets/js/medicao-custos.js" defer></script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

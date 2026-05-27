@@ -695,12 +695,16 @@ include __DIR__ . '/../includes/head.php';
 </script>
 
 <?php if (!empty($loadLeaflet)): ?>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
 <script>
 (function () {
   var lat = <?= json_encode((float) $os['latitude']) ?>;
   var lng = <?= json_encode((float) $os['longitude']) ?>;
   var map = L.map('os-map-mini', { scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
+  if (window.CrmLeafletBasemap) {
+    window.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+  }
   L.marker([lat, lng]).addTo(map);
   map.setView([lat, lng], 16);
   window.osAdminMap = map;

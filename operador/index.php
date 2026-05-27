@@ -34,11 +34,15 @@ if (db_ok() && $empresaId > 0 && $operadorId > 0) {
                 'id' => (int) ($ch['id'] ?? 0),
                 'titulo' => (string) ($ch['titulo'] ?? ''),
                 'status' => (string) ($ch['status'] ?? ''),
+                'prioridade' => (string) ($ch['prioridade'] ?? ''),
+                'origem_os' => (string) ($ch['origem_os'] ?? ''),
+                'problema_os' => (string) ($ch['problema_os'] ?? ''),
                 'data' => (string) ($ch['data'] ?? ''),
                 'cliente' => (string) ($ch['cliente'] ?? ''),
                 'endereco_completo' => !empty($ch['endereco_completo']) ? (string) $ch['endereco_completo'] : null,
                 'lat' => (float) $lat,
                 'lng' => (float) $lng,
+                'foto_url' => '',
             ];
         } else {
             $chamadosAtivosSemGps++;
@@ -46,6 +50,7 @@ if (db_ok() && $empresaId > 0 && $operadorId > 0) {
     }
 }
 $loadLeaflet = db_ok() && $empresaId > 0;
+$loadLeafletChamados = $loadLeaflet;
 
 $dash = db_ok() && $empresaId > 0 && $operadorId > 0
     ? repo_dashboard_operador_stats($empresaId, $operadorId)
@@ -159,6 +164,8 @@ include __DIR__ . '/../includes/head.php';
 
 <?php if (!empty($loadLeaflet)): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
+<?php include __DIR__ . '/../includes/partials/leaflet_chamado_popup_assets.php'; ?>
 <script>
   window.CHAMADOS_MAP_PINS = <?= json_encode($mapPins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
   <?php if ($mapEmptyMsg !== null): ?>

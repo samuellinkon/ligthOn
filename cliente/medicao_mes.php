@@ -214,27 +214,47 @@ include __DIR__ . '/../includes/head.php';
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>Data</th>
-              <th>Chamado</th>
-              <th>Unidade</th>
-              <th>Título</th>
-              <th>Status</th>
-              <th>Prioridade</th>
-              <th>Técnico</th>
-              <th>Serviço (cat.)</th>
-              <th class="text-right">Materiais</th>
-              <th class="text-right">Serv. itens</th>
-              <th class="text-right">Total</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Data', 'data', ['type' => 'date']); ?>
+              <?php crm_sort_th('Chamado', 'chamado', ['type' => 'number']); ?>
+              <?php crm_sort_th('Unidade', 'unidade'); ?>
+              <?php crm_sort_th('Título', 'titulo'); ?>
+              <?php crm_sort_th('Status', 'status'); ?>
+              <?php crm_sort_th('Prioridade', 'prioridade', ['type' => 'number']); ?>
+              <?php crm_sort_th('Técnico', 'tecnico'); ?>
+              <?php crm_sort_th('Serviço (cat.)', 'servico'); ?>
+              <?php crm_sort_th('Materiais', 'materiais', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Serv. itens', 'servitens', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Total', 'total', ['type' => 'number', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
             <?php if (empty($linhasExibicao)): ?>
               <tr><td colspan="11" class="muted" style="padding:28px;text-align:center;">Nenhum chamado neste mês e sem importação BM para este mês.</td></tr>
             <?php else: foreach ($linhasExibicao as $r): ?>
-              <tr>
+              <?php
+                $abRaw = (string) ($r['aberto_em'] ?? $r['aberto_em_br'] ?? '');
+                $abIso = $abRaw !== '' && $abRaw !== '—' ? date('Y-m-d H:i:s', strtotime($abRaw)) : '';
+                $chIdSort = (int) ($r['id'] ?? 0);
+                if ($chIdSort <= 0) {
+                    $chIdSort = 1000000000 + (int) sprintf('%u', crc32((string) ($r['medicao_bm_item_codigo'] ?? 'bm')));
+                }
+              ?>
+              <tr <?= crm_sort_row_attr([
+                  'data'       => $abIso,
+                  'chamado'    => (string) $chIdSort,
+                  'unidade'    => (string) ($r['unidade_nome'] ?? ''),
+                  'titulo'     => (string) ($r['titulo'] ?? ''),
+                  'status'     => (string) ($r['status'] ?? ''),
+                  'prioridade' => (string) crm_sort_prioridade_rank((string) ($r['prioridade'] ?? '')),
+                  'tecnico'    => (string) ($r['tecnico_nome'] ?? ''),
+                  'servico'    => (string) ($r['servico_principal_nome'] ?? ''),
+                  'materiais'  => (string) (float) ($r['valor_materiais'] ?? 0),
+                  'servitens'  => (string) (float) ($r['valor_servicos_itens'] ?? 0),
+                  'total'      => (string) (float) ($r['valor_total_linha'] ?? 0),
+              ]) ?>>
                 <td class="td-mute"><?= htmlspecialchars((string) ($r['aberto_em_br'] ?? '')) ?></td>
                 <td class="td-id"><?php if ((int) ($r['id'] ?? 0) > 0): ?>
                   <a href="chamado_detalhe.php?id=<?= (int) $r['id'] ?>">#<?= (int) $r['id'] ?></a>

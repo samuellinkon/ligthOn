@@ -129,16 +129,16 @@ include __DIR__ . '/../includes/head.php';
       <?php else: ?>
       <p class="audit-results-meta">A mostrar <?= (int) $fromN ?>–<?= (int) $toN ?> de <?= (int) $total ?>.</p>
       <div class="table-wrap audit-table-wrap">
-        <table class="audit-logs-table">
+        <table class="audit-logs-table" data-crm-sortable>
           <thead>
-            <tr>
-              <th>Data</th>
-              <th>Ação</th>
-              <th>Utilizador</th>
-              <th>Entidade</th>
-              <th>Empresa</th>
-              <th>IP</th>
-              <th>Detalhe</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Data', 'data', ['type' => 'date']); ?>
+              <?php crm_sort_th('Ação', 'acao'); ?>
+              <?php crm_sort_th('Utilizador', 'utilizador'); ?>
+              <?php crm_sort_th('Entidade', 'entidade'); ?>
+              <?php crm_sort_th('Empresa', 'empresa'); ?>
+              <?php crm_sort_th('IP', 'ip'); ?>
+              <?php crm_sort_th('Detalhe', 'detalhe'); ?>
             </tr>
           </thead>
           <tbody>
@@ -162,8 +162,27 @@ include __DIR__ . '/../includes/head.php';
                 } elseif (str_starts_with($acaoRaw, 'chamado.')) {
                     $acaoCls .= ' audit-action--chamado';
                 }
+                $an = trim((string) ($r['ator_nome'] ?? ''));
+                $ap = trim((string) ($r['ator_perfil'] ?? ''));
+                $atorSort = $an !== '' ? $an : '(sem nome)';
+                if ($ap !== '') {
+                    $atorSort .= ' · ' . $ap;
+                }
+                $et = (string) ($r['entidade_tipo'] ?? '');
+                $eid = (int) ($r['entidade_id'] ?? 0);
+                $entSort = $et . ($eid > 0 ? ' #' . $eid : '');
+                $criadoSort = (string) ($r['criado_em'] ?? '');
+                $criadoIso  = $criadoSort !== '' ? date('Y-m-d H:i:s', strtotime($criadoSort)) : '';
                 ?>
-            <tr>
+            <tr <?= crm_sort_row_attr([
+                'data'       => $criadoIso,
+                'acao'       => $acaoRaw,
+                'utilizador' => $atorSort,
+                'entidade'   => $entSort,
+                'empresa'    => (string) ($r['cliente_id'] ?? ''),
+                'ip'         => (string) ($r['ip'] ?? ''),
+                'detalhe'    => (string) $payloadStr,
+            ]) ?>>
               <td class="audit-cell-date"><?= htmlspecialchars((string) ($r['criado_em'] ?? '')) ?></td>
               <td><span class="<?= htmlspecialchars($acaoCls) ?>"><?= htmlspecialchars($acaoRaw) ?></span></td>
               <td><?php

@@ -104,8 +104,8 @@ foreach ($pontos as $p) {
         continue;
     }
 
-    @chmod($dest, 0644);
-    @chmod($dir, 0775);
+    @chmod($dest, 0664);
+    @chmod($dir, 0777);
 
     $tamanho = (int) (@filesize($dest) ?: 0);
     $ins = repo_ponto_iluminacao_imagem_inserir(

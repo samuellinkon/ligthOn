@@ -6,6 +6,7 @@ ALTER TABLE chamados
         'Aguardando Finalização',
         'Aguardando Aprovação',
         'Resolvido',
+        'Validado',
         'Fechado',
         'Cancelado'
     ) NOT NULL DEFAULT 'Aberto';
@@ -18,6 +19,7 @@ ALTER TABLE chamados
         'Em andamento',
         'Aguardando Aprovação',
         'Resolvido',
+        'Validado',
         'Fechado',
         'Cancelado'
     ) NOT NULL DEFAULT 'Aberto';

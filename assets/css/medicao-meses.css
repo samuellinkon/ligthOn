@@ -1,0 +1,330 @@
+/* Medições mensais — listagem em cards (admin/cliente) */
+
+.medicao-page .content {
+  max-width: 100%;
+}
+
+.medicao-meses-shell {
+  padding: 0;
+}
+
+.medicao-meses-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.medicao-meses-topbar__intro {
+  flex: 1;
+  min-width: 0;
+}
+
+.medicao-meses-topbar__title {
+  margin: 0 0 4px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text, #111827);
+}
+
+.medicao-meses-topbar__subtitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted, #6b7280);
+}
+
+.medicao-meses-topbar__import {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.medicao-meses-empty {
+  padding: 28px 20px;
+  border: 1px dashed var(--border-soft, #e5e7eb);
+  border-radius: 12px;
+  background: #fafafa;
+  line-height: 1.55;
+  font-size: 0.875rem;
+}
+
+.medicao-meses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Card do mês */
+.medicao-mes-card {
+  position: relative;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--border-soft, #e8e8ef);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.medicao-mes-card:hover {
+  border-color: #d4d4e8;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  background: #fefefe;
+}
+
+.medicao-mes-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.medicao-mes-card__row--primary {
+  margin-bottom: 6px;
+}
+
+.medicao-mes-card__row--meta {
+  margin-bottom: 14px;
+}
+
+.medicao-mes-card__row--actions {
+  flex-wrap: wrap;
+  align-items: center;
+  cursor: default;
+}
+
+.medicao-mes-card__month {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text, #111827);
+  line-height: 1.25;
+}
+
+.medicao-mes-card__value {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #534ab7;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.medicao-mes-card__stats {
+  font-size: 0.8125rem;
+  color: var(--muted, #6b7280);
+  line-height: 1.4;
+}
+
+.medicao-mes-card__chamados {
+  font-weight: 600;
+  color: #374151;
+  font-variant-numeric: tabular-nums;
+}
+
+.medicao-mes-card__dot {
+  margin: 0 6px;
+  opacity: 0.55;
+}
+
+.medicao-mes-card__period-label {
+  font-variant-numeric: tabular-nums;
+  color: #4b5563;
+}
+
+.medicao-mes-card__bm-form {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.medicao-mes-card__actions-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 12px;
+  width: 100%;
+}
+
+.medicao-mes-card__actions-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.medicao-mes-card__actions-period {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.medicao-mes-card__btn-periodo {
+  min-height: 32px;
+}
+
+.medicao-mes-card__actions-main .medicao-actions-inline,
+.medicao-mes-card__actions-main .actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.medicao-mes-card__actions-main .btn,
+.medicao-mes-card__actions-main .medicao-export-actions--labeled .btn {
+  margin: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  border-radius: 8px;
+}
+
+@media (min-width: 720px) {
+  .medicao-mes-card__actions-main .btn,
+  .medicao-mes-card__actions-main .medicao-export-actions--labeled .btn {
+    font-size: 0.75rem;
+    padding: 6px 12px;
+  }
+}
+
+.medicao-mes-card__actions-main .medicao-bm-excluir-form {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+/* Popover período (ancorado ao botão Período, canto direito) */
+.medicao-mes-card__period-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  width: min(320px, calc(100vw - 48px));
+  margin-top: 0;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--border-soft, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+}
+
+.medicao-mes-card__period-popover[hidden] {
+  display: none !important;
+}
+
+.medicao-mes-card__period-popover-title {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.medicao-mes-card__period-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.medicao-mes-card__period-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 140px;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.medicao-mes-card__period-field .input {
+  font-size: 0.8125rem;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+
+.medicao-mes-card__period-popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .medicao-meses-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 16px;
+  }
+
+  .medicao-meses-topbar__import {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .medicao-mes-card {
+    padding: 14px 14px 12px;
+  }
+
+  .medicao-mes-card__row--primary {
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  .medicao-mes-card__value {
+    width: 100%;
+    text-align: left;
+    margin-top: 2px;
+    font-size: 1.125rem;
+  }
+
+  .medicao-mes-card__row--actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .medicao-mes-card__actions-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .medicao-mes-card__actions-period {
+    margin-left: 0;
+    align-self: flex-end;
+  }
+
+  .medicao-mes-card__actions-main {
+    width: 100%;
+  }
+
+  .medicao-mes-card__actions-main .btn,
+  .medicao-mes-card__btn-periodo {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+    min-width: calc(50% - 4px);
+  }
+
+  .medicao-mes-card__period-popover {
+    right: 0;
+    left: auto;
+    width: min(320px, 100%);
+  }
+}

@@ -370,37 +370,32 @@ a.pag-btn {
 
 .medicao-meses-table th:nth-child(1),
 .medicao-meses-table td:nth-child(1) {
-  width: 14%;
+  width: 18%;
 }
 
 .medicao-meses-table th:nth-child(2),
 .medicao-meses-table td:nth-child(2) {
-  width: 8%;
+  width: 11%;
 }
 
 .medicao-meses-table th:nth-child(3),
 .medicao-meses-table td:nth-child(3) {
-  width: 14%;
+  width: 17%;
 }
 
-.medicao-meses-table th.medicao-data-col,
-.medicao-meses-table td.medicao-data-cell {
-  width: 11%;
-  min-width: 128px;
-}
-
-.medicao-meses-table th.medicao-bm-col,
-.medicao-meses-table td.medicao-bm-cell {
-  width: 11%;
-  min-width: 128px;
+.medicao-meses-table th.medicao-periodo-col,
+.medicao-meses-table td.medicao-periodo-cell {
+  width: 24%;
+  min-width: 0;
 }
 
 .medicao-meses-table th.td-actions,
 .medicao-meses-table td.td-actions {
-  width: 32%;
-  min-width: 300px;
-  padding-left: 10px;
-  padding-right: 12px;
+  width: 30%;
+  min-width: 0;
+  max-width: 30%;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .medicao-meses-table tbody td {
@@ -409,11 +404,8 @@ a.pag-btn {
   vertical-align: middle;
 }
 
-.medicao-meses-table td.medicao-bm-cell,
-.medicao-meses-table td.medicao-data-cell {
+.medicao-meses-table td.medicao-periodo-cell {
   vertical-align: middle;
-  padding-top: 10px;
-  padding-bottom: 10px;
   white-space: normal;
 }
 
@@ -429,10 +421,11 @@ a.pag-btn {
 }
 
 .medicao-meses-table .medicao-bm-date {
-  max-width: 148px;
+  max-width: 118px;
   min-width: 0;
-  padding: 6px 8px;
-  font-size: 13px;
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 12px;
 }
 
 .medicao-meses-table th,
@@ -455,6 +448,13 @@ a.pag-btn {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+
+.medicao-meses-table td.td-actions .actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  white-space: normal;
+  max-width: 100%;
 }
 
 .medicao-export-toolbar {
@@ -499,9 +499,10 @@ a.pag-btn {
   align-items: center;
   align-content: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  min-height: 40px;
+  min-height: 0;
+  max-width: 100%;
 }
 
 .medicao-export-actions--labeled {
@@ -640,14 +641,19 @@ tr.catalogo-row--estoque-baixo td {
   font-weight: 700;
 }
 
-/* Catálogo — cabeçalho ordenável (padrão das tabelas do sistema) */
-.catalogo-excel-table {
+/* Cabeçalho ordenável (padrão das tabelas do sistema) */
+.catalogo-excel-table,
+table[data-crm-sortable] {
   width: 100%;
-  min-width: 56rem;
   border-collapse: collapse;
 }
 
-.catalogo-excel-table thead th {
+.catalogo-excel-table {
+  min-width: 56rem;
+}
+
+.catalogo-excel-table thead th,
+table[data-crm-sortable] thead th {
   vertical-align: middle;
   padding: 0;
   background: #fafafe;
@@ -655,21 +661,26 @@ tr.catalogo-row--estoque-baixo td {
   white-space: nowrap;
 }
 
-.catalogo-excel-table__head-sort th {
+.catalogo-excel-table__head-sort th,
+table[data-crm-sortable] thead tr.crm-table-head-sort th {
   border-bottom: 1px solid #f2f2f7;
 }
 
-.catalogo-excel-table thead th:has([data-sort-key="nome"]) {
+.catalogo-excel-table thead th:has([data-sort-key="nome"]),
+table[data-crm-sortable] thead th:has([data-sort-key="nome"]) {
   white-space: normal;
   min-width: 12rem;
 }
 
 .catalogo-excel-table thead th:has([data-sort-key="valor"]),
-.catalogo-excel-table thead th:has([data-sort-key="estoque"]) {
+.catalogo-excel-table thead th:has([data-sort-key="estoque"]),
+table[data-crm-sortable] thead th:has([data-sort-key="valor"]),
+table[data-crm-sortable] thead th:has([data-sort-key="estoque"]) {
   min-width: 7.5rem;
 }
 
-.catalogo-excel-table thead th.catalogo-excel-col-acoes {
+.catalogo-excel-table thead th.catalogo-excel-col-acoes,
+table[data-crm-sortable] thead th.crm-table-col-acoes {
   width: auto;
   white-space: nowrap;
 }

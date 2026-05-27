@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $os = chamado_os_parse_post($_POST);
         $id = repo_create_chamado(array_merge($os, [
             'cliente_id'          => (int) ($user['cliente_id'] ?? 0),
+            'criado_por_user_id'  => (int) ($user['id'] ?? 0),
             'ponto_iluminacao_id' => (int) ($_POST['ponto_iluminacao_id'] ?? 0),
             'titulo'              => chamado_os_titulo_from_post($_POST),
             'descricao'           => trim($_POST['descricao'] ?? ''),
@@ -82,6 +83,7 @@ $topSubtitle = 'Conte o que está acontecendo. Respondemos o mais rápido possí
 $topSearch   = 'Buscar em chamados...';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 
+$loadLeaflet = true;
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">

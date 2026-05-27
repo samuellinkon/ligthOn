@@ -23,22 +23,61 @@
 
   var map = L.map('dashboard-mapa-combinado', { scrollWheelZoom: false });
   el._crmLeafletMap = map;
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap',
-  }).addTo(map);
+  if (window.CrmLeafletBasemap) {
+    window.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+  }
 
-  var itemsCh = pinsCh.map(function (p) {
-    var m = L.marker([p.lat, p.lng]);
-    var addr = p.endereco_completo ? '<br><small>' + escapeHtml(p.endereco_completo) + '</small>' : '';
-    m.bindPopup(
-      '<strong>#' + p.id + '</strong> ' + escapeHtml(p.titulo) +
-        '<br><span class="map-popup-meta">' + escapeHtml(p.cliente) + ' · ' + escapeHtml(p.data) +
-        ' · ' + escapeHtml(p.status) + '</span>' + addr +
-        '<br><a href="chamado_detalhe.php?id=' + p.id + '">Abrir chamado</a>'
-    );
-    return { pin: p, marker: m };
+  var geocodeApi = window.CHAMADOS_MAP_GEOCODE_API || '';
+  var persistApi = window.CHAMADOS_MAP_PERSIST_API || '';
+  var mapGeo = window.CrmDashboardMapChamados;
+
+  function addChamadoItem(pin) {
+    if (!mapGeo || typeof mapGeo.createMarkerForPin !== 'function') return;
+    var m = mapGeo.createMarkerForPin(pin);
+    if (!m) return;
+    itemsCh.push({ pin: pin, marker: m });
+  }
+
+  var itemsCh = [];
+  pinsCh.forEach(function (p) {
+    if (p.pin_state === 'ready' || (p.lat != null && p.lng != null)) {
+      addChamadoItem(p);
+    }
   });
+
+  if (window.CHAMADOS_MAP_LOADING_MSG && pinsCh.length > 0) {
+    var loadingBanner = document.createElement('div');
+    loadingBanner.className = 'dashboard-map-loading';
+    loadingBanner.setAttribute('role', 'status');
+    loadingBanner.textContent = window.CHAMADOS_MAP_LOADING_MSG;
+    el.parentNode.insertBefore(loadingBanner, el);
+    var finishBanner = function (failed) {
+      if (!loadingBanner.parentNode) return;
+      if (failed > 0) {
+        loadingBanner.textContent =
+          failed + ' chamado(s) não localizados pelo endereço (demais exibidos no mapa).';
+        loadingBanner.classList.add('dashboard-map-loading--warn');
+      } else {
+        loadingBanner.remove();
+      }
+    };
+    if (mapGeo && typeof mapGeo.geocodePendingPins === 'function') {
+      mapGeo.geocodePendingPins(pinsCh, geocodeApi, persistApi, function (pin) {
+        addChamadoItem(pin);
+        rebuildLayers();
+      }, function (res) {
+        finishBanner(res && res.failed ? res.failed : 0);
+        rebuildLayers();
+      });
+    }
+  }
+
+  function renderPopupPonto(p) {
+    if (window.CrmPontoIluminacaoPopup && typeof window.CrmPontoIluminacaoPopup.render === 'function') {
+      return window.CrmPontoIluminacaoPopup.render(p, { actions: 'full' });
+    }
+    return '<div class="map-popup"><p>Popup indisponível.</p></div>';
+  }
 
   var markerClassPt = typeof window.crmPontoMarkerClass === 'function'
     ? window.crmPontoMarkerClass
@@ -55,7 +94,7 @@
       popupAnchor: [0, -8],
     });
     var marker = L.marker([p.lat, p.lng], { icon: icon });
-    marker.bindPopup(buildPopupPonto(p), { maxWidth: 340, minWidth: 280 });
+    marker.bindPopup(renderPopupPonto(p), { maxWidth: 360, minWidth: 280 });
     return { pin: p, marker: marker };
   });
 
@@ -184,8 +223,11 @@
   if (searchPt) searchPt.addEventListener('input', debounce(rebuildLayers, 180));
   if (clusterToggle) clusterToggle.addEventListener('change', rebuildLayers);
 
-  if (itemsCh.length === 0 && itemsPt.length === 0) {
-    el.innerHTML = '<div class="dashboard-map-empty">Não há chamados no período nem postes com coordenadas para exibir.</div>';
+  var hasChamadosData = pinsCh.length > 0;
+  if (!hasChamadosData && itemsPt.length === 0) {
+    var comboEmpty = window.CHAMADOS_MAP_EMPTY_MSG
+      || 'Não há chamados no período nem postes com coordenadas para exibir.';
+    el.innerHTML = '<div class="dashboard-map-empty">' + comboEmpty + '</div>';
     return;
   }
 
@@ -199,7 +241,7 @@
     return;
   }
 
-  if (itemsCh.length === 0) {
+  if (pinsCh.length === 0) {
     layerCh.checked = false;
     layerPt.checked = true;
   } else if (itemsPt.length === 0) {
@@ -211,7 +253,7 @@
   }
 
   if (!layerCh.checked && !layerPt.checked) {
-    layerCh.checked = itemsCh.length > 0;
+    layerCh.checked = pinsCh.length > 0;
     layerPt.checked = itemsPt.length > 0;
   }
 
@@ -227,10 +269,6 @@
     var d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
-  }
-
-  function escapeAttr(s) {
-    return escapeHtml(String(s || '')).replace(/"/g, '&quot;');
   }
 
   function normalizeText(s) {
@@ -249,49 +287,4 @@
     };
   }
 
-  function buildPopupPonto(p) {
-    var codigo = p.codigo_poste || '';
-    var html =
-      '<div class="ponto-popup">' +
-      '<strong>Poste ' + escapeHtml(codigo) + '</strong>' +
-      '<br><span class="ponto-popup-meta">' + escapeHtml(p.cliente || '') +
-      (p.bairro ? ' · ' + escapeHtml(p.bairro) : '') + '</span>';
-
-    if (p.foto_url) {
-      html += '<img class="ponto-popup-photo" src="' + escapeAttr(p.foto_url) + '" alt="Foto do poste ' + escapeAttr(codigo) + '">';
-    } else {
-      html += '<div class="ponto-popup-photo ponto-popup-photo-empty">Sem foto cadastrada</div>';
-    }
-
-    if (p.endereco_completo) {
-      html += '<small class="ponto-popup-address">' + escapeHtml(p.endereco_completo) + '</small>';
-    }
-
-    html +=
-      '<div style="margin-top:8px;"><strong>' + Number(p.chamados_abertos || 0) +
-      '</strong> chamado(s) aberto(s)</div>' +
-      buildHistorico(p.chamados_historico || []) +
-      '<div class="ponto-popup-actions"><a class="ponto-popup-link" href="chamados.php?q=' + encodeURIComponent(codigo) + '">Ver chamados</a></div>' +
-      '</div>';
-
-    return html;
-  }
-
-  function buildHistorico(chamados) {
-    if (!Array.isArray(chamados) || chamados.length === 0) {
-      return '<div class="ponto-popup-history"><div class="ponto-popup-history-title">Histórico de chamados</div><small class="ponto-popup-meta">Nenhum chamado vinculado a este poste.</small></div>';
-    }
-
-    var h = '<div class="ponto-popup-history"><div class="ponto-popup-history-title">Histórico de chamados</div>';
-    chamados.forEach(function (ch) {
-      h +=
-        '<a class="ponto-popup-call" href="chamado_detalhe.php?id=' + encodeURIComponent(ch.id || '') + '">' +
-        '<strong>#' + escapeHtml(String(ch.id || '')) + ' · ' + escapeHtml(ch.status || '') + '</strong>' +
-        '<small>' + escapeHtml(ch.data || '') + (ch.prioridade ? ' · ' + escapeHtml(ch.prioridade) : '') + '</small>' +
-        (ch.titulo ? '<span style="display:block;margin-top:2px;">' + escapeHtml(ch.titulo) + '</span>' : '') +
-        '</a>';
-    });
-    h += '</div>';
-    return h;
-  }
 })();

@@ -1,26 +1,26 @@
   <div class="dashboard-admin-metrics">
   <div class="cards-metrics">
-    <div class="card metric">
+    <a class="card metric metric--link" href="<?= htmlspecialchars($dashHrefChamados ?? 'chamados.php', ENT_QUOTES, 'UTF-8') ?>" title="Ver todos os chamados">
       <div class="metric-top">
         <div>
-          <div class="metric-label">Chamados abertos</div>
-          <div class="metric-value"><?= $dash ? (int) $dash['ch_abertos'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Aberto')) ?></div>
+          <div class="metric-label">Total de Chamados</div>
+          <div class="metric-value"><?= $dash ? (int) ($dash['ch_total'] ?? 0) : count($MOCK_CHAMADOS) ?></div>
         </div>
         <div class="icon-box">CH</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? 'Em tempo real' : 'Sem conexão ao banco' ?></div>
-    </div>
+      <div class="metric-change metric-change--admin"><?= $dash ? 'Clique para abrir a listagem' : 'Sem conexão ao banco' ?></div>
+    </a>
 
-    <div class="card metric">
+    <a class="card metric metric--link" href="<?= htmlspecialchars($dashHrefChamadosAbertos ?? 'chamados.php?f=Aberto', ENT_QUOTES, 'UTF-8') ?>" title="Filtrar chamados abertos">
       <div class="metric-top">
         <div>
-          <div class="metric-label">Chamados em andamento</div>
-          <div class="metric-value"><?= $dash ? (int) $dash['ch_andamento'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Em andamento')) ?></div>
+          <div class="metric-label">Total de Chamados Abertos</div>
+          <div class="metric-value"><?= $dash ? (int) $dash['ch_abertos'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Aberto')) ?></div>
         </div>
-        <div class="icon-box">AN</div>
+        <div class="icon-box">AB</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? 'Atribuídos / em execução' : 'Sem conexão ao banco' ?></div>
-    </div>
+      <div class="metric-change metric-change--admin"><?= $dash ? 'Filtra a listagem por Aberto' : 'Sem conexão ao banco' ?></div>
+    </a>
 
     <div class="card metric">
       <div class="metric-top">
@@ -41,7 +41,7 @@
         </div>
         <div class="icon-box">BM</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) . ' · soma do valor medido nas linhas importadas' : 'Sem conexão ao banco' ?></div>
+      <div class="metric-change metric-change--admin"><?= $dash ? htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) . ' · chamados com status Validado' : 'Sem conexão ao banco' ?></div>
     </div>
   </div>
   </div>
@@ -310,16 +310,16 @@
         <a href="chamados.php">Ver todos</a>
       </div>
       <div class="table-wrap">
-        <table>
+        <table data-crm-sortable>
           <thead>
-            <tr>
-              <th>ID</th>
-              <th>Título</th>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('ID', 'id', ['type' => 'number']); ?>
+              <?php crm_sort_th('Título', 'titulo'); ?>
               <?php if ($dashMostrarColunaOrgao): ?>
-              <th>Órgão</th>
+              <?php crm_sort_th('Órgão', 'orgao'); ?>
               <?php endif; ?>
-              <th>Status</th>
-              <th>Prioridade</th>
+              <?php crm_sort_th('Status', 'status'); ?>
+              <?php crm_sort_th('Prioridade', 'prioridade', ['type' => 'number']); ?>
             </tr>
           </thead>
           <tbody>
@@ -329,7 +329,18 @@
             </tr>
             <?php else: ?>
             <?php foreach ($ultimosCh as $c): ?>
-              <tr onclick="location.href='chamado_detalhe.php?id=<?= (int) $c['id'] ?>'" style="cursor:pointer;">
+              <?php
+                $dashSort = [
+                    'id'         => (string) (int) ($c['id'] ?? 0),
+                    'titulo'     => (string) ($c['titulo'] ?? ''),
+                    'status'     => (string) ($c['status'] ?? ''),
+                    'prioridade' => (string) crm_sort_prioridade_rank((string) ($c['prioridade'] ?? '')),
+                ];
+                if ($dashMostrarColunaOrgao) {
+                    $dashSort['orgao'] = (string) ($c['cliente'] ?? '');
+                }
+              ?>
+              <tr onclick="location.href='chamado_detalhe.php?id=<?= (int) $c['id'] ?>'" style="cursor:pointer;" <?= crm_sort_row_attr($dashSort) ?>>
                 <td class="td-id">#<?= (int) $c['id'] ?></td>
                 <td class="td-title"><?= htmlspecialchars($c['titulo']) ?></td>
                 <?php if ($dashMostrarColunaOrgao): ?>

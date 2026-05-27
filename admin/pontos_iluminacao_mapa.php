@@ -72,6 +72,7 @@ include __DIR__ . '/../includes/head.php';
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="">
+<link rel="stylesheet" href="<?= htmlspecialchars($basePath) ?>assets/css/map-popup.css?v=<?= (int) @filemtime(__DIR__ . '/../assets/css/map-popup.css') ?>">
 <style>
   #pontos-iluminacao-map{height:620px;border-radius:18px;border:1px solid var(--border);overflow:hidden;background:#eef1f7}
   .pontos-map-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-weight:700;text-align:center;padding:24px}
@@ -84,18 +85,6 @@ include __DIR__ . '/../includes/head.php';
   .leaflet-marker-icon:hover .ponto-marker--ativo{background:#4ade80!important;border-color:#166534!important}
   .leaflet-marker-icon:hover .ponto-marker--inativo{background:#cbd5e1!important;border-color:#475569!important}
   .leaflet-marker-icon:hover .ponto-marker--alert{background:#f87171!important;border-color:#991b1b!important}
-  .ponto-popup{width:300px;max-width:72vw}
-  .ponto-popup-photo{width:50%;max-width:50%;height:68px;max-height:68px;border-radius:10px;object-fit:cover;object-position:center;background:#f3f4f6;border:1px solid var(--border);display:block;margin:6px auto;box-sizing:border-box}
-  .ponto-popup-photo-empty{width:50%;max-width:50%;height:68px;margin:6px auto;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-weight:700;font-size:11px;box-sizing:border-box}
-  .ponto-popup-meta{color:var(--muted);font-size:12px}
-  .ponto-popup-address{display:block;margin-top:4px;color:#374151}
-  .ponto-popup-history{border-top:1px solid var(--border);margin-top:10px;padding-top:8px}
-  .ponto-popup-history-title{font-weight:800;margin-bottom:6px}
-  .ponto-popup-call{display:block;padding:6px 0;border-top:1px solid #eef2f7;color:inherit;text-decoration:none}
-  .ponto-popup-call:first-of-type{border-top:0}
-  .ponto-popup-call strong{display:block;font-size:12px}
-  .ponto-popup-call small{color:var(--muted)}
-  .ponto-popup-actions{margin-top:8px}
   .map-tools{display:grid;grid-template-columns:1.1fr 1.4fr auto;gap:10px;align-items:end;margin:0 0 12px;padding:12px;border:1px solid var(--border);border-radius:14px;background:#f8fafc}
   .map-tools label{display:block;font-size:12px;font-weight:800;color:#374151;margin-bottom:6px}
   .map-tools .input{min-height:38px}
@@ -146,6 +135,8 @@ include __DIR__ . '/../includes/head.php';
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
+<?php include __DIR__ . '/../includes/partials/leaflet_ponto_popup_assets.php'; ?>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
 <script>
 window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;

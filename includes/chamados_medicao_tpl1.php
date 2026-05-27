@@ -23,24 +23,24 @@ function bm_med_tpl1_celula_texto_plano(mixed $v): string
     return trim((string) $v);
 }
 
-/** Localiza a linha do cabeçalho GIP: DATA + ID (novo) ou DATA + PROTOCOLO GIP (legado); senão qualquer célula «PROTOCOLO GIP». */
-function bm_med_tpl1_find_gip_header_row(Worksheet $sheet): ?int
+/** Localiza a linha do cabeçalho institucional: DATA + ID ou DATA + PROTOCOLO; senão qualquer célula «PROTOCOLO». */
+function bm_med_tpl1_find_inst_header_row(Worksheet $sheet): ?int
 {
     $maxR = min(120, max(5, (int) $sheet->getHighestRow()));
     $hi   = Coordinate::columnIndexFromString($sheet->getHighestColumn());
-    $maxC = min(Coordinate::columnIndexFromString(BM_MED_GIP_LAST_COL), max(2, $hi));
+    $maxC = min(Coordinate::columnIndexFromString(BM_MED_INST_LAST_COL), max(2, $hi));
     for ($r = 1; $r <= $maxR; ++$r) {
         $a = strtoupper(bm_med_tpl1_celula_texto_plano($sheet->getCell('A' . $r)->getValue()));
         $b = strtoupper(bm_med_tpl1_celula_texto_plano($sheet->getCell('B' . $r)->getValue()));
-        if ($a === 'DATA' && ($b === 'ID' || stripos($b, 'PROTOCOLO GIP') !== false)) {
+        if ($a === 'DATA' && ($b === 'ID' || stripos($b, 'PROTOCOLO') !== false)) {
             return $r;
         }
     }
     for ($r = 1; $r <= $maxR; ++$r) {
         for ($ci = 1; $ci <= $maxC; ++$ci) {
             $c = Coordinate::stringFromColumnIndex($ci);
-            $v = bm_med_tpl1_celula_texto_plano($sheet->getCell($c . $r)->getValue());
-            if ($v !== '' && stripos($v, 'PROTOCOLO GIP') !== false) {
+            $v = strtoupper(bm_med_tpl1_celula_texto_plano($sheet->getCell($c . $r)->getValue()));
+            if ($v !== '' && str_contains($v, 'PROTOCOLO')) {
                 return $r;
             }
         }
@@ -50,7 +50,7 @@ function bm_med_tpl1_find_gip_header_row(Worksheet $sheet): ?int
 }
 
 /**
- * Aceita ficheiros com folha «MEDIÇÃO» e modelo institucional GIP (cabeçalho DATA + ID, ou legado DATA + PROTOCOLO GIP / célula PROTOCOLO GIP)
+ * Aceita ficheiros com folha «MEDIÇÃO» e layout institucional (cabeçalho DATA + ID ou DATA + PROTOCOLO)
  * ou capa com título «BOLETIM» em A1/B1.
  */
 function bm_med_tpl1_validate(string $tplPath): bool
@@ -66,7 +66,7 @@ function bm_med_tpl1_validate(string $tplPath): bool
         if ($sheet->getTitle() !== 'MEDIÇÃO') {
             return false;
         }
-        if (bm_med_tpl1_find_gip_header_row($sheet) !== null) {
+        if (bm_med_tpl1_find_inst_header_row($sheet) !== null) {
             return true;
         }
         $a1 = bm_med_tpl1_celula_texto_plano($sheet->getCell('A1')->getValue());
@@ -84,7 +84,7 @@ function bm_med_tpl1_validate(string $tplPath): bool
 /**
  * Copia do modelo margens e configuração de página (sem larguras/alturas — definidas em PHP).
  *
- * Usado depois de `bm_med_workbook_build`; o layout final GIP reaplica alturas e colunas.
+ * Usado depois de `bm_med_workbook_build`; o layout final reaplica alturas e colunas.
  */
 function bm_med_tpl1_overlay_surface(Worksheet $dst, string $tplPath): void
 {
@@ -114,7 +114,8 @@ function bm_med_tpl1_overlay_surface(Worksheet $dst, string $tplPath): void
 }
 
 /**
- * Replica o estilo da primeira linha de dados do modelo (abaixo do cabeçalho GIP) nas linhas de corpo geradas.
+ * Replica o estilo da primeira linha de dados do modelo (abaixo do cabeçalho institucional) nas linhas de corpo geradas.
+ * Formatos de coluna (ID, coordenadas, valores) são reaplicados em PHP após este passo (bm_med_inst_aplicar_formatos_linhas_dados).
  */
 function bm_med_tpl1_apply_sample_body_row_style_from_template(Worksheet $dst, string $tplPath, array $bodyRowNums): void
 {
@@ -125,7 +126,7 @@ function bm_med_tpl1_apply_sample_body_row_style_from_template(Worksheet $dst, s
         $reader = IOFactory::createReader('Xlsx');
         $reader->setReadDataOnly(false);
         $src   = $reader->load($tplPath)->getActiveSheet();
-        $hdr   = bm_med_tpl1_find_gip_header_row($src);
+        $hdr   = bm_med_tpl1_find_inst_header_row($src);
         if ($hdr === null) {
             return;
         }
@@ -133,13 +134,13 @@ function bm_med_tpl1_apply_sample_body_row_style_from_template(Worksheet $dst, s
         if ($sample > (int) $src->getHighestRow()) {
             return;
         }
-        $bodyStyle = $src->getStyle('A' . $sample . ':' . BM_MED_GIP_LAST_COL . $sample);
+        $bodyStyle = $src->getStyle('A' . $sample . ':' . BM_MED_INST_LAST_COL . $sample);
         foreach ($bodyRowNums as $br) {
             $r = (int) $br;
             if ($r <= 0) {
                 continue;
             }
-            $dst->duplicateStyle($bodyStyle, 'A' . $r . ':' . BM_MED_GIP_LAST_COL . $r, true);
+            $dst->duplicateStyle($bodyStyle, 'A' . $r . ':' . BM_MED_INST_LAST_COL . $r, true);
         }
     } catch (\Throwable) {
         /* mantém estilos só PHP */

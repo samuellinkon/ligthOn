@@ -218,14 +218,13 @@ include __DIR__ . '/../includes/head.php';
               <tr>
                 <th>Chamado</th>
                 <th>Data abertura</th>
-                <th>Técnico no chamado</th>
+                <th>Endereço</th>
                 <th>Item</th>
                 <th>Movimento</th>
                 <th class="text-right">Qtd</th>
                 <th>Un.</th>
                 <th class="text-right">V. unit.</th>
                 <th class="text-right">V. total</th>
-                <th>Observação</th>
               </tr>
             </thead>
             <tbody>
@@ -233,16 +232,27 @@ include __DIR__ . '/../includes/head.php';
                 <?php
                   $mov = (string) ($ln['movimento'] ?? '');
                   $isU = $mov !== 'devolvido';
+                  $chId = (int) ($ln['chamado_id'] ?? 0);
+                  $chHref = 'chamado_detalhe.php?id=' . $chId;
+                  $endCh = trim((string) ($ln['chamado_endereco'] ?? ''));
                 ?>
-                <tr>
+                <tr class="catalogo-aplicado-row-link" role="link" tabindex="0"
+                    data-href="<?= htmlspecialchars($chHref, ENT_QUOTES, 'UTF-8') ?>"
+                    title="Abrir chamado #<?= $chId ?>">
                   <td>
-                    <a href="chamado_detalhe.php?id=<?= (int) ($ln['chamado_id'] ?? 0) ?>">#<?= (int) ($ln['chamado_id'] ?? 0) ?></a>
+                    <strong>#<?= $chId ?></strong>
                     <?php if (($ln['chamado_titulo'] ?? '') !== ''): ?>
                       <div class="td-mute" style="font-size:12px;max-width:14rem;"><?= htmlspecialchars((string) $ln['chamado_titulo']) ?></div>
                     <?php endif; ?>
                   </td>
                   <td class="td-mute"><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) ($ln['chamado_aberto_em'] ?? 'now')))) ?></td>
-                  <td><?= htmlspecialchars((string) ($ln['tecnico_nome'] ?? '') ?: '—') ?></td>
+                  <td class="catalogo-aplicado-endereco">
+                    <?php if ($endCh !== ''): ?>
+                      <?= htmlspecialchars($endCh) ?>
+                    <?php else: ?>
+                      <span class="td-mute">—</span>
+                    <?php endif; ?>
+                  </td>
                   <td>
                     <strong><?= htmlspecialchars((string) ($ln['item_nome'] ?? '')) ?></strong>
                     <?php if (($ln['item_codigo'] ?? '') !== ''): ?>
@@ -263,7 +273,6 @@ include __DIR__ . '/../includes/head.php';
                       <span class="td-mute">—</span>
                     <?php endif; ?>
                   </td>
-                  <td class="td-mute"><?= htmlspecialchars((string) ($ln['observacao'] ?? '')) ?></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
@@ -276,4 +285,26 @@ include __DIR__ . '/../includes/head.php';
 </section>
 </main>
 </div>
+<style>
+.catalogo-aplicado-row-link { cursor: pointer; }
+.catalogo-aplicado-row-link:hover { background: var(--surface-hover, rgba(0, 0, 0, 0.04)); }
+.catalogo-aplicado-endereco { max-width: 18rem; font-size: 13px; line-height: 1.4; }
+</style>
+<script>
+(function () {
+  document.querySelectorAll('.catalogo-aplicado-row-link').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var href = row.getAttribute('data-href');
+      if (href) window.location.href = href;
+    });
+    row.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        var href = row.getAttribute('data-href');
+        if (href) window.location.href = href;
+      }
+    });
+  });
+})();
+</script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

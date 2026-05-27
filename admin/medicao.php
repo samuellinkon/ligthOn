@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/medicao_bm_excluir.php';
 require_once __DIR__ . '/../includes/chamados_list_urls.php';
 
 $me = require_auth_gestao();
@@ -24,13 +25,17 @@ if (!db_ok()) {
 
 $escopoEmpresa = gestao_scope_cliente_id($me);
 if ($escopoEmpresa !== null) {
-    $clienteId = $escopoEmpresa;
+    $clienteIdRaw = $escopoEmpresa;
 } else {
-    $clienteId = (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
-    if ($clienteId <= 0) {
+    $clienteIdRaw = (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+    if ($clienteIdRaw <= 0) {
         $empresasFallback = repo_clientes_empresas();
-        $clienteId = (int) (($empresasFallback[0]['id'] ?? 0));
+        $clienteIdRaw = (int) (($empresasFallback[0]['id'] ?? 0));
     }
+}
+$clienteId = $clienteIdRaw > 0 ? repo_cliente_matriz_raiz_id($clienteIdRaw) : 0;
+if ($clienteId <= 0 && $clienteIdRaw > 0) {
+    $clienteId = $clienteIdRaw;
 }
 
 if ($clienteId <= 0) {
@@ -54,6 +59,14 @@ audit_log_registar('medicao.acessar_lista', 'medicao', null, $clienteId > 0 ? $c
 
 $mesesLista = repo_medicao_resumo_mensal_list($clienteId, 60);
 
+$ymsLista = [];
+foreach ($mesesLista as $rowMes) {
+    $ymsLista[] = (string) ($rowMes['ym'] ?? '');
+}
+$bmExcluirMapa = medicao_bm_excluir_mapa_meses($clienteId, $ymsLista);
+
+$medicaoValidadoCount   = repo_medicao_count_validado_escopo($clienteId);
+$medicaoMostrarExcluirBm = true;
 $medicaoMostrarImportar = true;
 $medicaoJsClienteId     = $clienteId;
 
@@ -61,6 +74,7 @@ $topTitle    = 'Medição';
 $topSubtitle = 'Medições mensais';
 $topSearch   = '';
 $topAction   = null;
+$loadMedicaoMeses = true;
 
 include __DIR__ . '/../includes/head.php';
 ?>
