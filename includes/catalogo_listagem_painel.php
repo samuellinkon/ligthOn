@@ -7,6 +7,7 @@
  * - $catalogoPainelFormAction (string) ex.: catalogo.php (relativo à pasta da página)
  * - $catalogoPainelHiddenQuery (array<string, int|string>) params fixos no GET (ex.: cliente_id no admin)
  * - $catalogoPainelSomenteLeitura (bool) se true: sem botões de edição, modal e coluna Ações
+ * - $catalogoPainelAdminEditaSaldo (bool) se true: saldo editável no modal (painel admin/gestão)
  * - $catalogoPainelHrefImportar (string, opcional) URL do botão Importar (default: admin cliente_itens_importar)
  * - $catalogoPainelHrefAplicadoChamados (string, opcional) URL do relatório aplicado em chamados (default: admin + cliente_id)
  */
@@ -16,7 +17,8 @@ declare(strict_types=1);
 $catalogoPainelClienteId = (int) ($catalogoPainelClienteId ?? 0);
 $catalogoPainelFormAction = (string) ($catalogoPainelFormAction ?? 'catalogo.php');
 $catalogoPainelHiddenQuery = is_array($catalogoPainelHiddenQuery ?? null) ? $catalogoPainelHiddenQuery : [];
-$catalogoPainelSomenteLeitura = !empty($catalogoPainelSomenteLeitura);
+$catalogoPainelSomenteLeitura  = !empty($catalogoPainelSomenteLeitura);
+$catalogoPainelAdminEditaSaldo = !empty($catalogoPainelAdminEditaSaldo);
 
 if ($catalogoPainelClienteId <= 0) {
     echo '<section class="content"><p class="muted">Catálogo indisponível.</p></section>';
@@ -43,7 +45,8 @@ $q = trim((string) ($_GET['q'] ?? ''));
 $codFiltro = trim((string) ($_GET['cod'] ?? ''));
 $estoqueBaixoFiltro = isset($_GET['estoque_baixo']) && (string) $_GET['estoque_baixo'] === '1';
 
-$catalogoTemEstoque = repo_cliente_itens_estoque_saldo_column_exists();
+$catalogoTemEstoque     = repo_cliente_itens_estoque_saldo_column_exists();
+$catalogoTemCapacidade  = repo_cliente_itens_estoque_capacidade_column_exists();
 $catalogoEstoqueFmt = static function (float $n): string {
     $t = rtrim(rtrim(number_format($n, 4, ',', '.'), '0'), ',');
 
@@ -128,6 +131,11 @@ $catalogoPainelUrl = static function (
 
     return $built !== '' ? ($script . '?' . $built) : $script;
 };
+$catalogoHrefAplicadoItem = static function (string $baseHref, int $itemId): string {
+    $sep = strpos($baseHref, '?') === false ? '?' : '&';
+
+    return $baseHref . $sep . 'item_id=' . $itemId;
+};
 
 $filtroMetricAtivos   = $statusFiltro === 'ativo' && $tipoFiltro === '' && !$estoqueBaixoFiltro;
 $filtroMetricProdutos = $tipoFiltro === 'produto' && !$estoqueBaixoFiltro;
@@ -176,7 +184,11 @@ $metricCardClass = static function (bool $active): string {
 
   <?php if (!$catalogoTemEstoque): ?>
   <div class="flash flash-warn" style="margin-bottom:16px;">
-    Execute a migração <code>database/migrations/045_cliente_itens_estoque_saldo.sql</code> para habilitar o controle de estoque saldo.
+    Execute a migração <code>database/migrations/045_cliente_itens_estoque_saldo.sql</code> para habilitar o controle de estoque e saldo.
+  </div>
+  <?php elseif (!$catalogoTemCapacidade): ?>
+  <div class="flash flash-warn" style="margin-bottom:16px;">
+    Execute a migração <code>database/migrations/052_estoque_capacidade.sql</code> para separar <strong>Estoque</strong> (referência no cadastro) e <strong>Saldo</strong> (atual, movimentado pelos chamados).
   </div>
   <?php endif; ?>
 
@@ -208,7 +220,7 @@ $metricCardClass = static function (bool $active): string {
         <div><div class="metric-label">Estoque baixo</div><div class="metric-value"><?= (int) $totalEstoqueBaixo ?></div></div>
         <div class="icon-box red">!</div>
       </div>
-      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo &lt; <?= (int) $catalogoEstoqueBaixoLimiar ?> — clique para filtrar</div>
+      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo abaixo de 10% do estoque — clique para filtrar</div>
     </a>
     <?php endif; ?>
   </div>
@@ -226,6 +238,15 @@ $metricCardClass = static function (bool $active): string {
         <a class="btn btn-secondary btn-sm" href="catalogo_export_xlsx.php?cliente_id=<?= (int) $catalogoPainelClienteId ?>">Exportar XLS</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefImportar) ?>">Importar planilha</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefAplicadoChamados) ?>" title="Lançamentos de itens do catálogo em chamados">Catálogo aplicado em chamados</a>
+        <?php if ($catalogoTemEstoque): ?>
+        <form method="post" action="<?= htmlspecialchars($catalogoPainelFormAction) ?>" style="display:inline;margin:0;" onsubmit="return confirm('Recalcular o saldo de todos os itens com base nos materiais dos chamados?');">
+          <?php foreach ($catalogoPainelHiddenQuery as $hk => $hv): ?>
+          <input type="hidden" name="<?= htmlspecialchars((string) $hk) ?>" value="<?= htmlspecialchars((string) $hv) ?>">
+          <?php endforeach; ?>
+          <input type="hidden" name="acao" value="recalcular_saldos">
+          <button type="submit" class="btn btn-secondary btn-sm" title="Ajusta a coluna Saldo: estoque de referência menos utilizado nos chamados, mais devolvido">Recalcular saldos</button>
+        </form>
+        <?php endif; ?>
         <?php else: ?>
         <span class="btn btn-primary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;" title="Edição disponível no painel do gestor">+ Produto</span>
         <span class="btn btn-secondary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;">+ Serviço</span>
@@ -287,8 +308,11 @@ $metricCardClass = static function (bool $active): string {
             <?php crm_sort_th('Código', 'codigo'); ?>
             <?php crm_sort_th('Un.', 'unidade'); ?>
             <?php crm_sort_th('Valor unit.', 'valor', ['type' => 'number', 'right' => true]); ?>
-            <?php if ($catalogoTemEstoque): ?>
-            <?php crm_sort_th('Estoque saldo', 'estoque', ['type' => 'number', 'right' => true]); ?>
+            <?php if ($catalogoTemEstoque && $catalogoTemCapacidade): ?>
+            <?php crm_sort_th('Estoque', 'estoque', ['type' => 'number', 'right' => true, 'title' => 'Quantidade de referência definida na importação ou edição do catálogo.']); ?>
+            <?php crm_sort_th('Saldo', 'saldo', ['type' => 'number', 'right' => true, 'title' => 'Disponível após consumo (BM para itens de contrato X.Y; chamados para materiais numéricos).']); ?>
+            <?php elseif ($catalogoTemEstoque): ?>
+            <?php crm_sort_th('Saldo', 'saldo', ['type' => 'number', 'right' => true]); ?>
             <?php endif; ?>
             <?php crm_sort_th('Status', 'status', ['type' => 'number']); ?>
             <?php crm_sort_th('Ações', null, ['class' => 'catalogo-excel-col-acoes crm-table-col-acoes']); ?>
@@ -296,28 +320,38 @@ $metricCardClass = static function (bool $active): string {
         </thead>
         <tbody>
           <?php
-            $colspan = 7 + ($catalogoTemEstoque ? 1 : 0);
+            $colspan = 7 + ($catalogoTemEstoque ? ($catalogoTemCapacidade ? 2 : 1) : 0);
           if (empty($itens)): ?>
           <tr><td colspan="<?= $colspan ?>" class="muted" style="padding:24px;text-align:center;">Nenhum item encontrado.</td></tr>
           <?php else: foreach ($itens as $it):
             $tipoRaw   = (string) ($it['tipo'] ?? 'produto');
             $codRaw    = trim((string) ($it['codigo'] ?? ''));
             $estSaldo  = (float) ($it['estoque_saldo'] ?? 0);
+            $estCap    = isset($it['estoque_capacidade']) && $it['estoque_capacidade'] !== null
+                ? (float) $it['estoque_capacidade']
+                : $estSaldo;
             $estBaixo  = $catalogoTemEstoque && catalogo_item_estoque_baixo($it);
             $estNeg    = $catalogoTemEstoque && $estSaldo < 0;
-            $rowClass  = $estBaixo ? 'catalogo-row--estoque-baixo' : '';
+            $rowClass  = trim(($estBaixo ? 'catalogo-row--estoque-baixo ' : '') . 'catalogo-row--aplicado-link');
             $estClasse = $estNeg ? 'catalogo-estoque--negativo' : ($estBaixo ? 'catalogo-estoque--baixo' : '');
             $valorNum = $catalogoValorRound((float) ($it['valor_unitario'] ?? 0));
+            $itemId = (int) ($it['id'] ?? 0);
+            $itemAplicadoHref = $catalogoHrefAplicadoItem($catalogoPainelHrefAplicadoChamados, $itemId);
           ?>
           <tr
             class="<?= htmlspecialchars($rowClass) ?>"
+            data-catalogo-aplicado-href="<?= htmlspecialchars($itemAplicadoHref, ENT_QUOTES) ?>"
+            role="link"
+            tabindex="0"
+            title="Ver aplicado em chamados"
             <?= crm_sort_row_attr([
                 'tipo'    => $tipoRaw,
                 'nome'    => (string) ($it['nome'] ?? ''),
                 'codigo'  => $codRaw,
                 'unidade' => (string) ($it['unidade'] ?? ''),
                 'valor'   => (string) $valorNum,
-                'estoque' => (string) $estSaldo,
+                'estoque' => (string) $estCap,
+                'saldo'   => (string) $estSaldo,
                 'status'  => !empty($it['ativo']) ? '1' : '0',
             ]) ?>
           >
@@ -326,14 +360,29 @@ $metricCardClass = static function (bool $active): string {
               <div class="catalogo-item-nome">
                 <strong><?= htmlspecialchars((string) ($it['nome'] ?? '')) ?></strong>
                 <?php if ($estBaixo): ?>
-                  <span class="badge catalogo-badge-estoque-baixo">Estoque baixo</span>
+                  <?php
+                    $limiarBaixoUi = $catalogoTemCapacidade ? catalogo_estoque_limiar_baixo($it) : 0.0;
+                    $tituloBaixo   = $limiarBaixoUi > 0
+                        ? sprintf('Saldo %.4g ≤ 10%% do estoque (limiar %.4g %s)', $estSaldo, $limiarBaixoUi, (string) ($it['unidade'] ?? ''))
+                        : 'Saldo abaixo de 10% do estoque';
+                  ?>
+                  <span class="badge catalogo-badge-estoque-baixo" title="<?= htmlspecialchars($tituloBaixo, ENT_QUOTES) ?>">Estoque baixo</span>
                 <?php endif; ?>
               </div>
             </td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['codigo'] ?? '—')) ?></td>
             <td class="td-mute"><?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></td>
             <td class="text-right">R$ <?= $catalogoValorFmt((float) ($it['valor_unitario'] ?? 0)) ?></td>
-            <?php if ($catalogoTemEstoque): ?>
+            <?php if ($catalogoTemEstoque && $catalogoTemCapacidade): ?>
+            <td class="text-right">
+              <?= $catalogoEstoqueFmt($estCap) ?>
+              <span class="muted" style="font-size:12px;"> <?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></span>
+            </td>
+            <td class="text-right<?= $estClasse !== '' ? ' ' . $estClasse : '' ?>">
+              <?= $catalogoEstoqueFmt($estSaldo) ?>
+              <span class="muted" style="font-size:12px;"> <?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></span>
+            </td>
+            <?php elseif ($catalogoTemEstoque): ?>
             <td class="text-right<?= $estClasse !== '' ? ' ' . $estClasse : '' ?>">
               <?= $catalogoEstoqueFmt($estSaldo) ?>
               <span class="muted" style="font-size:12px;"> <?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></span>
@@ -357,19 +406,20 @@ $metricCardClass = static function (bool $active): string {
                 type="button"
                 class="action primary"
                 data-open-item-modal
-                data-id="<?= (int) ($it['id'] ?? 0) ?>"
+                data-id="<?= $itemId ?>"
                 data-tipo="<?= htmlspecialchars((string) ($it['tipo'] ?? 'produto')) ?>"
                 data-nome="<?= htmlspecialchars((string) ($it['nome'] ?? ''), ENT_QUOTES) ?>"
                 data-codigo="<?= htmlspecialchars((string) ($it['codigo'] ?? ''), ENT_QUOTES) ?>"
                 data-unidade="<?= htmlspecialchars((string) ($it['unidade'] ?? 'UN'), ENT_QUOTES) ?>"
                 data-valor="<?= htmlspecialchars($catalogoValorFmt((float) ($it['valor_unitario'] ?? 0)), ENT_QUOTES) ?>"
-                data-estoque="<?= htmlspecialchars((string) ($it['estoque_saldo'] ?? '0'), ENT_QUOTES) ?>"
+                data-estoque-capacidade="<?= htmlspecialchars($catalogoEstoqueFmt($estCap), ENT_QUOTES) ?>"
+                data-estoque-saldo="<?= htmlspecialchars($catalogoEstoqueFmt($estSaldo), ENT_QUOTES) ?>"
                 data-descricao="<?= htmlspecialchars((string) ($it['descricao'] ?? ''), ENT_QUOTES) ?>"
                 data-ativo="<?= !empty($it['ativo']) ? '1' : '0' ?>"
               >Editar</button>
               <form method="post" style="display:inline;" data-confirm="Excluir este item do catálogo?" data-confirm-danger>
                 <input type="hidden" name="acao" value="item_excluir">
-                <input type="hidden" name="item_id" value="<?= (int) ($it['id'] ?? 0) ?>">
+                <input type="hidden" name="item_id" value="<?= $itemId ?>">
                 <button type="submit" class="action danger">Excluir</button>
               </form>
               <?php else: ?>
@@ -384,6 +434,34 @@ $metricCardClass = static function (bool $active): string {
   </div>
 
 </section>
+
+<style>
+.catalogo-row--aplicado-link { cursor: pointer; }
+.catalogo-row--aplicado-link:hover { background: var(--surface-hover, rgba(0, 0, 0, 0.04)); }
+</style>
+<script>
+(function () {
+  function goToAplicado(row) {
+    var href = row.getAttribute('data-catalogo-aplicado-href');
+    if (href) window.location.href = href;
+  }
+
+  document.querySelectorAll('.catalogo-row--aplicado-link').forEach(function (row) {
+    row.addEventListener('click', function () { goToAplicado(row); });
+    row.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        goToAplicado(row);
+      }
+    });
+  });
+
+  document.querySelectorAll('.catalogo-row--aplicado-link .td-actions, .catalogo-row--aplicado-link .td-actions *').forEach(function (el) {
+    el.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    el.addEventListener('keydown', function (ev) { ev.stopPropagation(); });
+  });
+})();
+</script>
 
 <?php if (!$catalogoPainelSomenteLeitura): ?>
 <div id="item-modal" class="kb-modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" aria-hidden="true">
@@ -420,10 +498,24 @@ $metricCardClass = static function (bool $active): string {
       </div>
       <?php if ($catalogoTemEstoque): ?>
       <div class="form-group">
-        <label for="modal_estoque">Estoque saldo</label>
-        <input type="text" id="modal_estoque" name="estoque_saldo" class="input" inputmode="decimal" value="0" placeholder="0" title="Quantidade total disponível em estoque">
-        <span class="muted" style="font-size:12px;">Aceita saldo negativo. Alerta quando &lt; <?= (int) $catalogoEstoqueBaixoLimiar ?></span>
+        <label for="modal_estoque">Estoque</label>
+        <input type="text" id="modal_estoque" name="estoque_capacidade" class="input" inputmode="decimal" value="0" placeholder="0" title="Quantidade de referência definida no cadastro">
+        <span class="muted" style="font-size:12px;" id="modal_estoque_hint">Referência fixa para alerta de estoque baixo (10% do estoque).</span>
       </div>
+      <?php if ($catalogoPainelAdminEditaSaldo): ?>
+      <div class="form-group" id="modal_saldo_wrap">
+        <label for="modal_saldo_display">Saldo atual</label>
+        <input type="text"
+               id="modal_saldo_display"
+               name="estoque_saldo"
+               class="input"
+               inputmode="decimal"
+               value="0"
+               placeholder="0"
+               title="Saldo atual em estoque (ajuste manual pelo administrador)">
+        <span class="muted" style="font-size:12px;" id="modal_saldo_hint">Editável pelo administrador; alterações ficam registradas na Auditoria.</span>
+      </div>
+      <?php endif; ?>
       <?php endif; ?>
       <div class="form-group full">
         <label for="modal_descricao">Descrição</label>
@@ -449,11 +541,14 @@ $metricCardClass = static function (bool $active): string {
   var unidade = document.getElementById('modal_unidade');
   var valor = document.getElementById('modal_valor');
   var estoque = document.getElementById('modal_estoque');
+  var saldoDisplay = document.getElementById('modal_saldo_display');
+  var estoqueHint = document.getElementById('modal_estoque_hint');
   var desc = document.getElementById('modal_descricao');
+  var adminEditaSaldo = <?= $catalogoPainelAdminEditaSaldo ? 'true' : 'false' ?>;
 
   function open(btn) {
     var itemId = btn.getAttribute('data-id');
-    var editing = itemId !== null && itemId !== '';
+    var editing = itemId !== null && itemId !== '' && itemId !== '0';
     id.value = editing ? itemId : '0';
     var tipoNovo = btn.getAttribute('data-tipo') || 'produto';
     tipo.value = tipoNovo;
@@ -462,8 +557,22 @@ $metricCardClass = static function (bool $active): string {
     codigo.value = btn.getAttribute('data-codigo') || '';
     unidade.value = btn.getAttribute('data-unidade') || 'UN';
     valor.value = btn.getAttribute('data-valor') || '0,00';
-    if (estoque) estoque.value = btn.getAttribute('data-estoque') || '0';
-    desc.value = btn.getAttribute('data-descricao') || '';
+    if (estoque) {
+      estoque.value = btn.getAttribute('data-estoque-capacidade') || btn.getAttribute('data-estoque') || '0';
+    }
+    if (adminEditaSaldo && saldoDisplay) {
+      saldoDisplay.value = editing
+        ? (btn.getAttribute('data-estoque-saldo') || '0')
+        : (estoque ? estoque.value || '0' : '0');
+    }
+    if (estoqueHint) {
+      estoqueHint.textContent = editing
+        ? 'Referência fixa; alterações ficam registradas na Auditoria.'
+        : 'Referência fixa para alerta de estoque baixo (10% do estoque). No cadastro, o saldo inicial será igual ao estoque.';
+    }
+    if (desc) {
+      desc.value = btn.getAttribute('data-descricao') || '';
+    }
     title.textContent = editing ? 'Editar item' : (tipo.value === 'servico' ? 'Novo serviço' : 'Novo produto');
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');

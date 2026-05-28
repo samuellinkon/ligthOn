@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $val   = round((float) $valRaw, 2, PHP_ROUND_HALF_UP);
         $desc  = trim((string) ($_POST['descricao'] ?? ''));
         $ativo = !empty($_POST['ativo']) ? 1 : 0;
-        $est   = (float) str_replace(',', '.', (string) ($_POST['estoque_saldo'] ?? '0'));
+        $estCap = (float) str_replace(',', '.', (string) ($_POST['estoque_capacidade'] ?? $_POST['estoque_saldo'] ?? '0'));
         $r = repo_cliente_item_salvar(
             $catalogoPainelClienteId,
             $id,
@@ -54,7 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $val,
             $desc !== '' ? $desc : null,
             $ativo,
-            $est
+            $estCap,
+            $id === null ? $estCap : null
         );
         flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item salvo no catálogo.' : $r['err']);
     } elseif ($acao === 'item_excluir') {
@@ -63,6 +64,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('ok', 'Item excluído.');
         } else {
             flash_set('err', 'Não foi possível excluir (verifique se o item está em uso em algum chamado).');
+        }
+    } elseif ($acao === 'recalcular_saldos') {
+        $rec = repo_catalogo_recalcular_estoque_saldo($catalogoPainelClienteId);
+        if ($rec['ok']) {
+            $nAlt = (int) ($rec['itens_alterados'] ?? 0);
+            $nProc = (int) ($rec['itens_processados'] ?? 0);
+            flash_set(
+                'ok',
+                $nAlt > 0
+                    ? "Saldos recalculados: {$nAlt} item(ns) atualizado(s) de {$nProc}."
+                    : "Saldos conferidos: {$nProc} item(ns), nenhuma alteração necessária."
+            );
+        } else {
+            flash_set('err', $rec['err'] !== '' ? $rec['err'] : 'Não foi possível recalcular os saldos.');
         }
     }
 

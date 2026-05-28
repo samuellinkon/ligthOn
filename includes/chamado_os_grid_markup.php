@@ -10,6 +10,7 @@ declare(strict_types=1);
  * @var bool $ch_os_mostrar_ponto se deve exibir select de ponto de iluminação (só novo / quando lista existe)
  * @var array<int,array<string,mixed>> $ch_os_pontos_opcoes opções do select de ponto
  * @var bool $ch_os_mostrar_preview_mapa bloco Street View / mapa embutido (ex.: false em admin/chamado_novo.php)
+ * @var string|null $ch_os_modo_include completo (default) | form (sem preview/scripts) | preview (só preview + scripts)
  */
 
 require_once __DIR__ . '/chamado_os_fields.php';
@@ -30,9 +31,6 @@ if (!isset($ch_os_pontos_opcoes)) {
 if (!isset($ch_os_mostrar_preview_mapa)) {
     $ch_os_mostrar_preview_mapa = true;
 }
-if (!isset($ch_os_mapa_apenas)) {
-    $ch_os_mapa_apenas = false;
-}
 if (!isset($ch_os_ocultar_solicitante)) {
     $ch_os_ocultar_solicitante = false;
 }
@@ -42,6 +40,12 @@ if (!isset($ch_os_readonly_endereco)) {
 if (!isset($ch_os_geocode_api_url)) {
     $ch_os_geocode_api_url = 'geocode_nominatim_api.php';
 }
+if (!isset($ch_os_preview_default_view)) {
+    $ch_os_preview_default_view = null;
+}
+$ch_os_preview_default_view = in_array($ch_os_preview_default_view, ['map', 'street'], true)
+    ? $ch_os_preview_default_view
+    : null;
 if (!isset($ch_os_ponto_atual)) {
     $ch_os_ponto_atual = null;
     $pidOsMarkup = (int) ($ch_os_vals['ponto_iluminacao_id'] ?? 0);
@@ -90,8 +94,12 @@ $ch_os_loc_preview = null;
 if ($ch_os_mostrar_preview_mapa) {
     $ch_os_loc_preview = chamado_resolver_localizacao_preview($ch_os_vals, is_array($ch_os_ponto_atual) ? $ch_os_ponto_atual : null);
 }
+$ch_os_google_maps_api_key = crm_google_maps_api_key();
+$ch_os_use_google_maps_embed = crm_google_maps_has_api_key();
+$ch_os_load_leaflet = !$ch_os_use_google_maps_embed;
 $ch_os_preview_inicial_visivel = is_array($ch_os_loc_preview) && !empty($ch_os_loc_preview['show_preview']);
 $ch_os_sv_iframe_src = '';
+$ch_os_map_embed_src = '';
 $ch_os_sv_tab_href = '#';
 $ch_os_preview_tem_coords = is_array($ch_os_loc_preview)
     && $ch_os_loc_preview['lat'] !== null
@@ -100,15 +108,43 @@ if ($ch_os_preview_tem_coords) {
     $chOsLa = (float) $ch_os_loc_preview['lat'];
     $chOsLo = (float) $ch_os_loc_preview['lng'];
     $chOsLl = rawurlencode(number_format($chOsLa, 7, '.', '') . ',' . number_format($chOsLo, 7, '.', ''));
-    if ($ch_os_mapa_apenas) {
-        $ch_os_sv_iframe_src = 'https://www.google.com/maps?q=' . $chOsLl . '&z=17&hl=pt-BR&output=embed';
-    } else {
-        $ch_os_sv_iframe_src = 'https://www.google.com/maps?cbll=' . $chOsLl . '&cbp=12,0,0,0,0&layer=c&output=svembed&hl=pt-BR';
-        $ch_os_sv_tab_href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' . $chOsLl;
-    }
+    $ch_os_sv_iframe_src = crm_google_maps_embed_streetview_url($chOsLa, $chOsLo, $ch_os_google_maps_api_key);
+    $ch_os_map_embed_src = crm_google_maps_embed_place_url($chOsLa, $chOsLo, 16, $ch_os_google_maps_api_key);
+    $ch_os_sv_tab_href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' . $chOsLl;
+}
+
+if (!isset($ch_os_modo_include)) {
+    $ch_os_modo_include = 'completo';
+}
+if (!in_array($ch_os_modo_include, ['completo', 'form', 'preview'], true)) {
+    $ch_os_modo_include = 'completo';
+}
+$ch_os_emit_form = $ch_os_modo_include !== 'preview';
+$ch_os_emit_preview = $ch_os_mostrar_preview_mapa && $ch_os_modo_include !== 'form';
+$ch_os_render_preview_inline = $ch_os_emit_preview && $ch_os_modo_include !== 'preview';
+$ch_os_render_preview_standalone = $ch_os_emit_preview && $ch_os_modo_include === 'preview';
+
+if (!isset($ch_os_use_visualizacao_mapa_component)) {
+    $ch_os_use_visualizacao_mapa_component = false;
+}
+if (!empty($ch_os_use_visualizacao_mapa_component)) {
+    $ch_os_render_preview_inline = false;
+    $ch_os_render_preview_standalone = false;
+    $ch_os_emit_preview = false;
+}
+
+$chOsMapBtnClass = 'btn-secondary';
+$chOsSvBtnClass = 'btn-primary';
+if ($ch_os_preview_default_view === 'map') {
+    $chOsMapBtnClass = 'btn-primary';
+    $chOsSvBtnClass = 'btn-secondary';
+} elseif ($ch_os_preview_default_view === 'street') {
+    $chOsMapBtnClass = 'btn-secondary';
+    $chOsSvBtnClass = 'btn-primary';
 }
 
 ?>
+<?php if ($ch_os_emit_form): ?>
 <div class="os-form-layout">
   <?php if (empty($ch_os_ocultar_solicitante)): ?>
   <div class="os-section">
@@ -310,59 +346,15 @@ if ($ch_os_preview_tem_coords) {
             </option>
             <?php endforeach; ?>
           </select>
-          <small class="muted" style="display:block;margin-top:8px;"><?php if ($ch_os_mostrar_preview_mapa): ?>Ao selecionar um ponto, os campos de endereço e coordenadas do chamado são preenchidos com os dados do poste (quando existirem). O Street View e o mapa usam o endereço/coordenadas gravados neste chamado.<?php else: ?>Ao selecionar um ponto, os campos de endereço e coordenadas do chamado são preenchidos com os dados do poste (quando existirem).<?php endif; ?></small>
+          <small class="muted" style="display:block;margin-top:8px;"><?php if ($ch_os_mostrar_preview_mapa): ?>Ao selecionar um ponto, os campos de endereço e coordenadas do chamado são preenchidos com os dados do poste (quando existirem). O mapa usa latitude/longitude ou endereço; o Street View só é carregado se você clicar em «Ver Street View» (nem todo local tem cobertura).<?php else: ?>Ao selecionar um ponto, os campos de endereço e coordenadas do chamado são preenchidos com os dados do poste (quando existirem).<?php endif; ?></small>
         </div>
+        <?php elseif ($ch_os_mostrar_preview_mapa && $ch_os_modo_include === 'form'): ?>
+        <p class="muted os-pane-sub" style="margin:0 0 4px;">A localização no mapa aparece abaixo. Use os botões Mapa e Street View — muitos locais não têm cobertura de Street View.</p>
         <?php elseif ($ch_os_mostrar_preview_mapa): ?>
-        <p class="muted os-pane-sub" style="margin:0 0 4px;"><?= $ch_os_mapa_apenas
-            ? 'O mapa usa a latitude, longitude ou o endereço deste chamado (não exige vínculo com ponto de iluminação).'
-            : 'Street View e o mapa abaixo usam a latitude, longitude ou o endereço deste chamado (não exige vínculo com ponto de iluminação).' ?></p>
+        <p class="muted os-pane-sub" style="margin:0 0 4px;">O mapa abaixo usa latitude, longitude ou endereço deste chamado. Use os botões Mapa e Street View — muitos locais não têm cobertura de Street View.</p>
         <?php endif; ?>
-        <?php if ($ch_os_mostrar_preview_mapa): ?>
-        <div class="form-group full os-ponto-preview-wrap" style="margin-top:8px;">
-          <p class="os-pane-sub" style="margin:0 0 8px;">Localização no mapa</p>
-          <div id="os_ponto_preview" class="os-ponto-preview<?= $ch_os_mapa_apenas ? ' os-ponto-preview--mapa-apenas' : '' ?>"<?= $ch_os_preview_inicial_visivel ? '' : ' hidden' ?>
-               data-geocode-api="<?= htmlspecialchars((string) $ch_os_geocode_api_url, ENT_QUOTES, 'UTF-8') ?>"
-               <?= $ch_os_mapa_apenas ? ' data-mapa-apenas="1"' : '' ?>
-               <?php if (is_array($ch_os_loc_preview) && $ch_os_loc_preview['lat'] !== null && $ch_os_loc_preview['lng'] !== null): ?>
-               data-initial-lat="<?= htmlspecialchars((string) $ch_os_loc_preview['lat'], ENT_QUOTES, 'UTF-8') ?>"
-               data-initial-lng="<?= htmlspecialchars((string) $ch_os_loc_preview['lng'], ENT_QUOTES, 'UTF-8') ?>"
-               <?php endif; ?>>
-            <div id="os_ponto_preview_endereco" class="chamado-ponto-endereco os-ponto-preview__endereco" hidden>
-              <span class="chamado-ponto-endereco__label">Endereço do ponto</span>
-              <div id="os_ponto_preview_endereco_text" class="chamado-ponto-endereco__text"></div>
-            </div>
-            <p id="os_ponto_sem_coord" class="muted os-ponto-preview__hint" hidden>Informe latitude e longitude no chamado, ou preencha o endereço nos campos acima, para ver o mapa.</p>
-            <p id="os_ponto_geocode_hint" class="muted os-ponto-preview__hint" style="margin:0 0 8px;"<?= (is_array($ch_os_loc_preview) && ($ch_os_loc_preview['modo'] ?? '') === 'geocode') ? '' : ' hidden' ?>><?= (is_array($ch_os_loc_preview) && ($ch_os_loc_preview['modo'] ?? '') === 'geocode') ? 'A localizar endereço no mapa…' : '' ?></p>
-            <?php if ($ch_os_mapa_apenas): ?>
-            <?php
-              $ch_os_map_mini_visivel = $ch_os_preview_inicial_visivel
-                  && ($ch_os_preview_tem_coords || $ch_os_sv_iframe_src === '');
-              $ch_os_map_embed_visivel = $ch_os_preview_inicial_visivel
-                  && !$ch_os_preview_tem_coords
-                  && $ch_os_sv_iframe_src !== '';
-            ?>
-            <div class="os-ponto-map-only chamado-location-map">
-              <div id="os_ponto_map_mini" class="chamado-map-mini"<?= $ch_os_map_mini_visivel ? '' : ' hidden' ?> aria-label="Mapa do chamado"></div>
-              <div id="os_ponto_map_embed_wrap" class="os-ponto-map-embed"<?= $ch_os_map_embed_visivel ? '' : ' hidden' ?>>
-                <iframe id="os_ponto_map_embed_frame" class="os-ponto-map-embed__frame" title="Mapa do chamado" allowfullscreen loading="lazy"<?= $ch_os_sv_iframe_src !== '' ? ' src="' . htmlspecialchars($ch_os_sv_iframe_src, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
-              </div>
-            </div>
-            <?php else: ?>
-            <div id="os_ponto_streetview_block" class="chamado-ponto-streetview"<?= $ch_os_preview_inicial_visivel && is_array($ch_os_loc_preview) && ($ch_os_loc_preview['modo'] ?? '') !== 'none' ? '' : ' hidden' ?>>
-              <div class="chamado-ponto-streetview__head">
-                <div class="chamado-ponto-streetview__head-actions">
-                  <button type="button" class="btn btn-sm btn-ghost" id="os_ponto_map_btn">Ver mapa</button>
-                  <button type="button" class="btn btn-sm<?= $ch_os_sv_iframe_src === '' ? ' btn-ghost' : ' btn-primary' ?>" id="os_ponto_sv_btn"<?= $ch_os_sv_iframe_src === '' ? ' hidden' : '' ?>>Ver Street View</button>
-                </div>
-              </div>
-              <div class="chamado-ponto-streetview__frame-wrap">
-                <iframe id="os_ponto_streetview_frame" class="chamado-ponto-streetview__frame" title="Localização do chamado no mapa" allowfullscreen loading="lazy"<?= $ch_os_sv_iframe_src !== '' ? ' src="' . htmlspecialchars($ch_os_sv_iframe_src, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
-                <div id="os_ponto_map_mini" class="chamado-map-mini chamado-map-mini--in-frame" hidden aria-label="Mapa interativo do chamado"></div>
-              </div>
-            </div>
-            <?php endif; ?>
-          </div>
-        </div>
+        <?php if ($ch_os_render_preview_inline): ?>
+        <?php include __DIR__ . '/partials/chamado_os_ponto_preview_block.php'; ?>
         <?php endif; ?>
       </div>
     </div>
@@ -379,12 +371,32 @@ if ($ch_os_preview_tem_coords) {
     </div>
   </div>
 </div>
-<?php if ($ch_os_mostrar_preview_mapa && empty($GLOBALS['crm_leaflet_os_preview_scripts'])): ?>
+<?php endif; ?>
+<?php if ($ch_os_render_preview_standalone): ?>
+<p class="muted os-pane-sub" style="margin:0 0 4px;">O mapa abaixo usa latitude, longitude ou endereço deste chamado. Use os botões Mapa e Street View — muitos locais não têm cobertura de Street View.</p>
+<?php include __DIR__ . '/partials/chamado_os_ponto_preview_block.php'; ?>
+<?php endif; ?>
+<?php if ($ch_os_emit_preview && empty($GLOBALS['crm_leaflet_os_preview_scripts'])): ?>
 <?php $GLOBALS['crm_leaflet_os_preview_scripts'] = true; ?>
+<?php
+if (!isset($ch_os_assets_base)) {
+    $ch_os_assets_base = '../';
+}
+?>
+<?php
+$ch_os_js_base = htmlspecialchars(rtrim((string) $ch_os_assets_base, '/') . '/', ENT_QUOTES, 'UTF-8');
+$ch_os_gmaps_js = dirname(__DIR__) . '/assets/js/crm-google-maps.js';
+$ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
+?>
+<script src="<?= $ch_os_js_base ?>assets/js/crm-google-maps.js?v=<?= (int) @filemtime($ch_os_gmaps_js) ?>"></script>
+<?php if ($ch_os_load_leaflet): ?>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <?php include __DIR__ . '/partials/leaflet_basemap_script.php'; ?>
 <?php endif; ?>
-<?php if ($ch_os_mostrar_preview_mapa): ?>
+<script src="<?= $ch_os_js_base ?>assets/js/chamado-loc-dual-core.js?v=<?= (int) @filemtime($ch_os_dual_js) ?>"></script>
+<?php endif; ?>
+<?php if ($ch_os_emit_preview && empty($GLOBALS['crm_os_ponto_preview_script_emitted'])): ?>
+<?php $GLOBALS['crm_os_ponto_preview_script_emitted'] = true; ?>
 <script>
 (function (root) {
   function parseCoord(raw) {
@@ -405,7 +417,31 @@ if ($ch_os_preview_tem_coords) {
   var refreshPreviewTimer = null;
   var osLastCoords = { lat: null, lng: null };
   var osLeafletMap = null;
-  var osPreviewView = 'street';
+  var osLeafletMarker = null;
+  var osPreviewView = 'map';
+  /** null = auto (SV se disponível), 'map' | 'street' = escolha manual do usuário */
+  var osPreviewUserChoice = null;
+  var osStreetViewCheckGen = 0;
+  var osSvLayoutGen = 0;
+  var osMapLayoutGen = 0;
+  var osMapBootDone = false;
+  var osMapScheduleTimer = null;
+  var osMapPendingCoords = null;
+  var osMapLoadInFlight = false;
+
+  function osLocPreviewDbg() {
+    var host = (root.location && root.location.hostname) || '';
+    if (host !== 'localhost' && host !== '127.0.0.1') return;
+    var args = Array.prototype.slice.call(arguments);
+    console.log.apply(console, ['[os-loc-preview]'].concat(args));
+  }
+
+  function osGetPreviewDefaultView() {
+    var wrap = document.getElementById('os_ponto_preview');
+    if (!wrap) return null;
+    var v = (wrap.getAttribute('data-preview-default-view') || '').trim();
+    return v === 'map' || v === 'street' ? v : null;
+  }
 
   function buildMapGeocodeKey(tier, addrSnap) {
     return [
@@ -421,10 +457,54 @@ if ($ch_os_preview_tem_coords) {
 
   function scheduleRefreshChamadoLocPreview() {
     clearTimeout(refreshPreviewTimer);
-    refreshPreviewTimer = window.setTimeout(function () {
+    refreshPreviewTimer = root.setTimeout(function () {
       refreshPreviewTimer = null;
       refreshChamadoLocPreview();
-    }, 500);
+    }, 400);
+  }
+
+  function osGetGoogleMapsApiKey() {
+    var wrap = document.getElementById('os_ponto_preview');
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.resolveGoogleMapsApiKey) {
+      return root.CrmChamadoLocDual.resolveGoogleMapsApiKey(wrap);
+    }
+    return wrap ? (wrap.getAttribute('data-google-maps-key') || '').trim() : '';
+  }
+
+  function updateOsSvExternalLink(la, lo) {
+    var link = document.getElementById('os_ponto_sv_external');
+    if (!link || la === null || lo === null) return;
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.updateStreetViewExternalLink) {
+      root.CrmChamadoLocDual.updateStreetViewExternalLink(link, la, lo);
+    } else {
+      link.href =
+        'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' +
+        encodeURIComponent(String(la) + ',' + String(lo));
+      link.hidden = false;
+    }
+  }
+
+  function osPreloadBothViews(lat, lng) {
+    if (lat === null || lng === null) return;
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var externalLink = document.getElementById('os_ponto_sv_external');
+    if (root.CrmChamadoLocDual) {
+      root.CrmChamadoLocDual.preloadBothViews(lat, lng, {
+        ensureLeaflet: function (la, lo) {
+          osEnsureLeafletInitialized(la, lo);
+        },
+        svFrame: iframe,
+        skipSvIframe: true,
+        apiKey: osGetGoogleMapsApiKey(),
+        externalLinkEl: externalLink
+      });
+    } else {
+      osEnsureLeafletInitialized(lat, lng);
+      if (iframe) {
+        iframe.setAttribute('data-sv-embed-src', osStreetViewEmbedUrl(lat, lng));
+      }
+      updateOsSvExternalLink(lat, lng);
+    }
   }
 
   function setOsViewButtons(active) {
@@ -647,6 +727,16 @@ if ($ch_os_preview_tem_coords) {
     var loEl = document.getElementById('chamado_longitude');
     if (laEl && la != null) laEl.value = String(la);
     if (loEl && lo != null) loEl.value = String(lo);
+    if (la != null && lo != null) {
+      var iframeSv = document.getElementById('os_ponto_streetview_frame');
+      if (iframeSv) {
+        iframeSv.setAttribute('data-sv-embed-src', osStreetViewEmbedUrl(la, lo));
+        if (osPreviewView === 'street') {
+          osScheduleStreetViewIframeLoad(la, lo);
+        }
+      }
+      updateOsSvExternalLink(la, lo);
+    }
   }
 
   /**
@@ -777,14 +867,6 @@ if ($ch_os_preview_tem_coords) {
     );
   }
 
-  function buildOsGoogleMapsEmbedUrl(query) {
-    return (
-      'https://www.google.com/maps?q=' +
-      encodeURIComponent(query) +
-      '&z=17&hl=pt-BR&output=embed'
-    );
-  }
-
   function resolveOsAddressQuery() {
     return (
       buildChamadoEnderecoCepNumeroPrioritario() ||
@@ -802,60 +884,6 @@ if ($ch_os_preview_tem_coords) {
         'Localização via Google Maps (endereço não encontrado no OpenStreetMap).';
     } else {
       hintGeo.hidden = true;
-    }
-  }
-
-  /** Embed Google Maps por endereço (dual-view ou mapa-apenas). */
-  function showOsGoogleEmbedByAddress(addrQuery, activeView) {
-    if (!addrQuery) return;
-    activeView = activeView || 'map';
-
-    var mapMini = document.getElementById('os_ponto_map_mini');
-    var embedWrap = document.getElementById('os_ponto_map_embed_wrap');
-    var embedFrame = document.getElementById('os_ponto_map_embed_frame');
-    var svBlock = document.getElementById('os_ponto_streetview_block');
-    var iframe = document.getElementById('os_ponto_streetview_frame');
-    var frameWrap = osStreetViewFrameWrap();
-    var embedUrl = buildOsGoogleMapsEmbedUrl(addrQuery);
-
-    osPreviewView = activeView;
-
-    if (embedWrap && embedFrame) {
-      if (svBlock) svBlock.hidden = true;
-      if (mapMini) mapMini.hidden = true;
-      embedWrap.hidden = false;
-      embedFrame.src = embedUrl;
-      setOsGeocodeFallbackHint(true);
-      return;
-    }
-
-    if (!svBlock || !iframe) return;
-    if (embedWrap) embedWrap.hidden = true;
-    if (mapMini) mapMini.hidden = true;
-    iframe.hidden = false;
-    svBlock.hidden = false;
-    if (frameWrap) frameWrap.hidden = false;
-    iframe.src = embedUrl;
-    setOsViewButtons(activeView);
-    setOsGeocodeFallbackHint(true);
-  }
-
-  function showOsMapaApenas(la, lo, addrQuery) {
-    var svBlock = document.getElementById('os_ponto_streetview_block');
-    if (svBlock) svBlock.hidden = true;
-    if (la !== null && lo !== null) {
-      osLastCoords.lat = la;
-      osLastCoords.lng = lo;
-      setOsGeocodeFallbackHint(false);
-    }
-    if (la !== null && lo !== null && typeof root.L !== 'undefined') {
-      var embedWrap = document.getElementById('os_ponto_map_embed_wrap');
-      if (embedWrap) embedWrap.hidden = true;
-      showOsLeafletMap(la, lo);
-      return;
-    }
-    if (addrQuery) {
-      showOsGoogleEmbedByAddress(addrQuery, 'map');
     }
   }
 
@@ -970,15 +998,6 @@ if ($ch_os_preview_tem_coords) {
     return best;
   }
 
-  function buildOsStreetViewEmbedUrl(la, lo) {
-    var ll = encodeURIComponent(String(la) + ',' + String(lo));
-    return (
-      'https://www.google.com/maps?cbll=' +
-      ll +
-      '&cbp=12,0,0,0,0&layer=c&output=svembed&hl=pt-BR'
-    );
-  }
-
   function resolveOsDisplayCoords() {
     if (osLastCoords.lat !== null && osLastCoords.lng !== null) {
       return { lat: osLastCoords.lat, lng: osLastCoords.lng };
@@ -986,9 +1005,301 @@ if ($ch_os_preview_tem_coords) {
     return getChamadoFormLatLng();
   }
 
+  function osStreetViewEmbedUrl(la, lo) {
+    var apiKey = osGetGoogleMapsApiKey();
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.streetViewEmbedUrl) {
+      return root.CrmChamadoLocDual.streetViewEmbedUrl(la, lo, { apiKey: apiKey });
+    }
+    var ll = encodeURIComponent(String(la) + ',' + String(lo));
+    return (
+      'https://www.google.com/maps?cbll=' +
+      ll +
+      '&cbp=11,0,0,0,0&layer=c&output=svembed&hl=pt-BR'
+    );
+  }
+
+  function osResetStreetViewEmbedForReload() {
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
+    if (iframe && root.CrmChamadoLocDual && root.CrmChamadoLocDual.cancelSvEmbedWatch) {
+      root.CrmChamadoLocDual.cancelSvEmbedWatch(iframe);
+    }
+    if (fallback && root.CrmChamadoLocDual && root.CrmChamadoLocDual.hideSvEmbedFallback) {
+      root.CrmChamadoLocDual.hideSvEmbedFallback(fallback);
+    }
+    if (iframe) {
+      iframe.hidden = true;
+      iframe.removeAttribute('src');
+    }
+  }
+
+  function osLoadStreetViewIframe(la, lo) {
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
+    if (!iframe || la === null || lo === null) return;
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.loadSvIframe) {
+      root.CrmChamadoLocDual.loadSvIframe(iframe, la, lo, {
+        apiKey: osGetGoogleMapsApiKey(),
+        setSvIframeSrc: setOsStreetViewIframeUrl,
+        fallbackEl: fallback
+      });
+      return;
+    }
+    var svUrl = osStreetViewEmbedUrl(la, lo);
+    iframe.setAttribute('data-sv-embed-src', svUrl);
+    iframe.hidden = false;
+    setOsStreetViewIframeUrl(iframe, svUrl);
+  }
+
+  function osShouldAbortStreetViewLoad(gen) {
+    if (gen !== osSvLayoutGen) {
+      osLocPreviewDbg('abort SV load: gen mismatch', { gen: gen, current: osSvLayoutGen });
+      return true;
+    }
+    if (osPreviewView === 'map') {
+      osLocPreviewDbg('abort SV load: previewView=map', { userChoice: osPreviewUserChoice });
+      return true;
+    }
+    return false;
+  }
+
+  function osShouldAbortMapEmbedLoad(gen) {
+    if (gen !== osMapLayoutGen) {
+      osLocPreviewDbg('abort map load: gen mismatch', { gen: gen, current: osMapLayoutGen });
+      return true;
+    }
+    if (osPreviewView === 'street' || osPreviewUserChoice === 'street') {
+      osLocPreviewDbg('abort map load: previewView=street', { userChoice: osPreviewUserChoice });
+      return true;
+    }
+    return false;
+  }
+
+  function osMapEmbedNeedsReload(mapIframe, lat, lng) {
+    if (!mapIframe) return true;
+    if (mapIframe.getAttribute('data-map-needs-reload') === '1') return true;
+    if (osMapScheduleTimer || osMapLoadInFlight) return false;
+    var src = mapIframe.getAttribute('src');
+    if (!src) return true;
+    var eLa = parseCoord(mapIframe.getAttribute('data-embed-lat'));
+    var eLo = parseCoord(mapIframe.getAttribute('data-embed-lng'));
+    if (lat != null && lng != null && eLa === lat && eLo === lng && !mapIframe.hidden) {
+      return false;
+    }
+    if (lat != null && lng != null && (eLa !== lat || eLo !== lng)) return true;
+    return false;
+  }
+
+  function osLoadGoogleMapIframe(la, lo) {
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    var frameWrap = osStreetViewFrameWrap();
+    var mapFallback = document.getElementById('os_ponto_map_fallback');
+    if (!mapIframe || la === null || lo === null) return;
+    mapIframe.removeAttribute('data-map-needs-reload');
+    mapIframe.setAttribute('data-embed-lat', String(la));
+    mapIframe.setAttribute('data-embed-lng', String(lo));
+    mapIframe.hidden = false;
+    if (mapFallback) mapFallback.hidden = true;
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.loadMapEmbedIframe) {
+      root.CrmChamadoLocDual.loadMapEmbedIframe(mapIframe, la, lo, {
+        apiKey: osGetGoogleMapsApiKey(),
+        zoom: 16,
+        frameWrapEl: frameWrap,
+        fallbackEl: mapFallback
+      });
+    }
+    osMapLoadInFlight = false;
+  }
+
+  function osScheduleMapEmbedLoadNow(la, lo) {
+    if (la === null || lo === null) return;
+    if (osPreviewUserChoice === 'street') return;
+    osLocPreviewDbg('schedule map iframe', { la: la, lo: lo, gen: osMapLayoutGen + 1 });
+    osMapLayoutGen++;
+    var gen = osMapLayoutGen;
+    var frameWrap = osStreetViewFrameWrap();
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    var svBlock = document.getElementById('os_ponto_streetview_block');
+    if (svBlock) svBlock.hidden = false;
+    if (frameWrap) frameWrap.hidden = false;
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.scheduleMapEmbedAfterLayout) {
+      root.CrmChamadoLocDual.scheduleMapEmbedAfterLayout({
+        lat: la,
+        lng: lo,
+        frameWrapEl: frameWrap,
+        mapIframe: mapIframe,
+        loadEmbed: function (plat, plng) {
+          if (osShouldAbortMapEmbedLoad(gen)) return;
+          osLocPreviewDbg('load map iframe', { la: plat, lo: plng, gen: gen });
+          osLoadGoogleMapIframe(plat, plng);
+        }
+      });
+      return;
+    }
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.scheduleEmbedAfterLayout) {
+      root.CrmChamadoLocDual.scheduleEmbedAfterLayout({
+        lat: la,
+        lng: lo,
+        frameWrapEl: frameWrap,
+        mapIframe: mapIframe,
+        hideMapAfterWarm: false,
+        loadEmbed: function (plat, plng) {
+          if (osShouldAbortMapEmbedLoad(gen)) return;
+          osLoadGoogleMapIframe(plat, plng);
+        }
+      });
+      return;
+    }
+    if (frameWrap) {
+      frameWrap.hidden = false;
+      void frameWrap.offsetHeight;
+    }
+    root.requestAnimationFrame(function () {
+      root.requestAnimationFrame(function () {
+        if (osShouldAbortMapEmbedLoad(gen)) return;
+        osLoadGoogleMapIframe(la, lo);
+      });
+    });
+  }
+
+  function osScheduleMapEmbedLoad(la, lo, opts) {
+    opts = opts || {};
+    if (la === null || lo === null) return;
+    if (osPreviewUserChoice === 'street' && !opts.force) return;
+    osMapLoadInFlight = true;
+    osMapPendingCoords = { lat: la, lng: lo };
+    clearTimeout(osMapScheduleTimer);
+    var delay = opts.immediate ? 0 : 80;
+    osMapScheduleTimer = root.setTimeout(function () {
+      osMapScheduleTimer = null;
+      var pending = osMapPendingCoords;
+      osMapPendingCoords = null;
+      if (!pending) return;
+      osScheduleMapEmbedLoadNow(pending.lat, pending.lng);
+    }, delay);
+  }
+
+  function osForceRefreshMapEmbed() {
+    var c = resolveOsDisplayCoords();
+    var hint = document.getElementById('os_ponto_geocode_hint');
+    if (c.lat === null || c.lng === null) {
+      if (hint) {
+        hint.hidden = false;
+        hint.textContent = 'Informe latitude e longitude para atualizar o mapa.';
+      }
+      return;
+    }
+    if (hint) hint.hidden = true;
+    osPreviewUserChoice = 'map';
+    osPreviewView = 'map';
+    var svIframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    var mapEl = document.getElementById('os_ponto_map_mini');
+    if (svIframe && root.CrmChamadoLocDual && root.CrmChamadoLocDual.cancelSvEmbedWatch) {
+      root.CrmChamadoLocDual.cancelSvEmbedWatch(svIframe);
+      svIframe.hidden = true;
+      svIframe.removeAttribute('src');
+    }
+    if (fallback && root.CrmChamadoLocDual && root.CrmChamadoLocDual.hideSvEmbedFallback) {
+      root.CrmChamadoLocDual.hideSvEmbedFallback(fallback);
+    }
+    if (mapEl) mapEl.hidden = true;
+    if (mapIframe) {
+      if (root.CrmGoogleMaps && root.CrmGoogleMaps.cancelEmbedWatch) {
+        root.CrmGoogleMaps.cancelEmbedWatch(mapIframe);
+      }
+      mapIframe.removeAttribute('src');
+      mapIframe.removeAttribute('data-embed-lat');
+      mapIframe.removeAttribute('data-embed-lng');
+      mapIframe.setAttribute('data-map-needs-reload', '1');
+    }
+    var svBlock = document.getElementById('os_ponto_streetview_block');
+    if (svBlock) svBlock.hidden = false;
+    setOsViewButtons('map');
+    osLastCoords.lat = c.lat;
+    osLastCoords.lng = c.lng;
+    osScheduleMapEmbedLoad(c.lat, c.lng, { force: true, immediate: true });
+  }
+
+  function osSyncMapRefreshButton() {
+    var btn = document.getElementById('os_ponto_map_refresh_btn');
+    if (!btn) return;
+    var canLocate = resolveOsMapTier().tier !== -1;
+    btn.disabled = !canLocate;
+    btn.hidden = !osUseGoogleMapsEmbed();
+  }
+
+  function osBootMapEmbedOnce() {
+    if (osMapBootDone) return;
+    if (!osUseGoogleMapsEmbed() || osGetPreviewDefaultView() !== 'map') return;
+    if (osPreviewUserChoice === 'street') return;
+    var c = getChamadoLatLng();
+    if (c.lat === null || c.lng === null) return;
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    if (mapIframe && !osMapEmbedNeedsReload(mapIframe, c.lat, c.lng)) {
+      osMapBootDone = true;
+      return;
+    }
+    osMapBootDone = true;
+    showOsGoogleMapEmbed(c.lat, c.lng);
+  }
+
+  function osScheduleStreetViewIframeLoad(la, lo) {
+    if (la === null || lo === null) return;
+    if (osPreviewView === 'map') {
+      osLocPreviewDbg('schedule SV skipped: previewView=map', { la: la, lo: lo });
+      return;
+    }
+    osLocPreviewDbg('schedule SV iframe', { la: la, lo: lo, gen: osSvLayoutGen + 1 });
+    osSvLayoutGen++;
+    var gen = osSvLayoutGen;
+    var mapEl = document.getElementById('os_ponto_map_mini');
+    var frameWrap = osStreetViewFrameWrap();
+    if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.scheduleSvIframeAfterLayout) {
+      root.CrmChamadoLocDual.scheduleSvIframeAfterLayout({
+        lat: la,
+        lng: lo,
+        frameWrapEl: frameWrap,
+        mapEl: osUseGoogleMapsEmbed() ? null : mapEl,
+        mapIframe: document.getElementById('os_ponto_map_embed'),
+        hideMapAfterWarm: true,
+        ensureLeaflet: function (plat, plng) {
+          if (!osUseGoogleMapsEmbed()) osEnsureLeafletInitialized(plat, plng);
+        },
+        invalidateMap: function () {
+          osInvalidateLeafletMap();
+        },
+        loadIframe: function (plat, plng) {
+          if (osShouldAbortStreetViewLoad(gen)) return;
+          osLocPreviewDbg('load SV iframe', { la: plat, lo: plng, gen: gen });
+          osLoadStreetViewIframe(plat, plng);
+        }
+      });
+      return;
+    }
+    osEnsureLeafletInitialized(la, lo);
+    if (frameWrap) {
+      frameWrap.hidden = false;
+      void frameWrap.offsetHeight;
+    }
+    if (mapEl) {
+      mapEl.hidden = false;
+      osInvalidateLeafletMap();
+      void mapEl.offsetHeight;
+      mapEl.hidden = true;
+    }
+    root.requestAnimationFrame(function () {
+      root.requestAnimationFrame(function () {
+        if (osShouldAbortStreetViewLoad(gen)) return;
+        osLoadStreetViewIframe(la, lo);
+      });
+    });
+  }
+
   function setOsStreetViewIframeUrl(iframe, url) {
     if (!iframe || !url) return;
-    if (iframe.src === url) {
+    if (iframe.getAttribute('src') === url) {
       iframe.removeAttribute('src');
       root.setTimeout(function () {
         iframe.src = url;
@@ -998,24 +1309,147 @@ if ($ch_os_preview_tem_coords) {
     iframe.src = url;
   }
 
+  function osInvalidateLeafletMap() {
+    if (!osLeafletMap) return;
+    root.requestAnimationFrame(function () {
+      osLeafletMap.invalidateSize();
+    });
+    root.setTimeout(function () {
+      osLeafletMap.invalidateSize();
+    }, 80);
+    root.setTimeout(function () {
+      osLeafletMap.invalidateSize();
+    }, 320);
+  }
+
+  function osAddLeafletBasemap(map) {
+    if (root.CrmLeafletBasemap) {
+      root.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+    } else if (root.L.tileLayer) {
+      root.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        subdomains: 'abcd',
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }).addTo(map);
+    }
+  }
+
+  function osEnsureLeafletInitialized(la, lo) {
+    var mapEl = document.getElementById('os_ponto_map_mini');
+    if (!mapEl || la === null || lo === null || typeof root.L === 'undefined') return;
+    if (osLeafletMap) {
+      osLeafletMap.setView([la, lo], 16);
+      if (osLeafletMarker) {
+        osLeafletMarker.setLatLng([la, lo]);
+      }
+      return;
+    }
+    osLeafletMap = root.L.map('os_ponto_map_mini', { scrollWheelZoom: false, zoomControl: true });
+    osAddLeafletBasemap(osLeafletMap);
+    osLeafletMarker = root.L.marker([la, lo]).addTo(osLeafletMap);
+    osLeafletMap.setView([la, lo], 16);
+  }
+
+  function resolveOsStreetViewAvailable(lat, lng) {
+    return fetch(
+      getGeocodeApiUrl() +
+        '?action=streetview_check&lat=' +
+        encodeURIComponent(String(lat)) +
+        '&lon=' +
+        encodeURIComponent(String(lng)),
+      {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' }
+      }
+    )
+      .then(function (r) {
+        return r.ok ? r.json() : { ok: false };
+      })
+      .then(function (res) {
+        return !!(res && res.ok && res.available);
+      })
+      .catch(function () {
+        return false;
+      });
+  }
+
+  function osApplyCoordsPreview(lat, lng) {
+    osPreloadBothViews(lat, lng);
+    if (osPreviewUserChoice === 'map') {
+      root.requestAnimationFrame(function () {
+        if (osPreviewUserChoice === 'street') return;
+        showOsLeafletMap(lat, lng);
+      });
+      return;
+    }
+    if (osPreviewUserChoice === 'street') {
+      root.requestAnimationFrame(function () {
+        if (osPreviewUserChoice === 'map') return;
+        showOsStreetView(lat, lng);
+      });
+      return;
+    }
+    if (osGetPreviewDefaultView() === 'map') {
+      root.requestAnimationFrame(function () {
+        if (osPreviewUserChoice === 'street') return;
+        showOsLeafletMap(lat, lng);
+      });
+      return;
+    }
+    osStreetViewCheckGen++;
+    var gen = osStreetViewCheckGen;
+    resolveOsStreetViewAvailable(lat, lng).then(function (available) {
+      if (gen !== osStreetViewCheckGen) return;
+      root.requestAnimationFrame(function () {
+        if (available) {
+          osPreviewView = 'street';
+          showOsStreetView(lat, lng);
+        } else {
+          osPreviewView = 'map';
+          showOsLeafletMap(lat, lng);
+        }
+      });
+    });
+  }
+
   function showOsStreetView(la, lo) {
     var mapEl = document.getElementById('os_ponto_map_mini');
+    var mapIframe = document.getElementById('os_ponto_map_embed');
     var svBlock = document.getElementById('os_ponto_streetview_block');
     var iframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
     var frameWrap = osStreetViewFrameWrap();
     if (!svBlock) return;
+    osLocPreviewDbg('showOsStreetView', {
+      la: la,
+      lo: lo,
+      userChoice: osPreviewUserChoice,
+      previewView: osPreviewView
+    });
+    osPreviewUserChoice = 'street';
+    osSvLayoutGen++;
     osPreviewView = 'street';
     if (mapEl) mapEl.hidden = true;
-    if (iframe) iframe.hidden = false;
+    if (mapIframe) {
+      if (root.CrmGoogleMaps && root.CrmGoogleMaps.cancelEmbedWatch) {
+        root.CrmGoogleMaps.cancelEmbedWatch(mapIframe);
+      }
+      mapIframe.hidden = true;
+      mapIframe.removeAttribute('src');
+    }
+    if (fallback && root.CrmChamadoLocDual && root.CrmChamadoLocDual.hideSvEmbedFallback) {
+      root.CrmChamadoLocDual.hideSvEmbedFallback(fallback);
+    }
     svBlock.hidden = false;
     if (frameWrap) frameWrap.hidden = false;
     if (la !== null && lo !== null) {
       osLastCoords.lat = la;
       osLastCoords.lng = lo;
       setOsGeocodeFallbackHint(false);
-      if (iframe) {
-        setOsStreetViewIframeUrl(iframe, buildOsStreetViewEmbedUrl(la, lo));
-      }
+      osScheduleStreetViewIframeLoad(la, lo);
+      updateOsSvExternalLink(la, lo);
     }
     setOsViewButtons('street');
     var mapBtnHit = document.getElementById('os_ponto_map_btn');
@@ -1032,15 +1466,25 @@ if ($ch_os_preview_tem_coords) {
     if (!addrQuery) return;
     var coordsNow = resolveOsDisplayCoords();
     if (coordsNow.lat !== null && coordsNow.lng !== null) {
-      showOsStreetView(coordsNow.lat, coordsNow.lng);
+      resolveOsStreetViewAvailable(coordsNow.lat, coordsNow.lng).then(function (available) {
+        if (available) {
+          showOsStreetView(coordsNow.lat, coordsNow.lng);
+        } else {
+          showOsLeafletMap(coordsNow.lat, coordsNow.lng);
+        }
+      });
       return;
+    }
+    var hintGeo = document.getElementById('os_ponto_geocode_hint');
+    if (hintGeo) {
+      hintGeo.hidden = false;
+      hintGeo.textContent = 'A localizar endereço no mapa…';
     }
     resolveOsGeocodeApi(buildNominatimStreetLine(), cidade, uf, cepFmt, addrQuery).then(function (res) {
       if (res && res.err === 'rate_limited') {
-        var hintRate = document.getElementById('os_ponto_geocode_hint');
-        if (hintRate) {
-          hintRate.hidden = false;
-          hintRate.textContent =
+        if (hintGeo) {
+          hintGeo.hidden = false;
+          hintGeo.textContent =
             'Limite temporário do serviço de mapas. Aguarde ~1 minuto e altere um campo do endereço.';
         }
         return;
@@ -1050,14 +1494,27 @@ if ($ch_os_preview_tem_coords) {
         var lo = parseFloat(res.hit.lon);
         if (!isFinite(la) || !isFinite(lo)) return;
         setChamadoFormCoords(la, lo);
-        showOsStreetView(la, lo);
+        osLastCoords.lat = la;
+        osLastCoords.lng = lo;
+        if (hintGeo) hintGeo.hidden = true;
+        setOsGeocodeFallbackHint(false);
+        resolveOsStreetViewAvailable(la, lo).then(function (available) {
+          if (available) {
+            showOsStreetView(la, lo);
+          } else {
+            showOsLeafletMap(la, lo);
+          }
+        });
         return;
       }
-      showOsGoogleEmbedByAddress(addrQuery, 'street');
+      if (hintGeo) {
+        hintGeo.hidden = false;
+        hintGeo.textContent = 'Endereço não localizado no mapa. Confira CEP, número e cidade.';
+      }
     });
   }
 
-  function runMapGeocode(tier, addrSnap, mapaApenas, iframe, svBlock, mapMini) {
+  function runMapGeocode(tier, addrSnap, iframe, svBlock, mapMini) {
     if (!addrSnap) return;
 
     var geocodeKey = buildMapGeocodeKey(tier, addrSnap);
@@ -1079,19 +1536,21 @@ if ($ch_os_preview_tem_coords) {
 
     var addrPending = addrSnap || addrFull;
 
-    if (mapaApenas) {
-      showOsMapaApenas(null, null, addrPending);
-    } else if (iframe && svBlock) {
-      if (addrPending) {
-        showOsGoogleEmbedByAddress(addrPending, osPreviewView === 'map' ? 'map' : 'street');
-      } else {
-        osPreviewView = 'street';
-        if (mapMini) mapMini.hidden = true;
-        iframe.removeAttribute('src');
-        svBlock.hidden = false;
-        var frameWrapGeocode = osStreetViewFrameWrap();
-        if (frameWrapGeocode) frameWrapGeocode.hidden = false;
+    if (iframe && svBlock) {
+      var hintGeoPending = document.getElementById('os_ponto_geocode_hint');
+      if (addrPending && hintGeoPending) {
+        hintGeoPending.hidden = false;
+        hintGeoPending.textContent = 'A localizar endereço no mapa…';
       }
+      osPreviewView = 'map';
+      if (mapMini) mapMini.hidden = true;
+      if (iframe) {
+        iframe.hidden = true;
+        iframe.removeAttribute('src');
+      }
+      svBlock.hidden = false;
+      var frameWrapGeocode = osStreetViewFrameWrap();
+      if (frameWrapGeocode) frameWrapGeocode.hidden = false;
     }
 
     function applyNominatimHit(hit) {
@@ -1100,10 +1559,6 @@ if ($ch_os_preview_tem_coords) {
       var lo = parseFloat(hit.lon);
       if (!isFinite(la) || !isFinite(lo)) return;
       setChamadoFormCoords(la, lo);
-      if (mapaApenas) {
-        showOsMapaApenas(la, lo, null);
-        return;
-      }
       osLastCoords.lat = la;
       osLastCoords.lng = lo;
       var hintGeo = document.getElementById('os_ponto_geocode_hint');
@@ -1113,23 +1568,17 @@ if ($ch_os_preview_tem_coords) {
       if (svBtnHit) svBtnHit.hidden = false;
       if (hintGeo) hintGeo.hidden = true;
       setOsGeocodeFallbackHint(false);
-      if (osPreviewView === 'map') {
-        showOsLeafletMap(la, lo);
-      } else {
-        osPreviewView = 'street';
-        showOsStreetView(la, lo);
-      }
+      osApplyCoordsPreview(la, lo);
     }
 
     function applyGeocodeFallback() {
       if (gen !== mapGeocodeGeneration) return;
-      var addrFallback = addrPending || resolveOsAddressQuery();
-      if (!addrFallback) return;
-      if (mapaApenas) {
-        showOsGoogleEmbedByAddress(addrFallback, 'map');
-      } else {
-        showOsGoogleEmbedByAddress(addrFallback, osPreviewView === 'map' ? 'map' : 'street');
+      var hintGeoFail = document.getElementById('os_ponto_geocode_hint');
+      if (hintGeoFail) {
+        hintGeoFail.hidden = false;
+        hintGeoFail.textContent = 'Endereço não localizado no mapa. Confira CEP, número e cidade.';
       }
+      setOsGeocodeFallbackHint(false);
     }
 
     mapGeocodeTimer = window.setTimeout(function () {
@@ -1162,13 +1611,12 @@ if ($ch_os_preview_tem_coords) {
 
   function refreshChamadoLocPreview() {
     var wrap = document.getElementById('os_ponto_preview');
-    var mapaApenas = wrap && wrap.getAttribute('data-mapa-apenas') === '1';
     var iframe = document.getElementById('os_ponto_streetview_frame');
     var svBlock = document.getElementById('os_ponto_streetview_block');
     var endBlock = document.getElementById('os_ponto_preview_endereco');
     var endText = document.getElementById('os_ponto_preview_endereco_text');
     var hintNoCoord = document.getElementById('os_ponto_sem_coord');
-    if (!wrap || (!mapaApenas && (!iframe || !svBlock))) return;
+    if (!wrap || !iframe || !svBlock) return;
 
     if (mapGeocodeTimer) {
       clearTimeout(mapGeocodeTimer);
@@ -1210,86 +1658,177 @@ if ($ch_os_preview_tem_coords) {
     var mapBtn = document.getElementById('os_ponto_map_btn');
     var svBtn = document.getElementById('os_ponto_sv_btn');
     var mapMini = document.getElementById('os_ponto_map_mini');
-    if (mapBtn) mapBtn.hidden = !(hasSv || hasMapaEndereco);
-    if (svBtn) svBtn.hidden = !(hasSv || hasMapaEndereco);
+    var canLocate = tier !== -1;
+    if (mapBtn) mapBtn.hidden = !canLocate;
+    if (svBtn) svBtn.hidden = !canLocate;
+
+    var showPreview = canLocate || (pontoChosen && tier === 0);
+    wrap.hidden = !showPreview;
+    if (svBlock) {
+      if (showPreview && (hasSv || hasMapaEndereco)) {
+        svBlock.hidden = false;
+      } else if (!showPreview) {
+        svBlock.hidden = true;
+      }
+    }
 
     if (hasSv) {
+      var prevLat = osLastCoords.lat;
+      var prevLng = osLastCoords.lng;
+      var coordsUnchanged = prevLat === lat && prevLng === lng;
       osLastCoords.lat = lat;
       osLastCoords.lng = lng;
       mapGeocodeGeneration++;
-      if (mapaApenas) {
-        showOsMapaApenas(lat, lng, null);
-      } else if (osPreviewView === 'map' || !svBtn || svBtn.hidden) {
-        showOsLeafletMap(lat, lng);
-      } else {
-        showOsStreetView(lat, lng);
+      osStreetViewCheckGen++;
+      if (showPreview) {
+        var mapIframeRefresh = document.getElementById('os_ponto_map_embed');
+        var skipMapUnchanged =
+          (osPreviewUserChoice === 'map' || (osPreviewUserChoice === null && osGetPreviewDefaultView() === 'map')) &&
+          osPreviewView === 'map' &&
+          coordsUnchanged &&
+          osUseGoogleMapsEmbed() &&
+          !osMapEmbedNeedsReload(mapIframeRefresh, lat, lng);
+        if (
+          osPreviewUserChoice === 'street' &&
+          osPreviewView === 'street' &&
+          coordsUnchanged
+        ) {
+          osLocPreviewDbg('refresh skip: SV ativo, coords iguais', {
+            tier: tier,
+            lat: lat,
+            lng: lng
+          });
+          setOsViewButtons('street');
+        } else if (skipMapUnchanged) {
+          osLocPreviewDbg('refresh skip: mapa ativo, coords iguais', {
+            tier: tier,
+            lat: lat,
+            lng: lng
+          });
+          setOsViewButtons('map');
+        } else {
+          osLocPreviewDbg('refresh re-apply preview', {
+            tier: tier,
+            hasSv: hasSv,
+            userChoice: osPreviewUserChoice,
+            previewView: osPreviewView,
+            coordsUnchanged: coordsUnchanged
+          });
+          if (osPreviewUserChoice === 'street' && coordsUnchanged === false) {
+            osResetStreetViewEmbedForReload();
+          } else if (osPreviewUserChoice === 'street' && osPreviewView !== 'street') {
+            osResetStreetViewEmbedForReload();
+          }
+          osApplyCoordsPreview(lat, lng);
+        }
       }
     } else if (hasMapaEndereco) {
-      osPreviewView = 'street';
-      runMapGeocode(tier, addrGeocode, mapaApenas, iframe, svBlock, mapMini);
+      osPreviewView = 'map';
+      if (showPreview) {
+        runMapGeocode(tier, addrGeocode, iframe, svBlock, mapMini);
+      }
     } else {
       mapGeocodeGeneration++;
-      osPreviewView = 'street';
-      if (!mapaApenas) {
-        if (iframe) iframe.removeAttribute('src');
-        if (svBlock) svBlock.hidden = true;
-        if (mapMini) mapMini.hidden = true;
-      } else {
-        var embedWrap = document.getElementById('os_ponto_map_embed_wrap');
-        if (embedWrap) embedWrap.hidden = true;
-        if (mapMini) mapMini.hidden = true;
-      }
+      osPreviewView = 'map';
+      if (iframe) iframe.removeAttribute('src');
+      if (svBlock) svBlock.hidden = true;
+      if (mapMini) mapMini.hidden = true;
     }
 
-    var showPreview = hasSv || hasMapaEndereco || (pontoChosen && tier === 0);
-    wrap.hidden = !showPreview;
-    if (mapMini && !showPreview && !mapaApenas) {
+    if (showPreview && hasSv && osPreviewView === 'map') {
+      osInvalidateLeafletMap();
+    }
+    if (mapMini && !showPreview) {
       mapMini.hidden = true;
     }
+    osSyncMapRefreshButton();
   }
 
-  function showOsLeafletMap(la, lo) {
+  function osUseGoogleMapsEmbed() {
+    if (root.CrmGoogleMaps && root.CrmGoogleMaps.hasApiKey) {
+      return root.CrmGoogleMaps.hasApiKey(document.getElementById('os_ponto_preview'));
+    }
+    return osGetGoogleMapsApiKey() !== '';
+  }
+
+  function showOsGoogleMapEmbed(la, lo) {
+    var mapIframe = document.getElementById('os_ponto_map_embed');
     var mapEl = document.getElementById('os_ponto_map_mini');
     var svBlock = document.getElementById('os_ponto_streetview_block');
-    var embedWrap = document.getElementById('os_ponto_map_embed_wrap');
-    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var svIframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
     var frameWrap = osStreetViewFrameWrap();
-    if (!mapEl || la === null || lo === null) return;
-    if (typeof root.L === 'undefined') {
-      if (iframe && frameWrap) {
-        osPreviewView = 'map';
-        if (svBlock) svBlock.hidden = false;
-        frameWrap.hidden = false;
-        mapEl.hidden = true;
-        iframe.hidden = false;
-        var ll = encodeURIComponent(String(la) + ',' + String(lo));
-        iframe.src = 'https://www.google.com/maps?q=' + ll + '&z=17&hl=pt-BR&output=embed';
-        setOsViewButtons('map');
-      }
+    if (la === null || lo === null) return;
+    if (osPreviewUserChoice === 'street') return;
+    osPreviewView = 'map';
+    if (svIframe && root.CrmChamadoLocDual && root.CrmChamadoLocDual.cancelSvEmbedWatch) {
+      root.CrmChamadoLocDual.cancelSvEmbedWatch(svIframe);
+      svIframe.hidden = true;
+      svIframe.removeAttribute('src');
+    }
+    if (fallback && root.CrmChamadoLocDual && root.CrmChamadoLocDual.hideSvEmbedFallback) {
+      root.CrmChamadoLocDual.hideSvEmbedFallback(fallback);
+    }
+    if (svBlock) svBlock.hidden = false;
+    if (frameWrap) frameWrap.hidden = false;
+    if (mapEl) mapEl.hidden = true;
+    setOsGeocodeFallbackHint(false);
+    setOsViewButtons('map');
+    if (mapIframe && osUseGoogleMapsEmbed()) {
+      osScheduleMapEmbedLoad(la, lo);
       return;
     }
+    showOsLeafletMap(la, lo, true);
+  }
+
+  function showOsLeafletMap(la, lo, forceLeaflet) {
+    var mapEl = document.getElementById('os_ponto_map_mini');
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    var svBlock = document.getElementById('os_ponto_streetview_block');
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
+    var frameWrap = osStreetViewFrameWrap();
+    if (la === null || lo === null) return;
+    if (!forceLeaflet && osUseGoogleMapsEmbed()) {
+      showOsGoogleMapEmbed(la, lo);
+      return;
+    }
+    if (!mapEl) return;
+    if (osPreviewUserChoice === 'street') {
+      osLocPreviewDbg('showOsLeafletMap skipped: userChoice=street', { la: la, lo: lo });
+      return;
+    }
+    osLocPreviewDbg('showOsLeafletMap', { la: la, lo: lo, userChoice: osPreviewUserChoice });
+    osSvLayoutGen++;
     osPreviewView = 'map';
+    if (mapIframe) {
+      mapIframe.hidden = true;
+      mapIframe.removeAttribute('src');
+    }
+    if (iframe) {
+      if (root.CrmChamadoLocDual && root.CrmChamadoLocDual.cancelSvEmbedWatch) {
+        root.CrmChamadoLocDual.cancelSvEmbedWatch(iframe);
+      }
+      iframe.hidden = true;
+      iframe.removeAttribute('src');
+    }
+    if (fallback && root.CrmChamadoLocDual && root.CrmChamadoLocDual.hideSvEmbedFallback) {
+      root.CrmChamadoLocDual.hideSvEmbedFallback(fallback);
+    }
     if (svBlock) svBlock.hidden = false;
-    if (embedWrap) embedWrap.hidden = true;
     if (frameWrap) frameWrap.hidden = false;
-    if (iframe) iframe.hidden = true;
     mapEl.hidden = false;
     setOsGeocodeFallbackHint(false);
     setOsViewButtons('map');
-    if (osLeafletMap) {
-      osLeafletMap.setView([la, lo], 16);
-      root.setTimeout(function () { osLeafletMap.invalidateSize(); }, 50);
-      root.setTimeout(function () { osLeafletMap.invalidateSize(); }, 280);
+    if (typeof root.L === 'undefined') {
       return;
     }
-    osLeafletMap = root.L.map('os_ponto_map_mini', { scrollWheelZoom: false, zoomControl: true });
-    if (root.CrmLeafletBasemap) {
-      root.CrmLeafletBasemap.addTo(osLeafletMap, { maxZoom: 19 });
-    }
-    root.L.marker([la, lo]).addTo(osLeafletMap);
-    osLeafletMap.setView([la, lo], 16);
-    root.setTimeout(function () { osLeafletMap.invalidateSize(); }, 50);
-    root.setTimeout(function () { osLeafletMap.invalidateSize(); }, 280);
+    osPreloadBothViews(la, lo);
+    root.requestAnimationFrame(function () {
+      if (osPreviewUserChoice === 'street') return;
+      osEnsureLeafletInitialized(la, lo);
+      osInvalidateLeafletMap();
+    });
   }
 
   function wirePontoSelectFill(sel) {
@@ -1369,13 +1908,18 @@ if ($ch_os_preview_tem_coords) {
   }
 
   function boot() {
-    var wrap = document.getElementById('os_ponto_preview');
-    var mapaApenas = wrap && wrap.getAttribute('data-mapa-apenas') === '1';
     var mapBtn = document.getElementById('os_ponto_map_btn');
     var svBtn = document.getElementById('os_ponto_sv_btn');
-    if (!mapaApenas && mapBtn) {
+    if (mapBtn) {
       mapBtn.addEventListener('click', function () {
+        osPreviewUserChoice = 'map';
         var c = resolveOsDisplayCoords();
+        osLocPreviewDbg('map click', {
+          lat: c.lat,
+          lng: c.lng,
+          previewView: osPreviewView,
+          userChoice: osPreviewUserChoice
+        });
         if (c.lat !== null && c.lng !== null) {
           showOsLeafletMap(c.lat, c.lng);
           return;
@@ -1387,8 +1931,11 @@ if ($ch_os_preview_tem_coords) {
         }
         var addrQuery = resolved.addrGeocode || resolveOsAddressQuery();
         if (addrQuery) {
-          osPreviewView = 'map';
-          showOsGoogleEmbedByAddress(addrQuery, 'map');
+          var hintGeoBtn = document.getElementById('os_ponto_geocode_hint');
+          if (hintGeoBtn) {
+            hintGeoBtn.hidden = false;
+            hintGeoBtn.textContent = 'A localizar endereço no mapa…';
+          }
           var cepFmtBtn =
             osFieldVal('os_cep').replace(/\D/g, '').length === 8
               ? osFieldVal('os_cep').replace(/\D/g, '').replace(/^(\d{5})(\d{3})$/, '$1-$2')
@@ -1401,67 +1948,106 @@ if ($ch_os_preview_tem_coords) {
             addrQuery
           ).then(function (res) {
             if (res && res.err === 'rate_limited') {
-              var hintRate = document.getElementById('os_ponto_geocode_hint');
-              if (hintRate) {
-                hintRate.hidden = false;
-                hintRate.textContent =
+              if (hintGeoBtn) {
+                hintGeoBtn.hidden = false;
+                hintGeoBtn.textContent =
                   'Limite temporário do serviço de mapas. Aguarde ~1 minuto e altere um campo do endereço.';
               }
               return;
             }
-            if (!res || !res.ok || !res.hit) return;
+            if (!res || !res.ok || !res.hit) {
+              if (hintGeoBtn) {
+                hintGeoBtn.hidden = false;
+                hintGeoBtn.textContent = 'Endereço não localizado no mapa. Confira CEP, número e cidade.';
+              }
+              return;
+            }
             var la = parseFloat(res.hit.lat);
             var lo = parseFloat(res.hit.lon);
             if (!isFinite(la) || !isFinite(lo)) return;
             setChamadoFormCoords(la, lo);
+            osLastCoords.lat = la;
+            osLastCoords.lng = lo;
             setOsGeocodeFallbackHint(false);
+            if (hintGeoBtn) hintGeoBtn.hidden = true;
             showOsLeafletMap(la, lo);
           });
         }
       });
     }
-    if (!mapaApenas && svBtn) {
+    if (svBtn) {
       svBtn.addEventListener('click', function () {
+        osPreviewUserChoice = 'street';
         var c = resolveOsDisplayCoords();
+        osLocPreviewDbg('sv click', {
+          lat: c.lat,
+          lng: c.lng,
+          previewView: osPreviewView,
+          userChoice: osPreviewUserChoice
+        });
         if (c.lat !== null && c.lng !== null) {
           showOsStreetView(c.lat, c.lng);
           return;
         }
         var resolved = resolveOsMapTier();
-        if (resolved.addrGeocode) {
-          showOsStreetViewByAddress(resolved.addrGeocode);
+        if (resolved.lat !== null && resolved.lng !== null) {
+          showOsStreetView(resolved.lat, resolved.lng);
+          return;
+        }
+        var addrQuerySv = resolved.addrGeocode || resolveOsAddressQuery();
+        if (addrQuerySv) {
+          showOsStreetViewByAddress(addrQuerySv);
         }
       });
     }
     wirePontoSelectFill(getPontoSelect());
-    if (mapaApenas) {
-      var coordsBoot = getChamadoLatLng();
-      if (coordsBoot.lat !== null && coordsBoot.lng !== null) {
-        showOsMapaApenas(coordsBoot.lat, coordsBoot.lng, null);
-      }
+    var coordsBootMap = getChamadoLatLng();
+    if (coordsBootMap.lat !== null && coordsBootMap.lng !== null) {
+      osPreviewView = 'map';
+      var wrapBoot = document.getElementById('os_ponto_preview');
+      if (wrapBoot) wrapBoot.hidden = false;
+      var svBlockBoot = document.getElementById('os_ponto_streetview_block');
+      if (svBlockBoot) svBlockBoot.hidden = false;
     }
-    document.addEventListener('crm:os-address-changed', scheduleRefreshChamadoLocPreview);
+    if (root.CrmChamadoLocDual) {
+      root.CrmChamadoLocDual.wireLocationFieldObserver({
+        debounceMs: 400,
+        onBeforeTrigger: function () {
+          lastMapGeocodeKey = '';
+        },
+        shouldTrigger: function () {
+          return resolveOsMapTier().tier !== -1;
+        },
+        onTrigger: function () {
+          scheduleRefreshChamadoLocPreview();
+        }
+      });
+    }
     ['chamado_latitude', 'chamado_longitude'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', function () {
-        lastMapGeocodeKey = '';
-        scheduleRefreshChamadoLocPreview();
+        osPreviewUserChoice = null;
         clearTimeout(reverseGeocodeTimer);
-        reverseGeocodeTimer = window.setTimeout(reverseGeocodeFromLatLng, 1500);
+        reverseGeocodeTimer = root.setTimeout(reverseGeocodeFromLatLng, 1500);
       });
     });
-    ['os_logradouro', 'os_numero', 'os_complemento', 'os_bairro', 'os_cidade', 'os_uf', 'os_cep'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('input', function () {
-        lastMapGeocodeKey = '';
-        scheduleRefreshChamadoLocPreview();
+    var mapRefreshBtn = document.getElementById('os_ponto_map_refresh_btn');
+    if (mapRefreshBtn) {
+      mapRefreshBtn.addEventListener('click', function () {
+        osForceRefreshMapEmbed();
       });
-    });
+    }
+    osSyncMapRefreshButton();
     refreshChamadoLocPreview();
-    window.setTimeout(refreshChamadoLocPreview, 120);
-    window.setTimeout(refreshChamadoLocPreview, 500);
+    window.setTimeout(function () {
+      refreshChamadoLocPreview();
+      osSyncMapRefreshButton();
+    }, 120);
+    root.setTimeout(function () {
+      osBootMapEmbedOnce();
+      osSyncMapRefreshButton();
+    }, 350);
   }
 
   if (document.readyState === 'loading') {
@@ -1471,7 +2057,7 @@ if ($ch_os_preview_tem_coords) {
   }
 })(window);
 </script>
-<?php else: ?>
+<?php elseif ($ch_os_emit_form): ?>
 <script>
 (function () {
   function osFieldVal(id) {

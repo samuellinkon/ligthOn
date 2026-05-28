@@ -271,8 +271,8 @@ if (db_ok() && $medicaoMatrizId > 0 && !$CRM_CHAMADOS_IS_OPERADOR) {
 }
 
 $bmLista = [];
-$bmMergeActive = !$CRM_CHAMADOS_IS_OPERADOR
-    && $medicaoMatrizId > 0 && $refYmBm !== '' && $f === '' && $q === '' && $envolvidoUser <= 0 && $clienteIdListagem <= 0 && $tecnicoUserId <= 0 && $localQ === '' && db_ok();
+// Linhas virtuais da matriz BM ficam em Medições; aqui só chamados reais (com endereço).
+$bmMergeActive = false;
 if ($bmMergeActive) {
     $impPkg = repo_medicao_import_fetch($medicaoMatrizId, $refYmBm);
     $bmLista = medicao_import_linhas_para_chamados_listagem(

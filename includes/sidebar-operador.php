@@ -53,6 +53,7 @@ foreach ($items as $it) {
   </nav>
 
   <div class="sidebar-footer">
+    <?php $sidebarUser = $OP; include __DIR__ . '/sidebar_user_box.php'; ?>
     <a href="<?= $basePath ?>logout.php" class="logout" data-confirm="Deseja realmente sair do sistema?">Sair do sistema</a>
   </div>
 </aside>

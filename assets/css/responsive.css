@@ -117,6 +117,8 @@
   .form-grid.form-grid--usuario,
   .form-grid.form-grid--medicao { grid-template-columns: 1fr; }
 
+  .catalogo-modal-estoque-saldo__grid { grid-template-columns: 1fr; }
+
   .form.form-grid.form-grid--medicao {
     max-width: none;
   }

@@ -2,6 +2,8 @@
 /**
  * Importação de planilha BM (CSV ou .xlsx) — pré-visualização e confirmação em duas etapas.
  */
+$CRM_MEDICAO_IMPORT_PORTAL = !empty($CRM_MEDICAO_IMPORT_PORTAL);
+
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
@@ -9,9 +11,15 @@ require_once __DIR__ . '/../includes/medicao_csv_import.php';
 require_once __DIR__ . '/../includes/medicao_xlsx_import.php';
 require_once __DIR__ . '/../includes/medicao_relatorio_import.php';
 
-$me = require_auth_gestao();
-require_once __DIR__ . '/../includes/modules.php';
-require_modulo_admin('medicao');
+if ($CRM_MEDICAO_IMPORT_PORTAL) {
+    $CLIENTE = require_auth('cliente');
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_cliente('medicao');
+} else {
+    $me = require_auth_gestao();
+    require_once __DIR__ . '/../includes/modules.php';
+    require_modulo_admin('medicao');
+}
 
 $pageTitle  = 'Importar medição (BM)';
 $basePath   = '../';
@@ -22,24 +30,33 @@ $previewTtlSec  = 3600;
 
 if (!db_ok()) {
     flash_set('err', 'Banco indisponível.');
-    header('Location: index.php');
+    header('Location: ' . ($CRM_MEDICAO_IMPORT_PORTAL ? ($basePath . 'cliente/index.php') : 'index.php'));
     exit;
 }
 
-$escopoEmpresa = gestao_scope_cliente_id($me);
-if ($escopoEmpresa !== null) {
-    $clienteId = $escopoEmpresa;
+if ($CRM_MEDICAO_IMPORT_PORTAL) {
+    $cid = (int) ($CLIENTE['cliente_id'] ?? 0);
+    $clienteId = $cid > 0 ? repo_cliente_matriz_raiz_id($cid) : 0;
 } else {
-    $clienteId = (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
-    if ($clienteId <= 0) {
-        $empresasFallback = repo_clientes_empresas();
-        $clienteId = (int) (($empresasFallback[0]['id'] ?? 0));
+    $escopoEmpresa = gestao_scope_cliente_id($me);
+    if ($escopoEmpresa !== null) {
+        $clienteId = $escopoEmpresa;
+    } else {
+        $clienteId = (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+        if ($clienteId <= 0) {
+            $empresasFallback = repo_clientes_empresas();
+            $clienteId = (int) (($empresasFallback[0]['id'] ?? 0));
+        }
     }
 }
 
 if ($clienteId <= 0) {
-    flash_set('err', 'Defina a empresa padrão do catálogo em Configurações (super admin) ou cadastre uma empresa raiz.');
-    $redir = (($me['perfil'] ?? '') === 'gestor') ? 'clientes.php' : 'configuracoes.php';
+    flash_set('err', $CRM_MEDICAO_IMPORT_PORTAL
+        ? 'Empresa não vinculada ao seu acesso.'
+        : 'Defina a empresa padrão do catálogo em Configurações (super admin) ou cadastre uma empresa raiz.');
+    $redir = $CRM_MEDICAO_IMPORT_PORTAL
+        ? ($basePath . 'cliente/index.php')
+        : ((($me['perfil'] ?? '') === 'gestor') ? 'clientes.php' : 'configuracoes.php');
     header('Location: ' . $redir);
     exit;
 }
@@ -47,10 +64,15 @@ if ($clienteId <= 0) {
 $clienteMatriz = repo_cliente($clienteId);
 if (!$clienteMatriz) {
     flash_set('err', 'Empresa não encontrada.');
-    header('Location: clientes.php');
+    header('Location: ' . ($CRM_MEDICAO_IMPORT_PORTAL ? ($basePath . 'cliente/index.php') : 'clientes.php'));
     exit;
 }
-gestor_assert_escopo_cliente($clienteId, 'medicao_importar.php');
+if (!$CRM_MEDICAO_IMPORT_PORTAL) {
+    gestor_assert_escopo_cliente($clienteId, 'medicao_importar.php');
+}
+
+$medicaoImportActor = $CRM_MEDICAO_IMPORT_PORTAL ? $CLIENTE : $me;
+$medicaoImportSidebar = $CRM_MEDICAO_IMPORT_PORTAL ? 'sidebar-cliente.php' : 'sidebar-admin.php';
 
 if (!empty($_GET['exportar_modelo']) && (string) $_GET['exportar_modelo'] === 'relatorio') {
     $fn  = 'modelo_importacao_medicao_relatorio_detalhado_bm.csv';
@@ -110,8 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import']) && 
         exit;
     }
 
-    $por    = trim((string) (($me['nome'] ?? '') !== '' ? $me['nome'] : ($me['email'] ?? '')));
-    $uid    = (int) ($me['id'] ?? 0);
+    $por    = trim((string) (($medicaoImportActor['nome'] ?? '') !== '' ? $medicaoImportActor['nome'] : ($medicaoImportActor['email'] ?? '')));
+    $uid    = (int) ($medicaoImportActor['id'] ?? 0);
     $tipoImp = (string) ($prev['import_tipo'] ?? 'bm');
 
     if ($tipoImp === 'chamados') {
@@ -132,11 +154,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import']) && 
             ]));
             exit;
         }
+
+        $bmLinhasGrav    = is_array($prev['bm_linhas'] ?? null) ? $prev['bm_linhas'] : [];
+        if ($bmLinhasGrav !== []) {
+            $gravBm = repo_medicao_import_substituir(
+                $clienteId,
+                $refYm,
+                (string) ($prev['nome_arquivo'] ?? 'import.xlsx'),
+                $por !== '' ? $por : null,
+                isset($prev['bm_idx_qtd']) ? (int) $prev['bm_idx_qtd'] : null,
+                isset($prev['bm_idx_valor']) ? (int) $prev['bm_idx_valor'] : null,
+                $bmLinhasGrav,
+                $uid,
+                empty($prev['modo_teste']),
+                false
+            );
+            if (!$gravBm['ok']) {
+                flash_set('err', 'Chamados criados, mas a matriz BM não foi gravada: ' . ($gravBm['erro'] ?? ''));
+                header('Location: medicao_mes.php?' . http_build_query(['mes' => $refYm]));
+                exit;
+            }
+        }
+
         unset($_SESSION[$previewSessKey]);
         $msgOk = !empty($prev['modo_teste'])
             ? 'Teste: ' . (int) $impCh['n_chamados'] . ' chamado(s), ' . (int) $impCh['n_itens'] . ' item(ns) — ' . medicao_mes_label_pt($refYm) . '.'
             : 'Chamados criados: ' . (int) $impCh['n_chamados'] . ' OS, ' . (int) $impCh['n_itens'] . ' lançamento(s) de item. '
             . (int) ($impCh['n_chamados_pulados'] ?? 0) . ' já existiam no período.';
+        if ((int) ($impCh['n_itens'] ?? 0) > 0) {
+            $msgOk .= ' Vínculo item↔chamado gerado via relatório detalhado.';
+        }
+        if (!empty($impCh['estoque_recalc_ok']) && (int) ($impCh['estoque_recalc_alterados'] ?? 0) > 0) {
+            $msgOk .= ' Estoque recalculado por somatório dos itens aplicados nos chamados: '
+                . (int) $impCh['estoque_recalc_alterados'] . ' saldo(s) atualizado(s).';
+        }
+        if ($bmLinhasGrav !== []) {
+            $msgOk .= ' BM: ' . count($bmLinhasGrav) . ' itens de contrato gravados para medição; '
+                . 'sem sincronização direta de saldo pela BM (saldo vem dos lançamentos por chamado no detalhado).';
+        }
         flash_set('ok', $msgOk);
         header('Location: medicao_mes.php?' . http_build_query(['mes' => $refYm]));
         exit;
@@ -151,7 +206,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import']) && 
         isset($prev['idx_valor_medido']) ? (int) $prev['idx_valor_medido'] : null,
         is_array($prev['linhas'] ?? null) ? $prev['linhas'] : [],
         $uid,
-        empty($prev['modo_teste'])
+        empty($prev['modo_teste']),
+        false
     );
 
     if (!$grav['ok']) {
@@ -169,6 +225,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import']) && 
     $msgOk = !empty($prev['modo_teste'])
         ? 'Importação de teste gravada: ' . $n . ' item(ns) para ' . medicao_mes_label_pt($refYm) . ' (' . $refYm . ').'
         : 'Importação confirmada e gravada: ' . $n . ' item(ns) para ' . medicao_mes_label_pt($refYm) . ' (' . $refYm . ').';
+    if ($n > 0) {
+        $msgOk .= ' BM sem relatório detalhado não vincula item a chamado e não recalcula saldo do catálogo.';
+    }
     flash_set('ok', $msgOk);
     header('Location: medicao_mes.php?' . http_build_query(['mes' => $refYm]));
     exit;
@@ -205,6 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirm_import'])) {
     $modoTeste = !empty($_POST['modo_teste']) && (string) $_POST['modo_teste'] === '1';
     $chamadosGrupos = [];
     $parse          = ['ok' => false, 'erro' => '', 'linhas' => [], 'idx_qtd_medido' => null, 'idx_valor_medido' => null];
+    $bmLinhasPreview = [];
 
     if ($importTipo === 'chamados') {
         $raw = medicao_upload_file_to_rows($tmp, $ext, $preferAba);
@@ -242,6 +302,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirm_import'])) {
             'idx_qtd_medido'   => null,
             'idx_valor_medido' => null,
         ];
+        $bmLinhasPreview = [];
+        if ($ext === 'xlsx') {
+            $parseBm = medicao_xlsx_parse_bm_upload($tmp, $refYm, 'medicao');
+            if ($parseBm['ok'] && is_array($parseBm['linhas'] ?? null)) {
+                $bmLinhasPreview = $parseBm['linhas'];
+            }
+        }
     } else {
         if ($ext === 'xlsx') {
             $parse = medicao_xlsx_parse_bm_upload($tmp, $refYm, $preferAba);
@@ -260,7 +327,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirm_import'])) {
     }
 
     $nomeArq = $nomeUp !== '' ? $nomeUp : ($ext === 'xlsx' ? 'import.xlsx' : 'import.csv');
-    $_SESSION[$previewSessKey] = [
+    $previewPayload = [
         'token'             => bin2hex(random_bytes(16)),
         'ts'                => time(),
         'cliente_matriz_id' => $clienteId,
@@ -275,6 +342,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirm_import'])) {
         'chamados_grupos'   => $chamadosGrupos,
         'n_chamados_prev'   => count($chamadosGrupos),
     ];
+    if ($importTipo === 'chamados' && isset($bmLinhasPreview) && $bmLinhasPreview !== []) {
+        if ($modoTeste) {
+            $bmLinhasPreview = array_slice($bmLinhasPreview, 0, 10);
+        }
+        $previewPayload['bm_linhas']        = $bmLinhasPreview;
+        $previewPayload['bm_idx_qtd']       = null;
+        $previewPayload['bm_idx_valor']     = null;
+    }
+    $_SESSION[$previewSessKey] = $previewPayload;
 
     header('Location: medicao_importar.php?' . http_build_query([
         'step'    => 'confirm',
@@ -335,7 +411,7 @@ $cancelPreviewHref = 'medicao_importar.php?' . http_build_query([
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">
-<?php include __DIR__ . '/../includes/sidebar-admin.php'; ?>
+<?php include __DIR__ . '/../includes/' . $medicaoImportSidebar; ?>
 <main class="main">
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
@@ -493,6 +569,7 @@ include __DIR__ . '/../includes/head.php';
           <input type="file" id="planilha" name="planilha" class="input" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
           <span class="hint">Pré-visualização antes de gravar. Uma importação confirmada para o mesmo mês substitui a anterior.</span>
         </div>
+        <?php if (!$CRM_MEDICAO_IMPORT_PORTAL): ?>
         <div class="form-group full">
           <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" name="modo_teste" value="1">
@@ -500,6 +577,7 @@ include __DIR__ . '/../includes/head.php';
           </label>
           <span class="hint">Chamados: limita a 10 OS; BM: limita a 10 linhas.</span>
         </div>
+        <?php endif; ?>
       </div>
       <div class="panel-body">
         <div class="form-actions" style="padding:0;border:0;background:transparent;">

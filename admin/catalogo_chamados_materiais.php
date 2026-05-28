@@ -98,6 +98,10 @@ $movFiltro = strtolower(trim((string) ($_GET['movimento'] ?? '')));
 if (!in_array($movFiltro, ['', 'utilizado', 'devolvido'], true)) {
     $movFiltro = '';
 }
+$tipoFiltro = strtolower(trim((string) ($_GET['tipo'] ?? '')));
+if (!in_array($tipoFiltro, ['', 'produto', 'servico'], true)) {
+    $tipoFiltro = '';
+}
 
 $filtroChamadoId = (int) ($_GET['chamado_id'] ?? 0);
 $filtroItemId    = (int) ($_GET['item_id'] ?? 0);
@@ -106,6 +110,9 @@ $filtroTecId     = (int) ($_GET['tecnico_user_id'] ?? 0);
 $filtrosRepo = [];
 if ($movFiltro !== '') {
     $filtrosRepo['movimento'] = $movFiltro;
+}
+if ($tipoFiltro !== '') {
+    $filtrosRepo['tipo'] = $tipoFiltro;
 }
 if ($filtroChamadoId > 0) {
     $filtrosRepo['chamado_id'] = $filtroChamadoId;
@@ -120,7 +127,39 @@ if ($filtroTecId > 0) {
 $linhas = repo_catalogo_chamados_itens_linhas_filtradas($clienteId, $dataDe, $dataAte, $filtrosRepo);
 
 $catalogoItensOpts = repo_cliente_itens_list($clienteId, false);
-$operadoresOpts    = repo_operadores_empresa($clienteId);
+$catalogoItemOptsBusca = [];
+$itemSelecionadoLabel = 'Todos os itens';
+foreach ($catalogoItensOpts as $it) {
+    $itId = (int) ($it['id'] ?? 0);
+    if ($itId <= 0) {
+        continue;
+    }
+    $itTipo = trim((string) ($it['tipo'] ?? ''));
+    if ($tipoFiltro !== '' && $itTipo !== $tipoFiltro && $filtroItemId !== $itId) {
+        continue;
+    }
+    $itNome = trim((string) ($it['nome'] ?? ''));
+    $itLabel = trim(($itTipo !== '' ? ($itTipo . ' · ') : '') . $itNome);
+    if ($itLabel === '') {
+        $itLabel = 'Item #' . $itId;
+    }
+    $catalogoItemOptsBusca[] = [
+        'id' => $itId,
+        'label' => $itLabel,
+        'search' => trim($itTipo . ' ' . $itNome . ' ' . (string) ($it['codigo'] ?? '')),
+    ];
+    if ($filtroItemId === $itId) {
+        $itemSelecionadoLabel = $itLabel;
+    }
+}
+$filtrosLimparQs = [];
+if (!$CRM_CATALOGO_APLICADO_PORTAL) {
+    $filtrosLimparQs['cliente_id'] = (int) $clienteId;
+}
+$limparHref = 'catalogo_chamados_materiais.php';
+if ($filtrosLimparQs !== []) {
+    $limparHref .= '?' . http_build_query($filtrosLimparQs);
+}
 
 $totalValorUtil = 0.0;
 foreach ($linhas as $ln) {
@@ -144,32 +183,36 @@ include __DIR__ . '/../includes/head.php';
 <section class="content">
 
   <div class="card catalogo-aplicado-card">
-    <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
+    <div class="panel-head catalogo-aplicado-head">
       <div>
         <h4>Catálogo aplicado em chamados</h4>
         <span class="panel-sub">Todos os lançamentos de itens do catálogo em chamados · data do chamado = abertura · adequado para exportação futura</span>
       </div>
-      <div style="font-size:14px;font-weight:600;">
+      <div class="catalogo-aplicado-head-meta">
         <?= count($linhas) ?> lançamento(s)
         <?php if ($totalValorUtil > 0): ?>
           · Total utilizados: R$ <?= number_format($totalValorUtil, 2, ',', '.') ?>
         <?php endif; ?>
       </div>
     </div>
-    <div class="panel-body" style="padding-top:0;">
-      <form class="filters filters--form catalogo-aplicado-filters" method="get" action="catalogo_chamados_materiais.php" style="margin-bottom:18px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+    <div class="panel-body catalogo-aplicado-body">
+      <form class="catalogo-aplicado-filters" method="get" action="catalogo_chamados_materiais.php">
         <?php if (!$CRM_CATALOGO_APLICADO_PORTAL): ?>
         <input type="hidden" name="cliente_id" value="<?= (int) $clienteId ?>">
         <?php endif; ?>
-        <div class="form-group" style="margin:0;">
+        <?php if ($filtroTecId > 0): ?>
+        <input type="hidden" name="tecnico_user_id" value="<?= (int) $filtroTecId ?>">
+        <?php endif; ?>
+        <div class="catalogo-aplicado-filters-row catalogo-aplicado-filters-row--top">
+        <div class="form-group">
           <label for="data_de">Período — de</label>
           <input type="date" id="data_de" name="data_de" class="input" value="<?= htmlspecialchars($dataDe) ?>" required>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label for="data_ate">até</label>
           <input type="date" id="data_ate" name="data_ate" class="input" value="<?= htmlspecialchars($dataAte) ?>" required>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label for="movimento_f">Movimento</label>
           <select id="movimento_f" name="movimento" class="select">
             <option value="" <?= $movFiltro === '' ? 'selected' : '' ?>>Todos</option>
@@ -177,35 +220,38 @@ include __DIR__ . '/../includes/head.php';
             <option value="devolvido" <?= $movFiltro === 'devolvido' ? 'selected' : '' ?>>Recolhido / devolvido</option>
           </select>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
+          <label for="tipo_f">Tipo</label>
+          <select id="tipo_f" name="tipo" class="select">
+            <option value="" <?= $tipoFiltro === '' ? 'selected' : '' ?>>Todos</option>
+            <option value="produto" <?= $tipoFiltro === 'produto' ? 'selected' : '' ?>>Produtos</option>
+            <option value="servico" <?= $tipoFiltro === 'servico' ? 'selected' : '' ?>>Serviços</option>
+          </select>
+        </div>
+        <div class="form-group form-group--chamado">
           <label for="chamado_id_f">Chamado (#)</label>
-          <input type="number" min="1" id="chamado_id_f" name="chamado_id" class="input" style="width:7rem;"
+          <input type="number" min="1" id="chamado_id_f" name="chamado_id" class="input"
                  value="<?= $filtroChamadoId > 0 ? (int) $filtroChamadoId : '' ?>" placeholder="Todos">
         </div>
-        <div class="form-group" style="margin:0;">
-          <label for="item_id_f">Item</label>
-          <select id="item_id_f" name="item_id" class="select" style="min-width:12rem;max-width:18rem;">
-            <option value="">Todos</option>
-            <?php foreach ($catalogoItensOpts as $it): ?>
-              <option value="<?= (int) $it['id'] ?>"<?= $filtroItemId === (int) $it['id'] ? ' selected' : '' ?>>
-                <?= htmlspecialchars((string) ($it['tipo'] ?? '') . ' · ' . ($it['nome'] ?? '')) ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
         </div>
-        <div class="form-group" style="margin:0;">
-          <label for="tecnico_user_id_f">Técnico (chamado)</label>
-          <select id="tecnico_user_id_f" name="tecnico_user_id" class="select" style="min-width:11rem;">
-            <option value="">Todos</option>
-            <?php foreach ($operadoresOpts as $op): ?>
-              <option value="<?= (int) ($op['id'] ?? 0) ?>"<?= $filtroTecId === (int) ($op['id'] ?? 0) ? ' selected' : '' ?>>
-                <?= htmlspecialchars((string) ($op['nome'] ?? '')) ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
+        <div class="catalogo-aplicado-filters-row catalogo-aplicado-filters-row--bottom">
+        <div class="form-group form-group--item-search">
+          <label for="item_search_input">Item</label>
+          <div class="crm-searchable-select" id="item_search_wrap" data-placeholder="Todos os itens">
+            <input type="hidden" name="item_id" id="item_id_f" value="<?= $filtroItemId > 0 ? (int) $filtroItemId : '' ?>">
+            <button type="button" class="crm-searchable-select__control" id="item_search_toggle" aria-expanded="false" aria-haspopup="listbox">
+              <span class="crm-searchable-select__value" id="item_search_value"><?= htmlspecialchars($itemSelecionadoLabel) ?></span>
+            </button>
+            <div class="crm-searchable-select__dropdown" id="item_search_dropdown" hidden>
+              <input type="search" id="item_search_input" class="input crm-searchable-select__input" placeholder="Buscar por tipo, nome ou código">
+              <ul class="crm-searchable-select__list" id="item_search_list" role="listbox"></ul>
+            </div>
+          </div>
         </div>
-        <div class="filters-form-actions">
+        <div class="catalogo-aplicado-filters-actions">
           <button type="submit" class="btn btn-primary">Filtrar</button>
+          <a href="<?= htmlspecialchars($limparHref) ?>" class="btn btn-secondary">Limpar</a>
+        </div>
         </div>
       </form>
 
@@ -286,12 +332,208 @@ include __DIR__ . '/../includes/head.php';
 </main>
 </div>
 <style>
+.catalogo-aplicado-head { flex-wrap: wrap; gap: 12px; }
+.catalogo-aplicado-head-meta { font-size: 14px; font-weight: 600; }
+.catalogo-aplicado-body { padding-top: 0; }
+.catalogo-aplicado-filters {
+  margin-bottom: 18px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--surface-secondary, #fafafa);
+}
+.catalogo-aplicado-filters-row {
+  display: grid;
+  gap: 12px;
+}
+.catalogo-aplicado-filters-row--top {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.catalogo-aplicado-filters-row--bottom {
+  margin-top: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.catalogo-aplicado-filters .form-group { margin: 0; min-width: 0; }
+.catalogo-aplicado-filters label {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted, #6b7280);
+  margin-bottom: 6px;
+}
+.catalogo-aplicado-filters .input,
+.catalogo-aplicado-filters .select,
+.crm-searchable-select__control {
+  min-height: 40px;
+}
+.form-group--chamado .input { width: 100%; }
+.form-group--item-search { min-width: 0; }
+.catalogo-aplicado-filters-actions {
+  display: flex;
+  gap: 8px;
+}
+.crm-searchable-select { position: relative; }
+.crm-searchable-select__control {
+  width: 100%;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-align: left;
+  background: #fff;
+  cursor: pointer;
+}
+.crm-searchable-select__value {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crm-searchable-select__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 8px;
+}
+.crm-searchable-select__input { margin-bottom: 8px; }
+.crm-searchable-select__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow: auto;
+}
+.crm-searchable-select__option {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crm-searchable-select__option:hover,
+.crm-searchable-select__option.is-active {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.06));
+}
 .catalogo-aplicado-row-link { cursor: pointer; }
 .catalogo-aplicado-row-link:hover { background: var(--surface-hover, rgba(0, 0, 0, 0.04)); }
 .catalogo-aplicado-endereco { max-width: 18rem; font-size: 13px; line-height: 1.4; }
+@media (max-width: 1100px) {
+  .catalogo-aplicado-filters-row--top { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .catalogo-aplicado-filters-row--top,
+  .catalogo-aplicado-filters-row--bottom {
+    grid-template-columns: 1fr;
+  }
+  .catalogo-aplicado-filters-actions {
+    width: 100%;
+  }
+  .catalogo-aplicado-filters-actions .btn {
+    flex: 1;
+    text-align: center;
+  }
+}
 </style>
 <script>
 (function () {
+  var itemOptions = <?= json_encode($catalogoItemOptsBusca, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+  var itemWrap = document.getElementById('item_search_wrap');
+  var itemHidden = document.getElementById('item_id_f');
+  var itemToggle = document.getElementById('item_search_toggle');
+  var itemValue = document.getElementById('item_search_value');
+  var itemDropdown = document.getElementById('item_search_dropdown');
+  var itemInput = document.getElementById('item_search_input');
+  var itemList = document.getElementById('item_search_list');
+
+  function normText(v) {
+    return (v || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function closeItemDropdown() {
+    if (!itemDropdown || !itemToggle) return;
+    itemDropdown.hidden = true;
+    itemToggle.setAttribute('aria-expanded', 'false');
+  }
+
+  function openItemDropdown() {
+    if (!itemDropdown || !itemToggle || !itemInput) return;
+    itemDropdown.hidden = false;
+    itemToggle.setAttribute('aria-expanded', 'true');
+    itemInput.focus();
+    itemInput.select();
+  }
+
+  function selectItem(id, label) {
+    if (!itemHidden || !itemValue) return;
+    itemHidden.value = id ? String(id) : '';
+    itemValue.textContent = label || 'Todos os itens';
+    closeItemDropdown();
+  }
+
+  function renderItemOptions() {
+    if (!itemList || !itemInput) return;
+    var q = normText(itemInput.value);
+    var terms = q ? q.split(/\s+/).filter(Boolean) : [];
+    var matches = [];
+    matches.push({ id: '', label: 'Todos os itens', search: 'todos os itens' });
+    itemOptions.forEach(function (opt) {
+      var hay = normText(opt.search + ' ' + opt.label);
+      if (!terms.length || terms.every(function (t) { return hay.indexOf(t) !== -1; })) {
+        matches.push(opt);
+      }
+    });
+    matches = matches.slice(0, 10);
+    itemList.innerHTML = '';
+    if (!matches.length) {
+      var emptyLi = document.createElement('li');
+      emptyLi.className = 'crm-searchable-select__option';
+      emptyLi.textContent = 'Nenhum item encontrado';
+      emptyLi.setAttribute('aria-disabled', 'true');
+      itemList.appendChild(emptyLi);
+      return;
+    }
+    var currentVal = itemHidden ? String(itemHidden.value || '') : '';
+    matches.forEach(function (opt) {
+      var li = document.createElement('li');
+      li.className = 'crm-searchable-select__option' + (String(opt.id) === currentVal ? ' is-active' : '');
+      li.title = opt.label;
+      li.textContent = opt.label;
+      li.setAttribute('role', 'option');
+      li.setAttribute('data-id', String(opt.id || ''));
+      li.addEventListener('click', function () {
+        selectItem(opt.id, opt.label);
+      });
+      itemList.appendChild(li);
+    });
+  }
+
+  if (itemWrap && itemToggle && itemDropdown && itemInput && itemList && itemHidden && itemValue) {
+    itemToggle.addEventListener('click', function () {
+      if (itemDropdown.hidden) {
+        renderItemOptions();
+        openItemDropdown();
+      } else {
+        closeItemDropdown();
+      }
+    });
+    itemInput.addEventListener('input', renderItemOptions);
+    document.addEventListener('click', function (e) {
+      if (!itemWrap.contains(e.target)) closeItemDropdown();
+    });
+    itemInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeItemDropdown();
+      }
+    });
+  }
+
   document.querySelectorAll('.catalogo-aplicado-row-link').forEach(function (row) {
     row.addEventListener('click', function () {
       var href = row.getAttribute('data-href');

@@ -164,8 +164,6 @@
     function alertErr(msg) {
       if (typeof global.appAlert === 'function') {
         global.appAlert(msg, 'Itens do chamado');
-      } else {
-        global.alert(msg);
       }
     }
 
@@ -342,8 +340,6 @@
               .then(function (ok) {
                 if (ok) doDel();
               });
-          } else if (global.confirm('Remover este item?')) {
-            doDel();
           }
           return;
         }
@@ -352,28 +348,31 @@
           e.preventDefault();
           var lidQ = qBtn.getAttribute('data-linha-id');
           var cur = qBtn.getAttribute('data-qtd') || '1';
-          var nv = global.prompt('Nova quantidade:', cur);
-          if (nv === null) return;
-          nv = nv.trim().replace(',', '.');
-          if (!nv || isNaN(parseFloat(nv)) || parseFloat(nv) <= 0) {
-            alertErr('Quantidade inválida.');
-            return;
+          var runQtd = function (nv) {
+            nv = String(nv).trim().replace(',', '.');
+            if (!nv || isNaN(parseFloat(nv)) || parseFloat(nv) <= 0) {
+              alertErr('Quantidade inválida.');
+              return;
+            }
+            var fdQ = new FormData();
+            fdQ.append('acao', 'chamado_item_qtd');
+            fdQ.append('linha_id', lidQ);
+            fdQ.append('quantidade', nv);
+            postForm(fdQ)
+              .then(function (data) {
+                if (!data || !data.ok) {
+                  alertErr((data && data.err) || 'Não foi possível atualizar.');
+                  return;
+                }
+                syncStacks(data);
+              })
+              .catch(function () {
+                alertErr('Erro de rede ao atualizar.');
+              });
+          };
+          if (typeof global.appPrompt === 'function') {
+            global.appPrompt({ message: 'Nova quantidade:', defaultValue: cur, title: 'Quantidade' }).then(runQtd);
           }
-          var fdQ = new FormData();
-          fdQ.append('acao', 'chamado_item_qtd');
-          fdQ.append('linha_id', lidQ);
-          fdQ.append('quantidade', nv);
-          postForm(fdQ)
-            .then(function (data) {
-              if (!data || !data.ok) {
-                alertErr((data && data.err) || 'Não foi possível atualizar.');
-                return;
-              }
-              syncStacks(data);
-            })
-            .catch(function () {
-              alertErr('Erro de rede ao atualizar.');
-            });
         }
       });
     }

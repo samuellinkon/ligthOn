@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/upload.php';
 require_once __DIR__ . '/../includes/medicao_helpers.php';
+require_once __DIR__ . '/../includes/chamado_geo.php';
 
 $me = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
@@ -204,7 +205,16 @@ foreach ($anexos as $a) {
 $topTitle    = 'OS #' . $id;
 $topSubtitle = (string) $os['titulo'];
 $topAction   = ['label' => 'Voltar', 'href' => 'os_mes.php?mes=' . rawurlencode((string) $os['ref_ym']), 'icon' => '←'];
-$loadLeaflet = db_ok() && $os['latitude'] !== null && $os['latitude'] !== '' && $os['longitude'] !== null && $os['longitude'] !== '';
+$osHasMapCoords = db_ok()
+    && $os['latitude'] !== null && $os['latitude'] !== ''
+    && $os['longitude'] !== null && $os['longitude'] !== '';
+$osMapLat         = $osHasMapCoords ? (float) $os['latitude'] : null;
+$osMapLng         = $osHasMapCoords ? (float) $os['longitude'] : null;
+$osUseGoogleEmbed = $osHasMapCoords && crm_google_maps_has_api_key();
+$osMapEmbedSrc    = $osUseGoogleEmbed
+    ? crm_google_maps_embed_place_url($osMapLat, $osMapLng, 16)
+    : '';
+$loadLeaflet      = $osHasMapCoords && !$osUseGoogleEmbed;
 
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -364,14 +374,16 @@ include __DIR__ . '/../includes/head.php';
             <div class="panel-head"><h4>Descrição</h4></div>
             <div class="panel-body"><p style="color:var(--muted);line-height:1.65;margin:0;"><?= nl2br(htmlspecialchars((string) ($os['descricao'] ?? '—'))) ?></p></div>
           </div>
-          <?php if (!empty($os['endereco_completo']) || !empty($loadLeaflet)): ?>
+          <?php if (!empty($os['endereco_completo']) || $osHasMapCoords): ?>
           <div class="card">
             <div class="panel-head"><h4>Local da OS</h4></div>
             <div class="panel-body">
               <?php if (!empty($os['endereco_completo'])): ?>
                 <p style="color:var(--muted);line-height:1.65;margin:0 0 12px;"><?= nl2br(htmlspecialchars((string) $os['endereco_completo'])) ?></p>
               <?php endif; ?>
-              <?php if ($loadLeaflet): ?>
+              <?php if ($osUseGoogleEmbed && $osMapEmbedSrc !== ''): ?>
+                <iframe id="os-map-mini" class="os-map-mini chamado-map-embed-frame" title="Mapa da OS" src="<?= htmlspecialchars($osMapEmbedSrc, ENT_QUOTES, 'UTF-8') ?>" allowfullscreen loading="lazy"></iframe>
+              <?php elseif ($loadLeaflet): ?>
                 <div id="os-map-mini" class="os-map-mini" aria-label="Mapa"></div>
               <?php endif; ?>
             </div>

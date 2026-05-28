@@ -246,7 +246,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
     </div>
     <div style="padding:0 20px 20px;">
-      <form method="post" action="cliente_detalhe.php?id=<?= (int) $clienteId ?>" class="form-delete-empresa" onsubmit="return confirm('Excluir DEFINITIVAMENTE a empresa #<?= (int) $matrizExclusaoId ?> e todos os dados relacionados? Esta ação não pode ser desfeita.');">
+      <form method="post" action="cliente_detalhe.php?id=<?= (int) $clienteId ?>" class="form-delete-empresa" data-confirm="Excluir DEFINITIVAMENTE a empresa #<?= (int) $matrizExclusaoId ?> e todos os dados relacionados? Esta ação não pode ser desfeita." data-confirm-danger>
         <input type="hidden" name="acao" value="excluir">
         <label class="dashboard-pontos-tools-toggle" style="margin:0 0 14px;display:flex;align-items:flex-start;gap:10px;white-space:normal;font-weight:600;color:#374151;">
           <input type="checkbox" name="confirmar_exclusao_total" value="1" required style="margin-top:4px;">

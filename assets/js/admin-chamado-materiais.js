@@ -26,8 +26,6 @@
   function alertErr(msg) {
     if (typeof global.appAlert === 'function') {
       global.appAlert(msg, 'Itens do chamado');
-    } else {
-      global.alert(msg);
     }
   }
 
@@ -324,8 +322,6 @@
             .then(function (ok) {
               if (ok) doDel();
             });
-        } else if (global.confirm('Remover esta linha?')) {
-          doDel();
         }
       }
     });

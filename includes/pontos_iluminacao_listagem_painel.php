@@ -313,12 +313,9 @@ if ($metricaAtiva === 'chamados') {
   </div>
 </section>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<?php include __DIR__ . '/partials/leaflet_basemap_script.php'; ?>
-<?php include __DIR__ . '/partials/leaflet_ponto_popup_assets.php'; ?>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
-<script>
-  window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pinsMapa, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
-</script>
-<script src="<?= htmlspecialchars($basePath ?? '../') ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/../assets/js/ponto-marker-status.js') ?>"></script>
-<script src="<?= htmlspecialchars($basePath ?? '../') ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/../assets/js/pontos-iluminacao-map.js') ?>"></script>
+<?php
+$pontosMapPins = $pinsMapa;
+$loadPontosMapGoogle = !empty($loadPontosMapGoogle);
+$loadLeaflet = !empty($loadLeaflet) || !$loadPontosMapGoogle;
+require __DIR__ . '/partials/pontos_iluminacao_map_scripts.php';
+?>

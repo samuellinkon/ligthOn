@@ -27,7 +27,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
       Há <?= (int) $medicaoValidadoCount ?> chamado(s) Validado no escopo, mas nenhum agrupável por mês de abertura (verifique datas ou importe a planilha BM).
     <?php else: ?>
       <?php if ($medicaoMostrarImportar): ?>
-        Confira em <strong>Configurações</strong> a prefeitura dona do catálogo (deve ser a matriz dos chamados) ou valide chamados antes de medir; também pode <strong>importar a planilha BM</strong>.
+        Valide chamados após o atendimento ou <strong>importe a planilha BM</strong> para abrir a medição do mês.
       <?php else: ?>
         Valide chamados após o atendimento para que entrem na medição ou aguarde a importação BM pelo gestor.
       <?php endif; ?>

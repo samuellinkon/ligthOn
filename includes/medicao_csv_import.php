@@ -676,6 +676,11 @@ function medicao_parse_bm_from_rows(array $rows, ?string $refYm = null): array
     $colTotal    = medicao_csv_find_col_subheader($subRow, '/\bTOTAL\b/i');
     $colPreco    = medicao_csv_find_col_subheader($subRow, '/PRE[ÇC]O.*UNIT|UNIT.*PRE[ÇC]O/i');
 
+    $bmExtra = medicao_csv_pick_bm_saldo_periodo_cols($rows, $itemRowIdx, $itemCol, $colTotal, $refYm);
+    if ($bmExtra['idx_qtd_periodo'] !== null) {
+        $idxQtd = $bmExtra['idx_qtd_periodo'];
+    }
+
     $linhas = [];
     for ($r = $subRowIdx + 1, $n = count($rows); $r < $n; $r++) {
         $row = $rows[$r];
@@ -685,16 +690,28 @@ function medicao_parse_bm_from_rows(array $rows, ?string $refYm = null): array
         }
         $desc = $descCol !== null ? (string) ($row[$descCol] ?? '') : '';
         $unid = $unidCol !== null ? (string) ($row[$unidCol] ?? '') : '';
+        $qtdTot = $colTotal !== null ? medicao_br_decimal((string) ($row[$colTotal] ?? '')) : null;
+        $saldoRest = null;
+        if ($bmExtra['idx_saldo_restante'] !== null) {
+            $saldoRest = medicao_br_decimal((string) ($row[$bmExtra['idx_saldo_restante']] ?? ''));
+        }
+        if ($saldoRest === null && $qtdTot !== null && $bmExtra['idx_qtd_periodo'] !== null) {
+            $qPer = medicao_br_decimal((string) ($row[$bmExtra['idx_qtd_periodo']] ?? ''));
+            if ($qPer !== null) {
+                $saldoRest = max(0.0, (float) $qtdTot - (float) $qPer);
+            }
+        }
 
         $linhas[] = [
             'item_codigo'          => $cod,
             'descricao'            => $desc,
             'unidade'              => $unid,
             'qtd_prevista'         => $colPrevista !== null ? medicao_br_decimal((string) ($row[$colPrevista] ?? '')) : null,
-            'qtd_total'            => $colTotal !== null ? medicao_br_decimal((string) ($row[$colTotal] ?? '')) : null,
+            'qtd_total'            => $qtdTot,
             'preco_unitario'       => $colPreco !== null ? medicao_br_decimal((string) ($row[$colPreco] ?? '')) : null,
             'qtd_medido_periodo'   => medicao_br_decimal((string) ($row[$idxQtd] ?? '')),
             'valor_medido_periodo' => medicao_br_decimal((string) ($row[$idxValor] ?? '')),
+            'saldo_restante'       => $saldoRest,
         ];
     }
 
@@ -755,6 +772,91 @@ function medicao_csv_sniff_delimiter_best(string $rawHead): string
     }
 
     return $bestCols > 0 ? $bestDelim : medicao_csv_sniff_delimiter(strtok($rawHead, "\r\n") ?: '');
+}
+
+/**
+ * Localiza colunas de saldo restante e quantidade medida no período (BM tratado).
+ *
+ * @return array{idx_saldo_restante: int|null, idx_qtd_periodo: int|null}
+ */
+function medicao_csv_pick_bm_saldo_periodo_cols(
+    array $rows,
+    int $itemRowIdx,
+    int $itemCol,
+    ?int $colTotal,
+    ?string $refYm = null
+): array {
+    $ret = ['idx_saldo_restante' => null, 'idx_qtd_periodo' => null];
+    if ($colTotal === null) {
+        return $ret;
+    }
+
+    $maxCol = 0;
+    $lim    = min(count($rows), $itemRowIdx + 250);
+    for ($r = $itemRowIdx + 1; $r < $lim; $r++) {
+        $maxCol = max($maxCol, count($rows[$r] ?? []));
+    }
+    if ($maxCol <= $colTotal + 2) {
+        return $ret;
+    }
+
+    $needle = ($refYm !== null && preg_match('/^\d{4}-\d{2}$/', $refYm))
+        ? medicao_bm_needle_periodo_planilha($refYm)
+        : null;
+    if ($needle !== null && $needle !== '') {
+        $needleU = mb_strtoupper($needle, 'UTF-8');
+        for ($j = $colTotal + 1; $j < $maxCol; $j++) {
+            $h = mb_strtoupper(medicao_bm_linhas_texto_cabecalho_coluna($rows, $itemRowIdx, $j), 'UTF-8');
+            if ($h !== '' && str_contains($h, $needleU) && preg_match('/\bBM\s*\d+/u', $h)) {
+                $ret['idx_qtd_periodo'] = $j;
+                break;
+            }
+        }
+    }
+
+    $minJ = $colTotal + 1;
+    $maxJ = min($maxCol - 2, $colTotal + 18);
+    $bestScore = 0;
+    $bestSaldo = null;
+    $bestPer   = null;
+    for ($j = $minJ; $j <= $maxJ; $j++) {
+        $score = 0;
+        for ($r = $itemRowIdx + 1; $r < $lim; $r++) {
+            $row = $rows[$r];
+            $cod = (string) ($row[$itemCol] ?? '');
+            if ($cod === '' || !preg_match('/^\d+(\.\d+)+$/', $cod)) {
+                continue;
+            }
+            $tot = medicao_br_decimal((string) ($row[$colTotal] ?? ''));
+            $a   = medicao_br_decimal((string) ($row[$j] ?? ''));
+            $b   = medicao_br_decimal((string) ($row[$j + 1] ?? ''));
+            if ($tot === null || $tot <= 0 || $a === null || $b === null) {
+                continue;
+            }
+            if ($a < 0 || $b < 0 || $a > $tot + 1e-6 || $b > $tot + 1e-6) {
+                continue;
+            }
+            if (abs(($a + $b) - $tot) < max(0.01, $tot * 1e-6)) {
+                $score += 4;
+            } elseif ($a <= $tot + 1e-6) {
+                $score += 1;
+            }
+        }
+        if ($score > $bestScore) {
+            $bestScore = $score;
+            $bestSaldo = $j;
+            $bestPer   = $j + 1;
+        }
+    }
+
+    if ($bestSaldo !== null && $bestScore >= 6) {
+        $ret['idx_saldo_restante'] = $bestSaldo;
+        if ($ret['idx_qtd_periodo'] === null) {
+            $ret['idx_qtd_periodo'] = $bestPer;
+        }
+    }
+
+    return $ret;
 }
 
 /**

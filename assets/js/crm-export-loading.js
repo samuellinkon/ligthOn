@@ -256,9 +256,14 @@
       .catch(function (err) {
         clearTimeout(timeoutId);
         if (err && err.name === 'AbortError') {
-          window.alert('A exportação demorou demais e foi cancelada. Tente um período menor.');
+          if (typeof window.appAlert === 'function') {
+            window.appAlert('A exportação demorou demais e foi cancelada. Tente um período menor.', 'Exportação');
+          }
         } else {
-          window.alert((err && err.message) ? err.message : 'Não foi possível concluir a exportação.');
+          var errMsg = (err && err.message) ? err.message : 'Não foi possível concluir a exportação.';
+          if (typeof window.appAlert === 'function') {
+            window.appAlert(errMsg, 'Exportação');
+          }
         }
       })
       .finally(hideLoading);

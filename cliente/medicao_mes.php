@@ -63,8 +63,15 @@ $rel    = repo_medicao_chamados_relatorio($clienteId, $dataDe, $dataAte);
 $linhas = $rel['rows'];
 $tot    = $rel['totais'];
 
-$impPkg    = repo_medicao_import_fetch($clienteId, $mesRef);
-$impLinhas = $impPkg['linhas'] ?? [];
+$impPkg     = repo_medicao_import_fetch($clienteId, $mesRef);
+$impCab     = $impPkg['cabecalho'] ?? null;
+$impLinhas  = $impPkg['linhas'] ?? [];
+$impValorSoma = 0.0;
+foreach ($impLinhas as $il) {
+    $impValorSoma += (float) ($il['valor_medido_periodo'] ?? 0);
+}
+$impYmParts = explode('-', $mesRef);
+$impHrefNovaImport = 'medicao_importar.php?ref_ano=' . (int) ($impYmParts[0] ?? date('Y')) . '&ref_mes=' . (int) ($impYmParts[1] ?? 1);
 
 $linhasExibicao = medicao_linhas_exibicao_mes($linhas, $impLinhas);
 $totExibicao    = medicao_tot_resumo_com_import_bm($tot, $impLinhas);
@@ -128,7 +135,10 @@ include __DIR__ . '/../includes/head.php';
         <h4>Referência do mês</h4>
         <span class="panel-sub">Mês fixo <strong><?= htmlspecialchars($mesRef) ?></strong> · contrato opcional na planilha</span>
       </div>
-      <a href="<?= htmlspecialchars($medicaoExportPlanilhaHref) ?>" class="btn btn-secondary btn-sm">↓ Exportar planilha (CSV)</a>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <a href="<?= htmlspecialchars($impHrefNovaImport) ?>" class="btn btn-secondary btn-sm">Importar BM</a>
+        <a href="<?= htmlspecialchars($medicaoExportPlanilhaHref) ?>" class="btn btn-secondary btn-sm">↓ Exportar planilha (CSV)</a>
+      </div>
     </div>
     <form method="get" action="medicao_mes.php">
       <input type="hidden" name="mes" value="<?= htmlspecialchars($mesRef) ?>">
@@ -146,6 +156,70 @@ include __DIR__ . '/../includes/head.php';
       </div>
     </form>
   </div>
+
+  <?php if ($impCab): ?>
+  <div class="card" style="margin-bottom:20px;">
+    <div class="panel-head">
+      <div>
+        <h4>Dados importados da planilha BM</h4>
+        <span class="panel-sub">
+          <?= htmlspecialchars((string) ($impCab['nome_arquivo'] ?? '')) ?>
+          · <?= htmlspecialchars((string) ($impCab['importado_em'] ?? '')) ?>
+          <?php if (!empty($impCab['importado_por'])): ?>
+            · <?= htmlspecialchars((string) $impCab['importado_por']) ?>
+          <?php endif; ?>
+        </span>
+      </div>
+      <a href="<?= htmlspecialchars($impHrefNovaImport) ?>" class="btn btn-secondary btn-sm">Substituir importação</a>
+    </div>
+    <div class="panel-body" style="padding-top:0;">
+      <p class="muted" style="margin:12px 0 16px;font-size:13px;">
+        Soma dos valores «medido no período» na importação: <strong>R$ <?= number_format($impValorSoma, 2, ',', '.') ?></strong>
+        · <?= count($impLinhas) ?> linha(s).
+      </p>
+      <div class="table-wrap" style="max-height:320px;overflow:auto;">
+        <table data-crm-sortable>
+          <thead>
+            <tr class="crm-table-head-sort">
+              <?php crm_sort_th('Item', 'item'); ?>
+              <?php crm_sort_th('Descrição', 'descricao'); ?>
+              <?php crm_sort_th('Unid.', 'unidade'); ?>
+              <?php crm_sort_th('Qtd medido', 'qtd', ['type' => 'number', 'right' => true]); ?>
+              <?php crm_sort_th('Valor medido', 'valor', ['type' => 'number', 'right' => true]); ?>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($impLinhas as $il): ?>
+            <?php
+              $qtdMed = $il['qtd_medido_periodo'] ?? null;
+              $valMed = $il['valor_medido_periodo'] ?? null;
+            ?>
+            <tr <?= crm_sort_row_attr([
+                'item'      => (string) ($il['item_codigo'] ?? ''),
+                'descricao' => (string) ($il['descricao'] ?? ''),
+                'unidade'   => (string) ($il['unidade'] ?? ''),
+                'qtd'       => $qtdMed !== null && $qtdMed !== '' ? (string) (float) $qtdMed : '0',
+                'valor'     => $valMed !== null && $valMed !== '' ? (string) (float) $valMed : '0',
+            ]) ?>>
+              <td class="td-mute"><?= htmlspecialchars((string) ($il['item_codigo'] ?? '')) ?></td>
+              <td><div class="td-title" style="max-width:28rem;"><?= htmlspecialchars((string) ($il['descricao'] ?? '')) ?></div></td>
+              <td class="td-mute"><?= htmlspecialchars((string) ($il['unidade'] ?? '')) ?></td>
+              <td class="text-right td-mute"><?php
+                $qm = $il['qtd_medido_periodo'] ?? null;
+                echo $qm !== null && $qm !== '' ? htmlspecialchars((string) $qm) : '—';
+              ?></td>
+              <td class="text-right"><?php
+                $vm = $il['valor_medido_periodo'] ?? null;
+                echo $vm !== null && $vm !== '' ? 'R$ ' . number_format((float) $vm, 2, ',', '.') : '—';
+              ?></td>
+            </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <div class="card" style="margin-bottom:20px;">
     <div class="panel-head">

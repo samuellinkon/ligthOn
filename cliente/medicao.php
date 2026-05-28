@@ -47,9 +47,9 @@ $mesesLista = repo_medicao_resumo_mensal_list($clienteId, 60);
 
 $medicaoValidadoCount = repo_medicao_count_validado_escopo($clienteId);
 
-/** Portal: escopo fixo da matriz (sem seletor de empresa nem importação BM). */
+/** Portal: escopo fixo da matriz; importação BM pelo próprio cliente. */
 $escopoEmpresa          = $clienteId;
-$medicaoMostrarImportar = false;
+$medicaoMostrarImportar = true;
 $medicaoJsClienteId     = 0;
 
 $topTitle    = 'Medição';

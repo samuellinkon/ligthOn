@@ -24,8 +24,11 @@ if ($pontosPainelEscopoId <= 0) {
     exit;
 }
 
-$loadLeaflet              = true;
-$loadLeafletMarkerCluster = true;
+require_once __DIR__ . '/../includes/chamado_geo.php';
+
+$loadPontosMapGoogle      = crm_google_maps_has_api_key();
+$loadLeaflet              = !$loadPontosMapGoogle;
+$loadLeafletMarkerCluster = $loadLeaflet;
 
 $topTitle    = 'Pontos de iluminação';
 $topSubtitle = 'Postes cadastrados e situação por chamados.';

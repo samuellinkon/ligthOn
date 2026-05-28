@@ -5,6 +5,8 @@
  * Define: mapas, métricas, $ultimosCh, $dashQsPreserve, flags de carregamento Leaflet, etc.
  */
 
+require_once __DIR__ . '/chamado_geo.php';
+
 $dashPainel = (string) ($dashPainel ?? 'admin');
 $dashUser   = $dashUser ?? [];
 
@@ -215,7 +217,9 @@ if ($dashMapaAba === 'ambos') {
 $loadLeafletChamados      = $moduleChamadosMap && $dashMapaAba === 'chamados';
 $loadPontosMap            = $modulePontosMap && $scopeIdPontos > 0 && $dashMapaAba === 'pontos';
 $loadMapaCombinado        = $moduleChamadosMap && $modulePontosMap && $scopeIdPontos > 0 && $dashMapaAba === 'ambos';
-$loadLeaflet              = $loadLeafletChamados || $loadPontosMap || $loadMapaCombinado;
+$dashMapsAtivos           = $loadLeafletChamados || $loadPontosMap || $loadMapaCombinado;
+$loadGoogleMapsJs         = $dashMapsAtivos && crm_google_maps_has_api_key();
+$loadLeaflet              = $dashMapsAtivos && !$loadGoogleMapsJs;
 $loadLeafletMarkerCluster = $loadLeaflet;
 
 $dashHrefChamados       = 'chamados.php';

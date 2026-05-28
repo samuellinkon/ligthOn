@@ -89,7 +89,7 @@ if ($executar) {
             foreach ($arquivos as $arq) {
                 $nomeArq = basename($arq);
                 /* Limpeza total de dados: nunca rodar em loop com migrate.php */
-                if (preg_match('/reset_dados_manter_admin|_RESET_DATA_/i', $nomeArq)) {
+                if (preg_match('/reset_(dados_manter_admin|operacional_manter_clientes)|_RESET_DATA_/i', $nomeArq)) {
                     log_line($logs, 'Ignorado (uso manual): ' . $nomeArq, 'info');
                     continue;
                 }
@@ -176,7 +176,7 @@ if ($executar) {
                     <?php foreach ($arquivos as $f): ?>
                         <?php
                         $bn = basename($f);
-                        $manual = preg_match('/reset_dados_manter_admin|_RESET_DATA_/i', $bn);
+                        $manual = preg_match('/reset_(dados_manter_admin|operacional_manter_clientes)|_RESET_DATA_/i', $bn);
                         ?>
                         <li><?= htmlspecialchars($bn) ?><?= $manual ? ' <em>(ignorado pelo migrador — executar só via MySQL/phpMyAdmin)</em>' : '' ?></li>
                     <?php endforeach; ?>

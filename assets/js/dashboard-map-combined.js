@@ -3,6 +3,9 @@
  * Dados: window.DASHBOARD_MAP_COMBINED = { chamados: [], pontos: [] }
  */
 (function () {
+  if (window.CRM_DASHBOARD_MAP_PROVIDER === 'google') {
+    return;
+  }
   var data = window.DASHBOARD_MAP_COMBINED;
   var el = document.getElementById('dashboard-mapa-combinado');
   var layerCh = document.getElementById('combo-layer-chamados');

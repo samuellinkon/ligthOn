@@ -9,6 +9,152 @@
 
   var SKIP_TYPES = { hidden: 1, submit: 1, button: 1, reset: 1, file: 1, image: 1 };
 
+  /** Endereços reais de Ipojuca/PE — um perfil por clique em «Preencher teste», sem repetir até esgotar a lista. */
+  var IPOJUCA_PROFILES = [
+    {
+      cep: '55592-000',
+      logradouro: 'R. Cel. João de Souza Leão',
+      numero: '45',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3986278',
+      lng: '-35.0644340',
+      ref: 'Em frente à Prefeitura de Ipojuca',
+      enderecoCompleto:
+        'R. Cel. João de Souza Leão, 45 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'R. Cel. João de Souza Leão',
+      numero: '120',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3987376',
+      lng: '-35.0643330',
+      ref: 'Calçada lateral — lado par',
+      enderecoCompleto:
+        'R. Cel. João de Souza Leão, 120 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'R. Cel. João de Souza Leão',
+      numero: '210',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3990033',
+      lng: '-35.0641272',
+      ref: 'Meio do quarteirão da prefeitura',
+      enderecoCompleto:
+        'R. Cel. João de Souza Leão, 210 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'Av. Francisco Alves de Souza',
+      numero: '180',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3996859',
+      lng: '-35.0589294',
+      ref: 'Acesso principal do Centro',
+      enderecoCompleto:
+        'Av. Francisco Alves de Souza, 180 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'R. João de Barros',
+      numero: '90',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3997800',
+      lng: '-35.0613500',
+      ref: 'Trecho comercial',
+      enderecoCompleto: 'R. João de Barros, 90 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'R. do Comércio',
+      numero: '95',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.4006500',
+      lng: '-35.0609500',
+      ref: 'Frente a estabelecimentos',
+      enderecoCompleto: 'R. do Comércio, 95 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'Av. Beira Mar',
+      numero: '120',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.4013500',
+      lng: '-35.0622000',
+      ref: 'Orla do centro histórico',
+      enderecoCompleto: 'Av. Beira Mar, 120 - Centro, Ipojuca - PE, 55592-000'
+    },
+    {
+      cep: '55592-000',
+      logradouro: 'Praça da Matriz',
+      numero: 's/n',
+      complemento: '',
+      bairro: 'Centro',
+      cidade: 'Ipojuca',
+      uf: 'PE',
+      lat: '-8.3991200',
+      lng: '-35.0635800',
+      ref: 'Praça central — igreja matriz',
+      enderecoCompleto: 'Praça da Matriz, s/n - Centro, Ipojuca - PE, 55592-000'
+    }
+  ];
+
+  var ipojucaProfileCursor = 0;
+  var currentIpojucaProfile = null;
+
+  function getNextIpojucaProfile() {
+    var idx = ipojucaProfileCursor % IPOJUCA_PROFILES.length;
+    ipojucaProfileCursor = (ipojucaProfileCursor + 1) % IPOJUCA_PROFILES.length;
+    return IPOJUCA_PROFILES[idx];
+  }
+
+  function pickIpojucaField(key) {
+    if (!currentIpojucaProfile) return null;
+    var p = currentIpojucaProfile;
+    if (key.indexOf('cep') !== -1) return p.cep;
+    if (key.indexOf('latitude') !== -1 || key === 'lat') return p.lat;
+    if (key.indexOf('longitude') !== -1 || key === 'lng') return p.lng;
+    if (key.indexOf('endereco_completo') !== -1 || (key.indexOf('endereco') !== -1 && key.indexOf('completo') !== -1)) {
+      return p.enderecoCompleto;
+    }
+    if (key.indexOf('logradouro') !== -1 || (key.indexOf('endereco') !== -1 && key.indexOf('completo') === -1)) {
+      return p.logradouro;
+    }
+    if (key.indexOf('numero') !== -1 || key.indexOf('número') !== -1) return p.numero;
+    if (key.indexOf('complemento') !== -1) return p.complemento;
+    if (key.indexOf('bairro') !== -1) return p.bairro;
+    if (key.indexOf('cidade') !== -1) return p.cidade;
+    if (key.indexOf('os_uf') !== -1 || key === 'uf' || /_uf$/.test(key)) {
+      return p.uf;
+    }
+    if (key.indexOf('ponto_referencia') !== -1 || key.indexOf('os_ref') !== -1 || key.indexOf('referencia') !== -1) {
+      return p.ref;
+    }
+    return null;
+  }
+
   function normKey(el) {
     var n = (el.name || '').toLowerCase();
     var i = (el.id || '').toLowerCase();
@@ -69,19 +215,26 @@
     }
     if (key.indexOf('cpf') !== -1 && key.indexOf('cnpj') === -1) return '529.982.247-35';
     if (key.indexOf('cnpj') !== -1) return '12.345.678/0001-95';
-    if (key.indexOf('cep') !== -1) return '01310-100';
+    var ipojucaVal = pickIpojucaField(key);
+    if (ipojucaVal !== null) return ipojucaVal;
+
+    if (key.indexOf('cep') !== -1) return '55592-000';
     if (key.indexOf('telefone') !== -1 || key.indexOf('tel') !== -1 || key.indexOf('phone') !== -1 || type === 'tel') {
-      return '(11) 98877-6655';
+      return '(81) 98877-6655';
     }
     if (key.indexOf('url') !== -1 || key.indexOf('site') !== -1 || key.indexOf('link') !== -1 || type === 'url') {
       return 'https://www.exemplo.com.br/teste';
     }
     if (key.indexOf('titulo') !== -1 || key.indexOf('assunto') !== -1) return 'Registro de teste automatizado';
-    if (key.indexOf('latitude') !== -1) return '-23.5614140';
-    if (key.indexOf('longitude') !== -1) return '-46.6558810';
+    if (key.indexOf('latitude') !== -1) return '-8.3986278';
+    if (key.indexOf('longitude') !== -1) return '-35.0644340';
     if (key.indexOf('endereco_completo') !== -1 || (key.indexOf('endereco') !== -1 && key.indexOf('completo') !== -1)) {
-      return 'Av. Paulista, 1578 - Bela Vista, São Paulo - SP, CEP 01310-200';
+      return 'R. Cel. João de Souza Leão, 45 - Centro, Ipojuca - PE, 55592-000';
     }
+    if (key.indexOf('logradouro') !== -1) return 'R. Cel. João de Souza Leão';
+    if (key.indexOf('bairro') !== -1) return 'Centro';
+    if (key.indexOf('cidade') !== -1) return 'Ipojuca';
+    if (key.indexOf('os_uf') !== -1 || key === 'uf' || key.indexOf(' uf') !== -1) return 'PE';
     if (key.indexOf('nome') !== -1 && key.indexOf('empresa') === -1) return 'João Validação Silva';
     if (key.indexOf('empresa') !== -1 || key.indexOf('company') !== -1) return 'Empresa Teste Ltda';
     if (key.indexOf('doc') !== -1 || key.indexOf('cnpj') !== -1 || key.indexOf('cpf') !== -1) return '529.982.247-35';
@@ -255,26 +408,43 @@
    * Aplica em qualquer página que tenha estes ids (novo chamado, detalhe admin, etc.).
    */
   function fillChamadoGeoDevFields() {
+    var p = currentIpojucaProfile || getNextIpojucaProfile();
     var ec = document.getElementById('endereco_completo');
     if (ec && ec.tagName === 'TEXTAREA' && !ec.disabled && !ec.readOnly) {
-      ec.value =
-        'Av. Paulista, 1578 - Bela Vista, São Paulo - SP, CEP 01310-200\n' +
-        'Ponto de referência: teste automático (form-fill-dev).';
+      ec.value = p.enderecoCompleto + '\nPonto de referência: ' + p.ref + ' (form-fill-dev).';
       fire(ec);
     }
-    var la = document.getElementById('latitude');
-    var lo = document.getElementById('longitude');
+    var la = document.getElementById('chamado_latitude') || document.getElementById('latitude');
+    var lo = document.getElementById('chamado_longitude') || document.getElementById('longitude');
     if (la && !la.disabled && !la.readOnly && isFillableInput(la)) {
-      la.value = '-23.5614140';
+      la.value = p.lat;
       fire(la);
     }
     if (lo && !lo.disabled && !lo.readOnly && isFillableInput(lo)) {
-      lo.value = '-46.6558810';
+      lo.value = p.lng;
       fire(lo);
     }
+    var osFields = [
+      ['os_cep', p.cep],
+      ['os_logradouro', p.logradouro],
+      ['os_numero', p.numero],
+      ['os_complemento', p.complemento],
+      ['os_bairro', p.bairro],
+      ['os_cidade', p.cidade],
+      ['os_uf', p.uf],
+      ['os_ref', p.ref]
+    ];
+    osFields.forEach(function (pair) {
+      var el = document.getElementById(pair[0]);
+      if (el && !el.disabled && !el.readOnly && (el.tagName !== 'INPUT' || isFillableInput(el))) {
+        el.value = pair[1];
+        fire(el);
+      }
+    });
   }
 
   function fillAll() {
+    currentIpojucaProfile = getNextIpojucaProfile();
     Array.prototype.forEach.call(document.forms, function (form) {
       if (shouldSkipForm(form)) return;
       if (!formHasFillableFields(form)) return;
@@ -300,7 +470,10 @@
     btn.className = 'form-fill-dev-fab';
     btn.setAttribute('aria-label', 'Preencher todos os campos com dados de teste');
     btn.textContent = 'Preencher teste';
-    btn.title = 'Preenche campos visíveis dos formulários (exc. exclusão / inline).';
+    btn.title =
+      'Preenche formulários com dados de teste. Endereços de Ipojuca/PE rotativos (' +
+      IPOJUCA_PROFILES.length +
+      ' perfis, sem repetir até esgotar).';
 
     btn.addEventListener('click', function () {
       fillAll();

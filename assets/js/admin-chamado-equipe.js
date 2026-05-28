@@ -7,8 +7,6 @@
   function alertMsg(msg, title) {
     if (typeof global.appAlert === 'function') {
       global.appAlert(msg, title || 'Equipe');
-    } else {
-      global.alert(msg);
     }
   }
 

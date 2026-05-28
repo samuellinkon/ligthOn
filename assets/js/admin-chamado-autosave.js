@@ -23,8 +23,6 @@
   function alertMsg(msg, title) {
     if (typeof global.appAlert === 'function') {
       global.appAlert(msg, title || 'Chamado');
-    } else {
-      global.alert(msg);
     }
   }
 
@@ -193,48 +191,67 @@
       var novo = selectEl.value;
       if (novo === initial) return;
 
-      if (
+      var needsPortalValidarConfirm =
         acao === 'status' &&
         novo === 'Validado' &&
         document.body &&
-        document.body.getAttribute('data-chamado-portal') === '1' &&
-        !global.confirm(
-          'Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.'
-        )
-      ) {
+        document.body.getAttribute('data-chamado-portal') === '1';
+
+      function runSave() {
+        selectEl.disabled = true;
+        var fd = new FormData();
+        fd.append('acao', acao);
+        fd.append('ajax', '1');
+        fd.append(selectEl.name, novo);
+
+        postForm(fd)
+          .then(function (data) {
+            if (!data || !data.ok) {
+              selectEl.value = initial;
+              alertMsg((data && data.err) || 'Não foi possível salvar.', acao === 'status' ? 'Status' : 'Prioridade');
+              return;
+            }
+            initial = novo;
+            if (data.msg) toastOk(data.msg);
+            if (acao === 'status' && data.status) {
+              updateHeaderChip('.chamado-header-toolbar__chip--status', data.status, 'status');
+            }
+            if (acao === 'prioridade' && data.prioridade) {
+              updateHeaderChip('.chamado-header-toolbar__chip--prio', data.prioridade, 'prioridade');
+            }
+          })
+          .catch(function (err) {
+            selectEl.value = initial;
+            alertMsg((err && err.message) || 'Erro de rede.', acao === 'status' ? 'Status' : 'Prioridade');
+          })
+          .finally(function () {
+            selectEl.disabled = false;
+          });
+      }
+
+      if (needsPortalValidarConfirm && typeof global.appConfirm === 'function') {
+        global
+          .appConfirm({
+            message:
+              'Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.',
+            title: 'Validar atendimento',
+          })
+          .then(function (ok) {
+            if (!ok) {
+              selectEl.value = initial;
+              return;
+            }
+            runSave();
+          });
+        return;
+      }
+
+      if (needsPortalValidarConfirm) {
         selectEl.value = initial;
         return;
       }
 
-      selectEl.disabled = true;
-      var fd = new FormData();
-      fd.append('acao', acao);
-      fd.append('ajax', '1');
-      fd.append(selectEl.name, novo);
-
-      postForm(fd)
-        .then(function (data) {
-          if (!data || !data.ok) {
-            selectEl.value = initial;
-            alertMsg((data && data.err) || 'Não foi possível salvar.', acao === 'status' ? 'Status' : 'Prioridade');
-            return;
-          }
-          initial = novo;
-          if (data.msg) toastOk(data.msg);
-          if (acao === 'status' && data.status) {
-            updateHeaderChip('.chamado-header-toolbar__chip--status', data.status, 'status');
-          }
-          if (acao === 'prioridade' && data.prioridade) {
-            updateHeaderChip('.chamado-header-toolbar__chip--prio', data.prioridade, 'prioridade');
-          }
-        })
-        .catch(function (err) {
-          selectEl.value = initial;
-          alertMsg((err && err.message) || 'Erro de rede.', acao === 'status' ? 'Status' : 'Prioridade');
-        })
-        .finally(function () {
-          selectEl.disabled = false;
-        });
+      runSave();
     });
   }
 

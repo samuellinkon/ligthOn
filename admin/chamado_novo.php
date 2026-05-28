@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/upload.php';
 require_once __DIR__ . '/../includes/chamado_os_fields.php';
+require_once __DIR__ . '/../includes/chamado_geo.php';
 
 $user = require_auth_gestao();
 require_once __DIR__ . '/../includes/modules.php';
@@ -122,7 +123,7 @@ if (db_ok()) {
     }
 }
 
-$loadLeaflet = true;
+$loadLeaflet = !crm_google_maps_has_api_key();
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">

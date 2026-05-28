@@ -297,6 +297,15 @@ function medicao_relatorio_import_criar_chamados(
                 $chRef
             );
         }
+
+        if ($ret['ok'] && ($ret['n_itens'] > 0 || $ret['n_chamados_pulados'] > 0)) {
+            $recEst = repo_catalogo_recalcular_estoque_saldo($clienteMatrizId);
+            $ret['estoque_recalc_ok']        = $recEst['ok'];
+            $ret['estoque_recalc_alterados'] = (int) ($recEst['itens_alterados'] ?? 0);
+            if (!$recEst['ok'] && ($recEst['err'] ?? '') !== '') {
+                $ret['estoque_recalc_erro'] = (string) $recEst['err'];
+            }
+        }
     } catch (Throwable $e) {
         $ret['ok']   = false;
         $ret['erro'] = $e->getMessage();

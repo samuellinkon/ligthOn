@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($acao === '' && ($trLeg !== '' || $temLeg)) {
                 $acao = 'responder';
             }
-            $acoesPortalCliente = ['responder', 'status', 'cancelar'];
+            $acoesPortalCliente = ['responder', 'status', 'cancelar', 'validar'];
             if (!in_array($acao, $acoesPortalCliente, true)) {
                 flash_set('err', 'Esta ação não está disponível no portal do cliente.');
                 header('Location: chamado_detalhe.php?id=' . $id);
@@ -219,14 +219,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($acao === 'cancelar') {
             if (!$CRM_CHAMADO_PORTAL) {
                 flash_set('err', 'Ação não permitida.');
+            } elseif ($chamadoPortalMatrizId <= 0) {
+                flash_set('err', 'Escopo da prefeitura inválido.');
             } else {
-                $stCancel = (string) (repo_chamado($id)['status'] ?? '');
-                if (in_array($stCancel, ['Validado', 'Fechado', 'Cancelado'], true)) {
-                    flash_set('err', 'Este chamado não pode mais ser cancelado.');
-                } elseif (repo_update_chamado_status($id, 'Cancelado', 'cliente')) {
-                    flash_set('ok', 'Chamado cancelado.');
+                $stCancel = trim((string) (repo_chamado($id)['status'] ?? ''));
+                if ($stCancel === 'Aberto') {
+                    flash_set('err', 'Este chamado já está com status Aberto.');
+                } elseif (repo_chamado_cliente_reabrir($id, $chamadoPortalMatrizId)) {
+                    flash_set('ok', 'Chamado reaberto e voltou para o status Aberto.');
                 } else {
-                    flash_set('err', 'Não foi possível cancelar o chamado.');
+                    flash_set('err', 'Não foi possível reabrir o chamado.');
                 }
             }
 
@@ -234,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$CRM_CHAMADO_PORTAL) {
                 flash_set('err', 'Ação não permitida.');
             } else {
-                $stVal = (string) (repo_chamado($id)['status'] ?? '');
+                $stVal = trim((string) (repo_chamado($id)['status'] ?? ''));
                 if (!in_array($stVal, ['Resolvido', 'Fechado'], true)) {
                     flash_set('err', 'Este chamado ainda não pode ser validado.');
                 } elseif (repo_update_chamado_status($id, 'Validado', 'cliente')) {
@@ -792,16 +794,26 @@ $locPreview   = db_ok()
         'show_preview'     => false,
         'label_fonte'      => '',
     ];
-$loadLeaflet = !empty($locPreview['show_preview']);
-$adminLocSvIframeSrc = '';
-if (!$CRM_CHAMADO_PORTAL && $locPreview['lat'] !== null && $locPreview['lng'] !== null) {
-    $adminLocLl = rawurlencode(
-        number_format((float) $locPreview['lat'], 7, '.', '')
-        . ','
-        . number_format((float) $locPreview['lng'], 7, '.', '')
-    );
-    $adminLocSvIframeSrc = 'https://www.google.com/maps?cbll=' . $adminLocLl . '&cbp=11,0,0,0,0&layer=c&output=svembed';
+require_once __DIR__ . '/../includes/chamado_geo.php';
+$showLocPreview = !empty($locPreview['show_preview']);
+$chOsValsVizHead = $chamado;
+if (!empty($pontoChamado)) {
+    $chOsValsVizHead = chamado_os_aplicar_dados_ponto($chOsValsVizHead, $pontoChamado, true);
 }
+$chVizMapaLoc = chamado_resolver_localizacao_preview(
+    $chOsValsVizHead,
+    is_array($pontoChamado ?? null) ? $pontoChamado : null
+);
+$chVizMapaAtivo = !empty($chVizMapaLoc['show_preview']);
+$ch_viz_mapa = [
+    'lat' => $chVizMapaLoc['lat'] ?? null,
+    'lng' => $chVizMapaLoc['lng'] ?? null,
+    'default_view' => 'map',
+];
+$loadLeaflet = ($showLocPreview || $chVizMapaAtivo) && !crm_google_maps_has_api_key();
+$chamadoGeocodeApiUrl = $CRM_CHAMADO_PORTAL
+    ? $basePath . 'cliente/geocode_nominatim_api.php'
+    : $basePath . 'admin/geocode_nominatim_api.php';
 
 $valorChamadoItens = 0.0;
 if (db_ok()) {
@@ -870,36 +882,14 @@ include __DIR__ . '/../includes/head.php';
       border-radius: 12px;
     }
 
-    .os-ponto-preview--mapa-apenas .os-ponto-map-only {
-      overflow: hidden;
-      border: 1px solid var(--border-soft);
-      border-radius: 12px;
-      background: #fafafe;
+    .chamado-loc-view-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 10px;
     }
 
-    .os-ponto-preview--mapa-apenas .chamado-map-mini {
-      height: 280px;
-      margin: 0;
-      border: 0;
-      border-radius: 12px;
-    }
-
-    .os-ponto-preview--mapa-apenas .os-ponto-map-embed {
-      position: relative;
-      height: 280px;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    .os-ponto-preview--mapa-apenas .os-ponto-map-embed__frame {
-      display: block;
-      width: 100%;
-      height: 100%;
-      min-height: 280px;
-      border: 0;
-      border-radius: 12px;
-    }
-
+    .chamado-loc-preview-wrap .chamado-map-mini,
     #chamado-loc-preview .chamado-map-mini {
       height: 260px;
       margin: 0;
@@ -1278,6 +1268,10 @@ include __DIR__ . '/../includes/head.php';
     <div class="flex-col" style="gap:18px;">
 
       <?php if (db_ok()): ?>
+      <?php
+        $ch_os_use_visualizacao_mapa_component = $chVizMapaAtivo;
+        $ch_viz_mapa['geocode_api'] = $chamadoGeocodeApiUrl;
+      ?>
       <?php if ($CRM_CHAMADO_PORTAL): ?>
       <div class="card" style="overflow:hidden;">
         <div class="panel-head">
@@ -1307,12 +1301,18 @@ include __DIR__ . '/../includes/head.php';
           $ch_os_pontos_opcoes = $pontosOsForm;
           $ch_os_ponto_atual = $pontoChamado ?? null;
           $ch_os_readonly_endereco = true;
-          $ch_os_mapa_apenas = true;
           $ch_os_ocultar_solicitante = $chamadoImportadoBm;
+          $ch_os_preview_default_view = 'map';
+          $ch_os_modo_include = 'form';
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
           ?>
         </div>
         </fieldset>
+        <?php if ($chVizMapaAtivo): ?>
+        <div class="form chamado-os-preview-interativo" style="padding: 0 24px 20px;">
+          <?php include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa.php'; ?>
+        </div>
+        <?php endif; ?>
       </div>
       <?php else: ?>
       <div id="chamado-form-os-dados" class="card chamado-os-dados-panel" data-chamado-os-ajax="1" style="overflow:hidden;">
@@ -1341,9 +1341,13 @@ include __DIR__ . '/../includes/head.php';
           $ch_os_pontos_opcoes = $pontosOsForm;
           $ch_os_ponto_atual = $pontoChamado ?? null;
           $ch_os_readonly_endereco = false;
-          $ch_os_mapa_apenas = true;
           $ch_os_ocultar_solicitante = $chamadoImportadoBm;
+          $ch_os_preview_default_view = 'map';
+          $ch_os_modo_include = 'form';
           include __DIR__ . '/../includes/chamado_os_grid_markup.php';
+          if ($chVizMapaAtivo) {
+              include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa.php';
+          }
           ?>
         </div>
       </div>
@@ -1737,9 +1741,9 @@ include __DIR__ . '/../includes/head.php';
           <?php endif; ?>
 
           <?php
-            $stAtual = (string) ($chamado['status'] ?? '');
+            $stAtual = trim((string) ($chamado['status'] ?? ''));
             $cliPodeValidar  = $CRM_CHAMADO_PORTAL && in_array($stAtual, ['Resolvido', 'Fechado'], true);
-            $cliPodeCancelar = $CRM_CHAMADO_PORTAL && !in_array($stAtual, ['Validado', 'Cancelado', 'Fechado'], true);
+            $cliPodeCancelar = $CRM_CHAMADO_PORTAL && $stAtual !== 'Aberto';
             if (!$CRM_CHAMADO_PORTAL) {
                 if (strtolower((string) ($user['perfil'] ?? '')) === 'gestor') {
                     $statusOpcoesUi = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido'];
@@ -1764,16 +1768,16 @@ include __DIR__ . '/../includes/head.php';
             <span class="info-edit-value" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
               <?php if ($cliPodeValidar): ?>
               <form method="post"
-                    onsubmit="return confirm('Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.');">
+                    data-confirm="Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.">
                 <input type="hidden" name="acao" value="validar">
                 <button type="submit" class="btn btn-primary btn-sm">Validar</button>
               </form>
               <?php endif; ?>
               <?php if ($cliPodeCancelar): ?>
               <form method="post"
-                    onsubmit="return confirm('Cancelar este chamado? Esta ação não pode ser desfeita pelo portal.');">
+                    data-confirm="O chamado voltará ao status Aberto para ser tratado novamente pela equipe. Deseja continuar?">
                 <input type="hidden" name="acao" value="cancelar">
-                <button type="submit" class="action danger">Cancelar</button>
+                <button type="submit" class="btn btn-secondary btn-sm">Cancelar</button>
               </form>
               <?php endif; ?>
             </span>
@@ -2023,21 +2027,20 @@ include __DIR__ . '/../includes/head.php';
               <strong><?= htmlspecialchars(number_format((float) $locPreview['lat'], 6, '.', '')) ?>, <?= htmlspecialchars(number_format((float) $locPreview['lng'], 6, '.', '')) ?></strong>
             </p>
             <?php endif; ?>
-            <?php if (($locPreview['modo'] ?? '') === 'geocode'): ?>
-            <p class="muted" id="chamado-map-geocode-hint-admin" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
-            <?php endif; ?>
           </div>
-          <?php if (!empty($loadLeaflet)): ?>
-          <div id="chamado-loc-preview" style="margin-top:14px;">
-            <div id="chamado-loc-sv-wrap" class="chamado-ponto-streetview chamado-loc-sv-admin chamado-location-map"<?= $adminLocSvIframeSrc !== '' ? '' : ' hidden' ?>>
-              <div class="chamado-ponto-streetview__head">
-                <span id="chamado-loc-sv-label" class="chamado-ponto-streetview__label">Street View</span>
-              </div>
-              <div class="chamado-ponto-streetview__frame-wrap">
-                <iframe id="chamado-loc-sv-frame" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy"<?= $adminLocSvIframeSrc !== '' ? ' src="' . htmlspecialchars($adminLocSvIframeSrc, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
-              </div>
-            </div>
-            <div id="chamado-map-mini" class="chamado-map-mini" hidden aria-label="Mapa do chamado"></div>
+          <?php if ($showLocPreview): ?>
+          <div style="margin-top:14px;">
+            <?php
+            $ch_viz_mapa = [
+                'lat' => $locPreview['lat'] ?? null,
+                'lng' => $locPreview['lng'] ?? null,
+                'default_view' => 'street',
+                'geocode_api' => $chamadoGeocodeApiUrl,
+                'id_prefix' => 'chamado-sidebar',
+                'hide_section_title' => true,
+            ];
+            include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa.php';
+            ?>
           </div>
           <?php endif; ?>
         </div>
@@ -2187,36 +2190,35 @@ include __DIR__ . '/../includes/head.php';
 })();
 </script>
 
-<?php if (!empty($loadLeaflet)): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
-<script src="<?= htmlspecialchars($basePath) ?>assets/js/chamado-loc-preview.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (!window.CrmChamadoLocPreview) return;
-  window.CrmChamadoLocPreview.init({
-    mapId: 'chamado-map-mini',
-    svWrapId: 'chamado-loc-sv-wrap',
-    svFrameId: 'chamado-loc-sv-frame',
-    svLabelId: 'chamado-loc-sv-label',
-    hideExternalTab: true,
-    mapOnly: <?= $CRM_CHAMADO_PORTAL ? 'true' : 'false' ?>,
-    defaultView: <?= $CRM_CHAMADO_PORTAL ? "'leaflet'" : "'streetview'" ?>,
-    lat: <?= $locPreview['lat'] !== null ? json_encode($locPreview['lat']) : 'null' ?>,
-    lng: <?= $locPreview['lng'] !== null ? json_encode($locPreview['lng']) : 'null' ?>,
-    modo: <?= json_encode($locPreview['modo'] ?? 'none', JSON_UNESCAPED_UNICODE) ?>,
-    mapaQuery: <?= json_encode($locPreview['mapa_query'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
-    attempts: <?= json_encode($locPreview['geocode_attempts'] ?? [], JSON_UNESCAPED_UNICODE) ?>,
-    geocodeCidade: <?= json_encode(trim((string) ($chamado['os_cidade'] ?? '')), JSON_UNESCAPED_UNICODE) ?>,
-    geocodeUf: <?= json_encode(strtoupper(preg_replace('/\./', '', trim((string) ($chamado['os_uf'] ?? '')))), JSON_UNESCAPED_UNICODE) ?>,
-    hintId: 'chamado-map-geocode-hint-admin',
-    scrollWheelZoom: <?= $CRM_CHAMADO_PORTAL ? 'true' : 'false' ?>,
-    zoom: <?= $CRM_CHAMADO_PORTAL ? 17 : 15 ?>,
-    zoomControl: true
-  });
-});
-</script>
-<?php endif; ?>
+<?php
+$ch_viz_script_inits = [];
+if (!empty($chVizMapaAtivo)) {
+    $ch_viz_os_init = [
+        'rootId' => 'chamado-viz-loc',
+        'defaultView' => 'map',
+    ];
+    $ch_viz_os_geo = chamado_viz_mapa_geocode_js_opts($chVizMapaLoc);
+    if ($ch_viz_os_geo !== null) {
+        $ch_viz_os_init['geocode'] = $ch_viz_os_geo;
+    }
+    $ch_viz_script_inits[] = $ch_viz_os_init;
+}
+if ($showLocPreview) {
+    $ch_viz_side_init = [
+        'rootId' => 'chamado-sidebar-loc',
+        'defaultView' => 'street',
+    ];
+    $ch_viz_side_geo = chamado_viz_mapa_geocode_js_opts($locPreview);
+    if ($ch_viz_side_geo !== null) {
+        $ch_viz_side_init['geocode'] = $ch_viz_side_geo;
+    }
+    $ch_viz_script_inits[] = $ch_viz_side_init;
+}
+$ch_viz_scripts_ativo = $ch_viz_script_inits !== [];
+if ($ch_viz_scripts_ativo) {
+    include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa_scripts.php';
+}
+?>
 <script>
 (function () {
   var jsonEl = document.getElementById('chamado-catalogo-json');

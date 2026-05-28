@@ -3799,6 +3799,10 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
     if ($mov !== '' && !in_array($mov, ['utilizado', 'devolvido'], true)) {
         $mov = '';
     }
+    $tipo = isset($filtros['tipo']) ? strtolower(trim((string) $filtros['tipo'])) : '';
+    if ($tipo !== '' && !in_array($tipo, ['produto', 'servico'], true)) {
+        $tipo = '';
+    }
     $fidChamado = isset($filtros['chamado_id']) ? (int) $filtros['chamado_id'] : 0;
     $fidItem    = isset($filtros['item_id']) ? (int) $filtros['item_id'] : 0;
     $fidTec     = isset($filtros['tecnico_user_id']) ? (int) $filtros['tecnico_user_id'] : 0;
@@ -3808,6 +3812,10 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
     if ($mov !== '') {
         $extra .= ' AND ci.movimento = ? ';
         $params[] = $mov;
+    }
+    if ($tipo !== '') {
+        $extra .= ' AND it.tipo = ? ';
+        $params[] = $tipo;
     }
     if ($fidChamado > 0) {
         $extra .= ' AND ch.id = ? ';
@@ -4441,7 +4449,7 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
  * Substitui importação BM do mês (uma por matriz + ref_ym).
  *
  * @param list<array<string,mixed>> $linhas saída de medicao_csv_parse_bm_planilha()['linhas']
- * @return array{ok:bool, erro:string}
+ * @return array{ok:bool, erro:string, estoque_sync?: array<string,mixed>}
  */
 function repo_medicao_import_substituir(
     int $clienteMatrizId,
@@ -4452,7 +4460,8 @@ function repo_medicao_import_substituir(
     ?int $idxValorMedido,
     array $linhas,
     int $importadorUserId = 0,
-    bool $notificarDestinatarios = true
+    bool $notificarDestinatarios = true,
+    bool $sincronizarSaldoBm = true
 ): array {
     $ret = ['ok' => false, 'erro' => ''];
     if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
@@ -4515,9 +4524,11 @@ function repo_medicao_import_substituir(
         $pdo->commit();
         $ret['ok'] = true;
 
-        if ($linhas !== []) {
+        if ($sincronizarSaldoBm && $linhas !== []) {
             require_once __DIR__ . '/medicao_relatorio_import.php';
             medicao_import_sync_catalogo_from_bm_linhas($clienteMatrizId, $linhas);
+            $syncEst = repo_catalogo_sync_saldo_from_bm_linhas($clienteMatrizId, $linhas);
+            $ret['estoque_sync'] = $syncEst;
         }
 
         audit_log_registar('medicao.importar', 'medicao', null, $clienteMatrizId > 0 ? $clienteMatrizId : null, [
@@ -5741,6 +5752,54 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
     return $ok;
 }
 
+/**
+ * Portal cliente: «Cancelar» reabre o chamado (status Aberto) para novo fluxo com a gestão.
+ */
+function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
+{
+    if ($id <= 0 || $matrizId <= 0) {
+        return false;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return false;
+    }
+    $antes = repo_chamado($id);
+    if (!$antes || !repo_cliente_pertence_empresa((int) ($antes['cliente_id'] ?? 0), $matrizId)) {
+        return false;
+    }
+    if (array_key_exists('ativo', $antes) && (int) ($antes['ativo'] ?? 1) === 0) {
+        return false;
+    }
+    $stAnt = trim((string) ($antes['status'] ?? ''));
+    if ($stAnt === 'Aberto') {
+        return false;
+    }
+    $stmt = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
+    $ok   = $stmt->execute(['Aberto', $id]);
+    if (!$ok) {
+        return false;
+    }
+    $cidLog = (int) ($antes['cliente_id'] ?? 0);
+    audit_log_registar('chamado.cliente_reabrir', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
+        'status_anterior' => $stAnt,
+        'status_novo'     => 'Aberto',
+    ]);
+    if (function_exists('repo_notificacao_insert')) {
+        require_once __DIR__ . '/notificacoes.php';
+        $tituloReab = sprintf('Chamado #%d reaberto pelo cliente', $id);
+        $descReab   = 'O chamado voltou ao status Aberto para novo atendimento.';
+        $dest       = repo_notificacao_destinatarios_chamado($id, true);
+        foreach (array_unique($dest) as $uidDest) {
+            if ($uidDest > 0) {
+                repo_notificacao_insert((int) $uidDest, $id, null, $tituloReab, $descReab, 'chamado_status');
+            }
+        }
+    }
+
+    return true;
+}
+
 function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null): bool
 {
     static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
@@ -5754,7 +5813,7 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     if ($p === 'gestor' && in_array($status, ['Validado', 'Fechado', 'Cancelado'], true)) {
         return false;
     }
-    if ($status === 'Cancelado' && !$gestaoPlena && $p !== 'cliente') {
+    if ($status === 'Cancelado' && !$gestaoPlena) {
         return false;
     }
     if ($status === 'Validado' && !$gestaoPlena && $p !== 'cliente') {
@@ -5779,8 +5838,8 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
         }
     }
     if ($status === 'Validado' && !$gestaoPlena) {
-        $stAnt = (string) ($antes['status'] ?? '');
-        if ($stAnt !== 'Resolvido' && $stAnt !== 'Fechado') {
+        $stAnt = trim((string) ($antes['status'] ?? ''));
+        if (!in_array($stAnt, ['Resolvido', 'Fechado'], true)) {
             return false;
         }
     }
@@ -5894,42 +5953,43 @@ function repo_cliente_itens_estoque_capacidade_column_exists(): bool
 }
 
 /**
- * Saldo de referência para cálculo de estoque baixo (10% do valor de referência).
+ * Estoque de referência (estoque_capacidade) para alerta de estoque baixo.
  */
 function catalogo_estoque_referencia(array $it): float
 {
-    if (repo_cliente_itens_estoque_capacidade_column_exists()) {
-        $cap = (float) ($it['estoque_capacidade'] ?? 0);
-        if ($cap > 0) {
-            return $cap;
-        }
+    if (!repo_cliente_itens_estoque_capacidade_column_exists()) {
+        return 0.0;
     }
-    $saldo = (float) ($it['estoque_saldo'] ?? 0);
+    $cap = (float) ($it['estoque_capacidade'] ?? 0);
 
-    return $saldo > 0 ? $saldo : 0.0;
+    return $cap > 0 ? $cap : 0.0;
 }
 
+/** Limiar = 10% do estoque (capacidade), não do saldo. */
 function catalogo_estoque_limiar_baixo(array $it): float
 {
-    $ref = catalogo_estoque_referencia($it);
-    if ($ref <= 0) {
+    $cap = catalogo_estoque_referencia($it);
+    if ($cap <= 0) {
         return 0.0;
     }
 
-    return (float) floor($ref * 0.10);
+    return $cap * 0.10;
 }
 
+/** Estoque baixo quando saldo atual ≤ 10% do estoque cadastrado. */
 function catalogo_item_estoque_baixo(array $it): bool
 {
     if (empty($it['ativo']) || !repo_cliente_itens_estoque_saldo_column_exists()) {
         return false;
     }
-    $limiar = catalogo_estoque_limiar_baixo($it);
-    if ($limiar <= 0) {
+    $cap = catalogo_estoque_referencia($it);
+    if ($cap <= 0) {
         return false;
     }
+    $saldo = (float) ($it['estoque_saldo'] ?? 0);
+    $limiar = $cap * 0.10;
 
-    return (float) ($it['estoque_saldo'] ?? 0) <= $limiar;
+    return $saldo <= $limiar + 1e-9;
 }
 
 function repo_cliente_itens_estoque_saldo_column_exists(): bool
@@ -6025,6 +6085,261 @@ function repo_cliente_item_aplicar_estoque_delta(PDO $pdo, int $itemId, float $d
 }
 
 /**
+ * Sincroniza estoque_saldo do catálogo a partir das linhas BM (Código = Item, formato X.Y).
+ *
+ * @param list<array<string,mixed>> $linhas saída do parse BM com saldo_restante
+ * @return array{ok: bool, err: string, itens_processados: int, itens_alterados: int, codigos_sem_catalogo: list<string>}
+ */
+function repo_catalogo_sync_saldo_from_bm_linhas(int $clienteId, array $linhas): array
+{
+    $ret = [
+        'ok'                   => false,
+        'err'                  => '',
+        'itens_processados'    => 0,
+        'itens_alterados'      => 0,
+        'codigos_sem_catalogo' => [],
+    ];
+    if (!repo_cliente_itens_estoque_saldo_column_exists()) {
+        $ret['err'] = 'Controle de estoque não habilitado (migração 045).';
+
+        return $ret;
+    }
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0 || $linhas === []) {
+        $ret['ok'] = $linhas === [];
+
+        return $ret;
+    }
+    $catalogoClienteId = repo_cliente_catalogo_dono_id($clienteId);
+    if ($catalogoClienteId <= 0) {
+        $ret['err'] = 'Catálogo indisponível para esta empresa.';
+
+        return $ret;
+    }
+
+    $seen = [];
+    try {
+        $pdo->beginTransaction();
+        $up = $pdo->prepare(
+            'UPDATE cliente_itens SET estoque_saldo = ? WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+        );
+        foreach ($linhas as $L) {
+            if (!is_array($L)) {
+                continue;
+            }
+            $cod = trim((string) ($L['item_codigo'] ?? ''));
+            if ($cod === '' || !preg_match('/^\d+(\.\d+)+$/', $cod)) {
+                continue;
+            }
+            $key = strtoupper(trim($cod));
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $saldoNovo = null;
+            if (isset($L['saldo_restante']) && $L['saldo_restante'] !== null && $L['saldo_restante'] !== '') {
+                $saldoNovo = (float) $L['saldo_restante'];
+            } else {
+                $cap = isset($L['qtd_total']) && $L['qtd_total'] !== null && $L['qtd_total'] !== ''
+                    ? (float) $L['qtd_total']
+                    : null;
+                $qMed = isset($L['qtd_medido_periodo']) && $L['qtd_medido_periodo'] !== null && $L['qtd_medido_periodo'] !== ''
+                    ? (float) $L['qtd_medido_periodo']
+                    : null;
+                if ($cap !== null && $qMed !== null) {
+                    $saldoNovo = max(0.0, $cap - $qMed);
+                }
+            }
+            if ($saldoNovo === null) {
+                continue;
+            }
+            if ($saldoNovo < 0) {
+                $saldoNovo = 0.0;
+            }
+
+            [, , , $codigoNorm] = repo_cliente_item_campos_normalizados('', null, 'UN', $cod);
+            if ($codigoNorm === null || $codigoNorm === '') {
+                continue;
+            }
+            $stFind = $pdo->prepare(
+                'SELECT id, estoque_saldo FROM cliente_itens
+                 WHERE (cliente_id = ? OR empresa_id = ?) AND codigo = ? AND ativo = 1
+                 ORDER BY id ASC LIMIT 1'
+            );
+            $stFind->execute([$catalogoClienteId, $catalogoClienteId, $codigoNorm]);
+            $row = $stFind->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                $ret['codigos_sem_catalogo'][] = $cod;
+                continue;
+            }
+            $iid     = (int) ($row['id'] ?? 0);
+            $saldoAt = (float) ($row['estoque_saldo'] ?? 0);
+            $ret['itens_processados']++;
+            if ($iid > 0 && abs($saldoAt - $saldoNovo) > 1e-9) {
+                $up->execute([$saldoNovo, $iid, $catalogoClienteId, $catalogoClienteId]);
+                $ret['itens_alterados']++;
+            }
+        }
+        $pdo->commit();
+        $ret['ok'] = true;
+        if ($ret['itens_alterados'] > 0) {
+            audit_log_registar('catalogo.estoque.sync_bm', 'cliente', $catalogoClienteId, $catalogoClienteId, [
+                'itens_processados' => $ret['itens_processados'],
+                'itens_alterados'   => $ret['itens_alterados'],
+            ]);
+        }
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $ret['err'] = $e->getMessage();
+    }
+
+    return $ret;
+}
+
+/**
+ * Recalcula estoque_saldo a partir de estoque_capacidade (referência) e lançamentos em chamados.
+ *
+ * @param list<int>|null $itemIds se informado, limita aos IDs; senão todo o catálogo da matriz
+ * @return array{ok: bool, err: string, itens_processados: int, itens_alterados: int}
+ */
+function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds = null): array
+{
+    $ret = ['ok' => false, 'err' => '', 'itens_processados' => 0, 'itens_alterados' => 0];
+    if (!repo_cliente_itens_estoque_saldo_column_exists()) {
+        $ret['err'] = 'Controle de estoque não habilitado (migração 045).';
+
+        return $ret;
+    }
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0) {
+        $ret['err'] = 'Dados inválidos.';
+
+        return $ret;
+    }
+    $catalogoClienteId = repo_cliente_catalogo_dono_id($clienteId);
+    if ($catalogoClienteId <= 0) {
+        $ret['err'] = 'Catálogo indisponível para esta empresa.';
+
+        return $ret;
+    }
+
+    $temCap      = repo_cliente_itens_estoque_capacidade_column_exists();
+    $temFluxo    = repo_cliente_itens_catalogo_fluxo_status_column_exists();
+    $colCap      = $temCap ? 'it.estoque_capacidade' : 'CAST(0 AS DECIMAL(14,4))';
+    $utilExpr    = $temFluxo
+        ? "SUM(CASE WHEN ci.movimento = 'utilizado' AND (i.catalogo_fluxo_status IS NULL OR TRIM(i.catalogo_fluxo_status) <> 'Criado') THEN ci.quantidade ELSE 0 END)"
+        : "SUM(CASE WHEN ci.movimento = 'utilizado' THEN ci.quantidade ELSE 0 END)";
+    $devolvExpr  = $temFluxo
+        ? "SUM(CASE WHEN ci.movimento = 'devolvido' OR (ci.movimento = 'utilizado' AND TRIM(i.catalogo_fluxo_status) = 'Criado') THEN ci.quantidade ELSE 0 END)"
+        : "SUM(CASE WHEN ci.movimento = 'devolvido' THEN ci.quantidade ELSE 0 END)";
+
+    $itemFilterIt = '';
+    $itemFilterI  = '';
+    $params       = [$catalogoClienteId, $catalogoClienteId];
+    if ($itemIds !== null && $itemIds !== []) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $itemIds), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            $ret['ok'] = true;
+
+            return $ret;
+        }
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $itemFilterIt = " AND it.id IN ($ph)";
+        $itemFilterI  = " AND i.id IN ($ph)";
+        $params       = array_merge($params, $ids);
+    }
+
+    try {
+        $sqlItens = "
+            SELECT it.id, it.estoque_saldo, {$colCap} AS estoque_capacidade
+            FROM cliente_itens it
+            WHERE (it.cliente_id = ? OR it.empresa_id = ?)
+            {$itemFilterIt}
+        ";
+        $stItens = $pdo->prepare($sqlItens);
+        $stItens->execute($params);
+        $itens = $stItens->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($itens === []) {
+            $ret['ok'] = true;
+
+            return $ret;
+        }
+
+        $sqlAgg = "
+            SELECT
+                ci.item_id,
+                {$utilExpr} AS qtd_utilizado,
+                {$devolvExpr} AS qtd_devolvido
+            FROM chamado_itens ci
+            INNER JOIN cliente_itens i ON i.id = ci.item_id
+            WHERE (i.cliente_id = ? OR i.empresa_id = ?)
+            {$itemFilterI}
+            GROUP BY ci.item_id
+        ";
+        $stAgg = $pdo->prepare($sqlAgg);
+        $stAgg->execute($params);
+        $aggPorItem = [];
+        foreach ($stAgg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $iid = (int) ($row['item_id'] ?? 0);
+            if ($iid > 0) {
+                $aggPorItem[$iid] = [
+                    'util' => (float) ($row['qtd_utilizado'] ?? 0),
+                    'dev'  => (float) ($row['qtd_devolvido'] ?? 0),
+                ];
+            }
+        }
+
+        $pdo->beginTransaction();
+        $up = $pdo->prepare('UPDATE cliente_itens SET estoque_saldo = ? WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1');
+        foreach ($itens as $it) {
+            $iid      = (int) ($it['id'] ?? 0);
+            $saldoAt  = (float) ($it['estoque_saldo'] ?? 0);
+            $cap      = $temCap ? (float) ($it['estoque_capacidade'] ?? 0) : 0.0;
+            $util     = (float) ($aggPorItem[$iid]['util'] ?? 0);
+            $dev      = (float) ($aggPorItem[$iid]['dev'] ?? 0);
+            $ret['itens_processados']++;
+
+            if ($cap > 0) {
+                $baseRef = $cap;
+            } else {
+                $baseRef = $saldoAt + $util - $dev;
+                if ($baseRef < 0) {
+                    $baseRef = 0.0;
+                }
+            }
+            $saldoNovo = $baseRef - $util + $dev;
+            if ($saldoNovo < 0) {
+                $saldoNovo = 0.0;
+            }
+
+            if (abs($saldoAt - $saldoNovo) > 1e-9) {
+                $up->execute([$saldoNovo, $iid, $catalogoClienteId, $catalogoClienteId]);
+                $ret['itens_alterados']++;
+            }
+        }
+        $pdo->commit();
+        $ret['ok'] = true;
+        if ($ret['itens_alterados'] > 0) {
+            audit_log_registar('catalogo.estoque.recalcular', 'cliente', $catalogoClienteId, $catalogoClienteId, [
+                'itens_processados' => $ret['itens_processados'],
+                'itens_alterados'  => $ret['itens_alterados'],
+                'filtro_item_ids'   => $itemIds !== null && $itemIds !== [],
+            ]);
+        }
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $ret['err'] = $e->getMessage();
+    }
+
+    return $ret;
+}
+
+/**
  * Itens do catálogo da empresa (produtos e serviços com valor unitário).
  *
  * @return list<array<string,mixed>>
@@ -6040,10 +6355,13 @@ function repo_cliente_itens_list(int $clienteId, bool $somenteAtivos = false): a
         return [];
     }
     $colEstoque = repo_cliente_itens_estoque_saldo_column_exists() ? 'estoque_saldo' : '0 AS estoque_saldo';
+    $colCap     = repo_cliente_itens_estoque_capacidade_column_exists()
+        ? 'estoque_capacidade'
+        : 'NULL AS estoque_capacidade';
     $colFluxo   = repo_cliente_itens_catalogo_fluxo_status_column_exists()
         ? 'catalogo_fluxo_status'
         : 'NULL AS catalogo_fluxo_status';
-    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', descricao, ativo, ' . $colFluxo . ', ordem,
+    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', ' . $colCap . ', descricao, ativo, ' . $colFluxo . ', ordem,
             DATE_FORMAT(criado_em, \'%Y-%m-%d %H:%i\') AS criado_em
             FROM cliente_itens WHERE cliente_id = ? OR empresa_id = ? OR cliente_id = ?';
     if ($somenteAtivos) {
@@ -6057,9 +6375,12 @@ function repo_cliente_itens_list(int $clienteId, bool $somenteAtivos = false): a
         $r['id']              = (int) $r['id'];
         $r['cliente_id']      = (int) $r['cliente_id'];
         $r['empresa_id']      = isset($r['empresa_id']) && $r['empresa_id'] !== null ? (int) $r['empresa_id'] : null;
-        $r['valor_unitario']  = (float) $r['valor_unitario'];
-        $r['estoque_saldo']   = (float) ($r['estoque_saldo'] ?? 0);
-        $r['ativo']           = (int) $r['ativo'];
+        $r['valor_unitario']      = (float) $r['valor_unitario'];
+        $r['estoque_saldo']       = (float) ($r['estoque_saldo'] ?? 0);
+        $r['estoque_capacidade']  = isset($r['estoque_capacidade']) && $r['estoque_capacidade'] !== null
+            ? (float) $r['estoque_capacidade']
+            : null;
+        $r['ativo']               = (int) $r['ativo'];
         $r['ordem']           = (int) $r['ordem'];
     }
     unset($r);
@@ -6099,9 +6420,12 @@ function repo_cliente_item_por_id(int $itemId, int $clienteId): ?array
     if (array_key_exists('empresa_id', $r)) {
         $r['empresa_id'] = $r['empresa_id'] !== null && $r['empresa_id'] !== '' ? (int) $r['empresa_id'] : null;
     }
-    $r['valor_unitario'] = (float) $r['valor_unitario'];
-    $r['estoque_saldo']  = (float) ($r['estoque_saldo'] ?? 0);
-    $r['ativo']          = (int) $r['ativo'];
+    $r['valor_unitario']     = (float) $r['valor_unitario'];
+    $r['estoque_saldo']      = (float) ($r['estoque_saldo'] ?? 0);
+    $r['estoque_capacidade'] = isset($r['estoque_capacidade']) && $r['estoque_capacidade'] !== null
+        ? (float) $r['estoque_capacidade']
+        : null;
+    $r['ativo']              = (int) $r['ativo'];
 
     return $r;
 }
@@ -6228,7 +6552,8 @@ function repo_cliente_item_salvar(
     float $valorUnitario,
     ?string $descricao,
     int $ativo,
-    float $estoqueSaldo = 0.0
+    float $estoqueCapacidade = 0.0,
+    ?float $estoqueSaldoInicial = null
 ): array {
     $pdo = db();
     if (!$pdo || $clienteId <= 0) {
@@ -6257,20 +6582,66 @@ function repo_cliente_item_salvar(
     }
     $ativo = 1;
     $temEstoque = repo_cliente_itens_estoque_saldo_column_exists();
+    $temCap     = repo_cliente_itens_estoque_capacidade_column_exists();
     try {
         if ($id !== null && $id > 0) {
-            $chk = $pdo->prepare('SELECT id FROM cliente_itens WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1');
+            $chk = $pdo->prepare(
+                'SELECT id, estoque_capacidade, estoque_saldo FROM cliente_itens
+                 WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+            );
             $chk->execute([$id, $clienteId, $clienteId]);
-            if (!$chk->fetchColumn()) {
+            $rowAntes = $chk->fetch(PDO::FETCH_ASSOC);
+            if (!$rowAntes) {
                 return ['ok' => false, 'err' => 'Item não encontrado.', 'id' => null];
             }
+            $saldoAnt = (float) ($rowAntes['estoque_saldo'] ?? 0);
+            $capAnt   = (float) ($rowAntes['estoque_capacidade'] ?? 0);
+            $capMudou = abs($capAnt - $estoqueCapacidade) > 1e-9;
+
+            $saldoParaGravar = null;
             if ($temEstoque) {
+                if ($estoqueSaldoInicial !== null) {
+                    if ($capMudou && abs($estoqueSaldoInicial - $saldoAnt) < 1e-9) {
+                        $saldoParaGravar = $saldoAnt + ($estoqueCapacidade - $capAnt);
+                    } else {
+                        $saldoParaGravar = $estoqueSaldoInicial;
+                    }
+                } elseif ($capMudou) {
+                    $saldoParaGravar = $saldoAnt + ($estoqueCapacidade - $capAnt);
+                }
+            }
+            $saldoDeltaPorEstoque = $saldoParaGravar !== null
+                && $capMudou
+                && ($estoqueSaldoInicial === null || abs($estoqueSaldoInicial - $saldoAnt) < 1e-9);
+
+            if ($temEstoque && $temCap && $saldoParaGravar !== null) {
+                $st = $pdo->prepare('
+                    UPDATE cliente_itens
+                    SET tipo = ?, nome = ?, codigo = ?, unidade = ?, valor_unitario = ?, estoque_capacidade = ?, estoque_saldo = ?, descricao = ?, ativo = ?
+                    WHERE id = ? AND (cliente_id = ? OR empresa_id = ?)
+                ');
+                $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $estoqueCapacidade, $saldoParaGravar, $desc, $ativo, $id, $clienteId, $clienteId]);
+            } elseif ($temEstoque && $temCap) {
+                $st = $pdo->prepare('
+                    UPDATE cliente_itens
+                    SET tipo = ?, nome = ?, codigo = ?, unidade = ?, valor_unitario = ?, estoque_capacidade = ?, descricao = ?, ativo = ?
+                    WHERE id = ? AND (cliente_id = ? OR empresa_id = ?)
+                ');
+                $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $estoqueCapacidade, $desc, $ativo, $id, $clienteId, $clienteId]);
+            } elseif ($temEstoque && $saldoParaGravar !== null) {
                 $st = $pdo->prepare('
                     UPDATE cliente_itens
                     SET tipo = ?, nome = ?, codigo = ?, unidade = ?, valor_unitario = ?, estoque_saldo = ?, descricao = ?, ativo = ?
                     WHERE id = ? AND (cliente_id = ? OR empresa_id = ?)
                 ');
-                $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $estoqueSaldo, $desc, $ativo, $id, $clienteId, $clienteId]);
+                $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $saldoParaGravar, $desc, $ativo, $id, $clienteId, $clienteId]);
+            } elseif ($temEstoque) {
+                $st = $pdo->prepare('
+                    UPDATE cliente_itens
+                    SET tipo = ?, nome = ?, codigo = ?, unidade = ?, valor_unitario = ?, descricao = ?, ativo = ?
+                    WHERE id = ? AND (cliente_id = ? OR empresa_id = ?)
+                ');
+                $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $desc, $ativo, $id, $clienteId, $clienteId]);
             } else {
                 $st = $pdo->prepare('
                     UPDATE cliente_itens
@@ -6280,29 +6651,58 @@ function repo_cliente_item_salvar(
                 $ok = $st->execute([$tipo, $nome, $codigo, $unidade, $valorUnitario, $desc, $ativo, $id, $clienteId, $clienteId]);
             }
 
-            if ($ok && repo_cliente_itens_estoque_capacidade_column_exists()) {
-                $pdo->prepare('
-                    UPDATE cliente_itens
-                    SET estoque_capacidade = GREATEST(COALESCE(estoque_capacidade, 0), estoque_saldo)
-                    WHERE id = ? LIMIT 1
-                ')->execute([$id]);
+            if ($ok && $temCap && $capMudou) {
+                audit_log_registar('catalogo.item.estoque_alterar', 'cliente_item', $id, $clienteId, [
+                    'item_id'          => $id,
+                    'nome'             => $nome,
+                    'codigo'           => $codigo,
+                    'estoque_anterior' => $capAnt,
+                    'estoque_novo'     => $estoqueCapacidade,
+                ]);
+            }
+            if ($ok && $temEstoque && $saldoParaGravar !== null && abs($saldoAnt - $saldoParaGravar) > 1e-9) {
+                $auditSaldo = [
+                    'item_id'        => $id,
+                    'nome'           => $nome,
+                    'codigo'         => $codigo,
+                    'saldo_anterior' => $saldoAnt,
+                    'saldo_novo'     => $saldoParaGravar,
+                ];
+                if ($saldoDeltaPorEstoque) {
+                    $auditSaldo['motivo']            = 'ajuste_delta_estoque';
+                    $auditSaldo['estoque_anterior'] = $capAnt;
+                    $auditSaldo['estoque_novo']     = $estoqueCapacidade;
+                }
+                audit_log_registar('catalogo.item.saldo_alterar', 'cliente_item', $id, $clienteId, $auditSaldo);
             }
 
             return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao atualizar.', 'id' => $ok ? $id : null];
         }
         if ($temEstoque) {
-            $st = $pdo->prepare('
-                INSERT INTO cliente_itens (cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, estoque_saldo, descricao, ativo, ordem)
-                VALUES (?,?,?,?,?,?,?,?,?,?,0)
-            ');
-            $ok = $st->execute([$clienteId, $clienteId, $tipo, $nome, $codigo, $unidade, $valorUnitario, $estoqueSaldo, $desc, $ativo]);
+            $saldoIni = $estoqueSaldoInicial ?? $estoqueCapacidade;
+            if ($temCap) {
+                $st = $pdo->prepare('
+                    INSERT INTO cliente_itens (cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, estoque_saldo, estoque_capacidade, descricao, ativo, ordem)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,0)
+                ');
+                $ok = $st->execute([$clienteId, $clienteId, $tipo, $nome, $codigo, $unidade, $valorUnitario, $saldoIni, $estoqueCapacidade, $desc, $ativo]);
+            } else {
+                $st = $pdo->prepare('
+                    INSERT INTO cliente_itens (cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, estoque_saldo, descricao, ativo, ordem)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,0)
+                ');
+                $ok = $st->execute([$clienteId, $clienteId, $tipo, $nome, $codigo, $unidade, $valorUnitario, $saldoIni, $desc, $ativo]);
+            }
             $nid = (int) $pdo->lastInsertId();
-            if ($ok && $nid > 0 && repo_cliente_itens_estoque_capacidade_column_exists()) {
-                $pdo->prepare('
-                    UPDATE cliente_itens
-                    SET estoque_capacidade = GREATEST(estoque_saldo, 0)
-                    WHERE id = ? LIMIT 1
-                ')->execute([$nid]);
+            if ($ok && $nid > 0) {
+                audit_log_registar('catalogo.item.criar', 'cliente_item', $nid, $clienteId, [
+                    'item_id'       => $nid,
+                    'nome'          => $nome,
+                    'codigo'        => $codigo,
+                    'tipo'          => $tipo,
+                    'estoque'       => $estoqueCapacidade,
+                    'saldo_inicial' => $saldoIni,
+                ]);
             }
 
             return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao inserir.', 'id' => $ok ? $nid : null];
@@ -6426,11 +6826,12 @@ function repo_cliente_servico_delete(int $clienteId, int $servicoId): bool
 }
 
 /**
- * Importa CSV/TSV (cabeçalho: tipo,nome,codigo,unidade,valor_unitario,estoque_saldo,descricao).
+ * Grava linhas normalizadas do catálogo (importação CSV/XLSX).
  *
+ * @param list<array{tipo?: string, nome?: string, codigo?: string, unidade?: string, valor_unitario?: float|int|string, estoque_capacidade?: float|int|string, estoque_saldo?: float|int|string, saldo_informado?: bool, descricao?: string, _linha_plan?: int}> $linhas
  * @return array{inseridos: int, ignorados: int, erros: list<string>}
  */
-function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): array
+function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): array
 {
     $ret = ['inseridos' => 0, 'ignorados' => 0, 'erros' => []];
     $pdo = db();
@@ -6445,61 +6846,16 @@ function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): arra
 
         return $ret;
     }
-    $conteudo = preg_replace('/^\xEF\xBB\xBF/', '', (string) $conteudo);
-    $linhas   = preg_split('/\r\n|\r|\n/', trim($conteudo));
-    if ($linhas === false || $linhas === []) {
-        $ret['erros'][] = 'Arquivo vazio.';
 
-        return $ret;
-    }
-    $delim = ';';
-    $primeira = $linhas[0];
-    if (substr_count($primeira, ',') > substr_count($primeira, ';')) {
-        $delim = ',';
-    }
-    $cab = null;
-    $p0  = str_getcsv($linhas[0], $delim);
-    $h0  = array_map(static fn ($x) => strtolower(trim((string) $x)), $p0);
-    if (in_array('tipo', $h0, true) && in_array('nome', $h0, true)) {
-        $cab = array_flip($h0);
-        array_shift($linhas);
-    }
-    $nlinha = 0;
-    foreach ($linhas as $raw) {
-        $nlinha++;
-        $raw = trim((string) $raw);
-        if ($raw === '') {
-            continue;
-        }
-        $c = str_getcsv($raw, $delim);
-        if ($cab !== null) {
-            $tipo   = strtolower(trim((string) ($c[$cab['tipo']] ?? '')));
-            $nome   = trim((string) ($c[$cab['nome']] ?? ''));
-            $codigo = isset($cab['codigo']) ? trim((string) ($c[$cab['codigo']] ?? '')) : '';
-            $unid   = isset($cab['unidade']) ? trim((string) ($c[$cab['unidade']] ?? '')) : 'UN';
-            $val    = isset($cab['valor_unitario']) ? str_replace(',', '.', trim((string) ($c[$cab['valor_unitario']] ?? '0'))) : '0';
-            $estKey = null;
-            if (isset($cab['estoque_saldo'])) {
-                $estKey = 'estoque_saldo';
-            } elseif (isset($cab['estoque'])) {
-                $estKey = 'estoque';
-            }
-            $est    = $estKey !== null
-                ? str_replace(',', '.', trim((string) ($c[$cab[$estKey]] ?? '0')))
-                : '0';
-            $desc   = isset($cab['descricao']) ? trim((string) ($c[$cab['descricao']] ?? '')) : '';
-        } else {
-            $tipo   = strtolower(trim((string) ($c[0] ?? '')));
-            $nome   = trim((string) ($c[1] ?? ''));
-            $codigo = trim((string) ($c[2] ?? ''));
-            $unid   = trim((string) ($c[3] ?? 'UN'));
-            $val    = str_replace(',', '.', trim((string) ($c[4] ?? '0')));
-            $est    = str_replace(',', '.', trim((string) ($c[5] ?? '0')));
-            $desc   = trim((string) ($c[6] ?? ''));
-        }
+    foreach ($linhas as $lin) {
+        $nlinha = (int) ($lin['_linha_plan'] ?? 0);
+        $label  = $nlinha > 0 ? "Linha $nlinha" : 'Linha';
+
+        $tipo = strtolower(trim((string) ($lin['tipo'] ?? '')));
+        $nome = trim((string) ($lin['nome'] ?? ''));
         if (!in_array($tipo, ['produto', 'servico'], true)) {
             $ret['ignorados']++;
-            $ret['erros'][] = "Linha $nlinha: tipo deve ser produto ou servico.";
+            $ret['erros'][] = "$label: tipo deve ser produto ou servico.";
 
             continue;
         }
@@ -6508,15 +6864,63 @@ function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): arra
 
             continue;
         }
-        $vu  = (float) $val;
-        $est = (float) ($est ?? 0);
-        $r   = repo_cliente_item_salvar($clienteId, null, $tipo, $nome, $codigo !== '' ? $codigo : null, $unid !== '' ? $unid : 'UN', $vu, $desc !== '' ? $desc : null, 1, $est);
+
+        $codigo = trim((string) ($lin['codigo'] ?? ''));
+        $unid   = trim((string) ($lin['unidade'] ?? 'UN'));
+        $vu      = (float) ($lin['valor_unitario'] ?? 0);
+        $estCap  = (float) ($lin['estoque_capacidade'] ?? $lin['estoque_saldo'] ?? 0);
+        $estSaldo = !empty($lin['saldo_informado'])
+            ? (float) ($lin['estoque_saldo'] ?? 0)
+            : $estCap;
+        $desc    = trim((string) ($lin['descricao'] ?? ''));
+
+        $r = repo_cliente_item_salvar(
+            $clienteId,
+            null,
+            $tipo,
+            $nome,
+            $codigo !== '' ? $codigo : null,
+            $unid !== '' ? $unid : 'UN',
+            $vu,
+            $desc !== '' ? $desc : null,
+            1,
+            $estCap,
+            $estSaldo
+        );
         if ($r['ok']) {
             $ret['inseridos']++;
         } else {
             $ret['ignorados']++;
-            $ret['erros'][] = "Linha $nlinha: " . ($r['err'] ?: 'falha');
+            $ret['erros'][] = "$label: " . ($r['err'] ?: 'falha');
         }
+    }
+
+    return $ret;
+}
+
+/**
+ * Importa CSV/TSV (cabeçalho: tipo,nome,codigo,unidade,valor_unitario,estoque_saldo,descricao).
+ *
+ * @return array{inseridos: int, ignorados: int, erros: list<string>}
+ */
+function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): array
+{
+    require_once __DIR__ . '/catalogo_import.php';
+    $parse = catalogo_import_parse_csv_content($conteudo);
+    if (!$parse['ok']) {
+        return [
+            'inseridos' => 0,
+            'ignorados' => 0,
+            'erros'     => array_filter(array_merge(
+                [$parse['erro'] !== '' ? $parse['erro'] : 'Falha ao interpretar CSV.'],
+                $parse['avisos']
+            )),
+        ];
+    }
+
+    $ret = repo_cliente_itens_importar_linhas($clienteId, $parse['linhas']);
+    if ($parse['avisos'] !== []) {
+        $ret['erros'] = array_merge($parse['avisos'], $ret['erros']);
     }
 
     return $ret;

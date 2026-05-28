@@ -533,7 +533,10 @@ if ($pontoChamado && !chamado_tem_endereco_cadastrado($chamado, null)) {
 }
 $enderecoChamado = chamado_endereco_efetivo($chamado, $pontoChamado);
 $locPreview      = chamado_resolver_localizacao_preview($chamado, $pontoChamado);
-$loadLeaflet = !empty($locPreview['show_preview']);
+require_once __DIR__ . '/../includes/chamado_geo.php';
+$showLocPreview = !empty($locPreview['show_preview']);
+$chamadoGeocodeApiUrl = $basePath . 'operador/geocode_nominatim_api.php';
+$loadLeaflet = $showLocPreview && !crm_google_maps_has_api_key();
 
 $opPageFlash     = function_exists('flash_get') ? flash_get() : null;
 $opSalvoRecente  = isset($_GET['salvo']) && (string) $_GET['salvo'] === '1';
@@ -611,7 +614,7 @@ $topbarHideTitle = true;
     .op-photo-grid__link:active{transform:scale(.98)}
     .op-photo-grid__link img{width:100%;aspect-ratio:1;object-fit:cover;display:block;vertical-align:middle}
     .op-map{height:260px;border-radius:16px;overflow:hidden;background:#f1f5f9;border:1px solid var(--border)}
-    .op-loc-view-bar{display:flex;gap:8px;margin:10px 0 0}
+    .op-ref-map .chamado-loc-view-bar{margin-top:10px}
     .op-loc-streetview{margin-top:0}
     .op-loc-streetview .chamado-ponto-streetview__frame-wrap{padding-bottom:0;height:260px;border-radius:16px}
     .op-loc-streetview .chamado-ponto-streetview__frame{border-radius:16px}
@@ -782,7 +785,7 @@ $topbarHideTitle = true;
             $temCoordsEfetivas = $latMap !== null && $lngMap !== null;
             $navEndereco = (string) ($locPreview['nav_query'] ?? '');
             $coordUrlAtend = $navEndereco !== '' ? rawurlencode($navEndereco) : '';
-            $mostrarMapaAtend = $loadLeaflet;
+            $mostrarMapaAtend = $showLocPreview;
           ?>
           <div class="form-group op-form-group op-local-in-atend">
             <span class="op-ref-field-label" id="lbl-endereco-ref">Local do chamado</span>
@@ -817,21 +820,19 @@ $topbarHideTitle = true;
                    href="https://waze.com/ul?ll=<?= $coordUrlAtend ?>&amp;navigate=yes">Waze</a>
                 <?php endif; ?>
               </div>
-              <?php if (($locPreview['modo'] ?? '') === 'geocode'): ?>
-                <p class="muted" id="chamado-map-geocode-hint" style="margin:8px 0 0;font-size:12px;">A localizar endereço…</p>
-              <?php endif; ?>
-              <div id="op-loc-preview" class="op-ref-map">
-                <div class="op-loc-view-bar" role="group" aria-label="Visualização do local">
-                  <button type="button" class="btn btn-sm btn-primary" id="op-loc-sv-street-btn">Street View</button>
-                  <button type="button" class="btn btn-sm btn-secondary" id="op-loc-sv-map-btn">Mapa</button>
-                </div>
-                <div id="chamado-map-atendimento" class="op-map" hidden aria-label="Mapa do endereço do chamado"></div>
-                <div id="op-loc-streetview-wrap" class="chamado-ponto-streetview op-loc-streetview" hidden>
-                  <div class="chamado-ponto-streetview__frame-wrap">
-                    <iframe id="op-loc-streetview-frame" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy"></iframe>
-                  </div>
-                </div>
-              </div>
+              <?php
+              $ch_viz_mapa = [
+                  'lat' => $locPreview['lat'] ?? null,
+                  'lng' => $locPreview['lng'] ?? null,
+                  'default_view' => 'map',
+                  'geocode_api' => $chamadoGeocodeApiUrl,
+                  'id_prefix' => 'op-loc',
+                  'hide_section_title' => true,
+                  'wrapper_class' => 'op-ref-map',
+                  'aria_label' => 'Mapa e Street View do local do chamado',
+              ];
+              include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa.php';
+              ?>
             <?php endif; ?>
           </div>
           <?php if ($jaEnviadoGestor): ?>
@@ -1155,8 +1156,6 @@ $topbarHideTitle = true;
     titulo = titulo || 'Fotos';
     if (typeof window.appAlert === 'function') {
       window.appAlert(msg, titulo);
-    } else {
-      window.alert(msg);
     }
   }
 
@@ -1267,7 +1266,7 @@ $topbarHideTitle = true;
     if (typeof window.appConfirm === 'function') {
       return window.appConfirm({ message: msg, title: title || 'Fotos', danger: true });
     }
-    return Promise.resolve(window.confirm(msg));
+    return Promise.resolve(false);
   }
 
   function deleteSavedPhoto(anexoId, itemEl) {
@@ -1536,8 +1535,6 @@ $topbarHideTitle = true;
       window.appConfirm({ message: msg, title: 'Confirmar', danger: false }).then(function (ok) {
         if (ok) run();
       });
-    } else if (window.confirm(msg)) {
-      run();
     }
   }
 
@@ -1612,7 +1609,9 @@ $topbarHideTitle = true;
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(t).then(flashOk).catch(function () {
-        window.alert('Não foi possível copiar para a área de transferência.');
+        if (typeof window.appAlert === 'function') {
+          window.appAlert('Não foi possível copiar para a área de transferência.', 'Copiar endereço');
+        }
       });
     } else {
       try {
@@ -1626,42 +1625,29 @@ $topbarHideTitle = true;
         document.body.removeChild(x);
         flashOk();
       } catch (e) {
-        window.alert('Não foi possível copiar.');
+        if (typeof window.appAlert === 'function') {
+          window.appAlert('Não foi possível copiar.', 'Copiar endereço');
+        }
       }
     }
   });
 })();
 </script>
 
-<?php if (!empty($loadLeaflet)): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
-<script src="<?= htmlspecialchars($basePath) ?>assets/js/chamado-loc-preview.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (!window.CrmChamadoLocPreview) return;
-  window.CrmChamadoLocPreview.init({
-    mapId: 'chamado-map-atendimento',
-    svWrapId: 'op-loc-streetview-wrap',
-    svFrameId: 'op-loc-streetview-frame',
-    svMapBtnId: 'op-loc-sv-map-btn',
-    svStreetBtnId: 'op-loc-sv-street-btn',
-    dualViewButtons: true,
-    hideExternalTab: true,
-    hintId: 'chamado-map-geocode-hint',
-    lat: <?= $locPreview['lat'] !== null ? json_encode($locPreview['lat']) : 'null' ?>,
-    lng: <?= $locPreview['lng'] !== null ? json_encode($locPreview['lng']) : 'null' ?>,
-    modo: <?= json_encode($locPreview['modo'] ?? 'none', JSON_UNESCAPED_UNICODE) ?>,
-    mapaQuery: <?= json_encode($locPreview['mapa_query'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
-    attempts: <?= json_encode($locPreview['geocode_attempts'] ?? [], JSON_UNESCAPED_UNICODE) ?>,
-    geocodeCidade: <?= json_encode(trim((string) ($chamado['os_cidade'] ?? '')), JSON_UNESCAPED_UNICODE) ?>,
-    geocodeUf: <?= json_encode(strtoupper(preg_replace('/\./', '', trim((string) ($chamado['os_uf'] ?? '')))), JSON_UNESCAPED_UNICODE) ?>,
-    scrollWheelZoom: false,
-    zoomControl: true
-  });
-});
-</script>
-<?php endif; ?>
+<?php
+if ($showLocPreview) {
+    $ch_viz_script_inits = [[
+        'rootId' => 'op-loc-loc',
+        'defaultView' => 'map',
+    ]];
+    $ch_viz_op_geo = chamado_viz_mapa_geocode_js_opts($locPreview);
+    if ($ch_viz_op_geo !== null) {
+        $ch_viz_script_inits[0]['geocode'] = $ch_viz_op_geo;
+    }
+    $ch_viz_scripts_ativo = true;
+    include __DIR__ . '/../includes/partials/chamado_visualizacao_mapa_scripts.php';
+}
+?>
 
 <?php
 $devolutivoModalId        = 'op-solicitar-devolutivo-modal';

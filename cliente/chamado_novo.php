@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/upload.php';
 require_once __DIR__ . '/../includes/chamado_os_fields.php';
+require_once __DIR__ . '/../includes/chamado_geo.php';
 
 $user = require_auth('cliente');
 require_once __DIR__ . '/../includes/modules.php';
@@ -83,7 +84,7 @@ $topSubtitle = 'Conte o que está acontecendo. Respondemos o mais rápido possí
 $topSearch   = 'Buscar em chamados...';
 $topAction   = ['label' => 'Voltar', 'href' => 'chamados.php', 'icon' => '←'];
 
-$loadLeaflet = true;
+$loadLeaflet = !crm_google_maps_has_api_key();
 include __DIR__ . '/../includes/head.php';
 ?>
 <div class="app">

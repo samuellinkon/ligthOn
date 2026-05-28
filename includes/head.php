@@ -11,6 +11,7 @@ if (!isset($basePath)) {
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/app_runtime.php';
 require_once __DIR__ . '/tabela_sort_ui.php';
+require_once __DIR__ . '/chamado_geo.php';
 
 if (!isset($pageTitle)) {
     $pageTitle = defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'Painel';
@@ -65,10 +66,18 @@ $cssBust = static function (string $file): int {
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="" />
   <?php endif; ?>
-  <?php if (!empty($loadLeafletMarkerCluster) || !empty($loadPontosMap) || !empty($loadMapaCombinado)): ?>
+  <?php
+  $dashMapsAtivosHead = !empty($dashMapsAtivos)
+      || !empty($loadPontosMap)
+      || !empty($loadMapaCombinado)
+      || !empty($loadLeafletChamados)
+      || !empty($loadGoogleMapsJs);
+  $loadPontosMapCss = $dashMapsAtivosHead || !empty($loadPontosMapGoogle);
+  ?>
+  <?php if (!empty($loadLeafletMarkerCluster) || $loadPontosMapCss): ?>
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/map-popup.css?v=<?= $cssBust('map-popup.css') ?>">
   <?php endif; ?>
-  <?php if (!empty($loadLeafletChamados) || !empty($loadMapaCombinado)): ?>
+  <?php if (!empty($loadLeafletChamados) || !empty($loadMapaCombinado) || !empty($loadGoogleMapsJs)): ?>
   <link rel="stylesheet" href="<?= $basePath ?>assets/css/call-popup.css?v=<?= $cssBust('call-popup.css') ?>">
   <?php endif; ?>
   <?php if (!empty($loadMedicaoCustos)): ?>
@@ -82,6 +91,16 @@ $cssBust = static function (string $file): int {
   <meta name="theme-color" content="#1e3a8a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <?php endif; ?>
+  <?php
+  $crmGoogleMapsApiKeyHead = crm_google_maps_api_key();
+  $crmGoogleMapsMapIdHead  = crm_google_maps_map_id();
+  if ($crmGoogleMapsApiKeyHead !== ''):
+  ?>
+  <script>window.CRM_GOOGLE_MAPS_API_KEY = <?= json_encode($crmGoogleMapsApiKeyHead, JSON_UNESCAPED_UNICODE) ?>;</script>
+  <?php endif; ?>
+  <?php if ($crmGoogleMapsMapIdHead !== ''): ?>
+  <script>window.CRM_GOOGLE_MAPS_MAP_ID = <?= json_encode($crmGoogleMapsMapIdHead, JSON_UNESCAPED_UNICODE) ?>;</script>
+  <?php endif; ?>
 </head>
-<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?><?= !empty($pageBodyAttrs) ? (string) $pageBodyAttrs : '' ?>>
+<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?><?= !empty($pageBodyAttrs) ? (string) $pageBodyAttrs : '' ?><?= $crmGoogleMapsApiKeyHead !== '' ? ' data-google-maps-key="' . htmlspecialchars($crmGoogleMapsApiKeyHead, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
 <div class="sidebar-overlay"></div>

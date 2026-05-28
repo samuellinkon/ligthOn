@@ -29,8 +29,15 @@
     } catch (e) {}
   }
 
-  function invalidateLeaflet(host) {
-    if (!host || !host._crmLeafletMap || typeof host._crmLeafletMap.invalidateSize !== 'function') return;
+  function invalidateMap(host) {
+    if (!host) return;
+    if (host._crmGoogleMap && window.CrmGoogleMapsJs && typeof window.CrmGoogleMapsJs.triggerResize === 'function') {
+      requestAnimationFrame(function () {
+        window.CrmGoogleMapsJs.triggerResize(host._crmGoogleMap);
+      });
+      return;
+    }
+    if (!host._crmLeafletMap || typeof host._crmLeafletMap.invalidateSize !== 'function') return;
     requestAnimationFrame(function () {
       try {
         host._crmLeafletMap.invalidateSize({ animate: false });
@@ -53,7 +60,7 @@
       var y = e.touches ? e.touches[0].clientY : e.clientY;
       var nh = clamp(startH + (y - startY));
       host.style.height = nh + 'px';
-      invalidateLeaflet(host);
+      invalidateMap(host);
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove);
@@ -62,7 +69,7 @@
       document.removeEventListener('touchend', onUp);
       document.body.classList.remove('dashboard-map-resize-dragging');
       saveKey(key, host.offsetHeight);
-      invalidateLeaflet(host);
+      invalidateMap(host);
     }
     function onDown(e) {
       if (e.button !== undefined && e.button !== 0) return;

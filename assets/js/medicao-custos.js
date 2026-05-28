@@ -26,11 +26,25 @@
     return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function confirmAction(message, title) {
-    if (typeof window.appConfirm === 'function') {
-      return window.appConfirm({ message: message, title: title || 'Confirmar' });
+  function alertErr(msg, title) {
+    if (typeof window.appAlert === 'function') {
+      return window.appAlert(msg, title || 'Erro');
     }
-    return Promise.resolve(window.confirm(message));
+    return Promise.resolve();
+  }
+
+  function confirmAction(message, title, danger) {
+    if (typeof window.appConfirm === 'function') {
+      return window.appConfirm({ message: message, title: title || 'Confirmar', danger: !!danger });
+    }
+    return Promise.resolve(false);
+  }
+
+  function promptAction(message, defaultValue, title) {
+    if (typeof window.appPrompt === 'function') {
+      return window.appPrompt({ message: message, defaultValue: defaultValue || '', title: title || 'Informe' });
+    }
+    return Promise.resolve(null);
   }
 
   function postForm(data) {
@@ -111,7 +125,7 @@
           if (!ok) return;
           postAcao('aprovar', { id: id }).then(function (res) {
             if (res && res.ok) reloadSoon();
-            else alert((res && res.err) || 'Falha ao aprovar.');
+            else alertErr((res && res.err) || 'Falha ao aprovar.');
           });
         });
       });
@@ -121,16 +135,17 @@
       btn.addEventListener('click', function () {
         var id = parseInt(btn.getAttribute('data-id') || '0', 10);
         if (!id) return;
-        var motivo = prompt('Motivo da rejeição:');
-        if (motivo === null) return;
-        motivo = String(motivo).trim();
-        if (!motivo) {
-          alert('Informe o motivo da rejeição.');
-          return;
-        }
-        postAcao('rejeitar', { id: id, motivo: motivo }).then(function (res) {
-          if (res && res.ok) reloadSoon();
-          else alert((res && res.err) || 'Falha ao rejeitar.');
+        promptAction('Motivo da rejeição:', '', 'Rejeitar custo').then(function (motivo) {
+          if (motivo === null) return;
+          motivo = String(motivo).trim();
+          if (!motivo) {
+            alertErr('Informe o motivo da rejeição.');
+            return;
+          }
+          postAcao('rejeitar', { id: id, motivo: motivo }).then(function (res) {
+            if (res && res.ok) reloadSoon();
+            else alertErr((res && res.err) || 'Falha ao rejeitar.');
+          });
         });
       });
     });
@@ -265,7 +280,7 @@
         var data = JSON.parse(btn.getAttribute('data-custo') || '{}');
         openModal(data);
       } catch (e) {
-        alert('Dados inválidos.');
+        alertErr('Dados inválidos.');
       }
     });
   });
@@ -277,10 +292,10 @@
       var go = function () {
         postForm({ action: 'excluir', id: id, cliente_id: clienteId, ref_ym: refYm }).then(function (res) {
           if (res && res.ok) reloadSoon();
-          else alert((res && res.err) || 'Falha ao excluir.');
+          else alertErr((res && res.err) || 'Falha ao excluir.');
         });
       };
-      confirmAction('Excluir este custo?', 'Excluir custo').then(function (ok) {
+      confirmAction('Excluir este custo?', 'Excluir custo', true).then(function (ok) {
         if (ok) go();
       });
     });

@@ -786,3 +786,176 @@ function chamado_resolver_localizacao_preview(array $chamado, ?array $ponto = nu
 
     return $empty;
 }
+
+/**
+ * Opções de geocode para CrmChamadoVizMapa quando ainda não há lat/lng.
+ *
+ * @return array{modo: string, attempts: list<array>, mapaQuery: string}|null
+ */
+function chamado_viz_mapa_geocode_js_opts(array $locPreview): ?array
+{
+    if ($locPreview['lat'] !== null && $locPreview['lng'] !== null) {
+        return null;
+    }
+    $modo = (string) ($locPreview['modo'] ?? 'none');
+    if ($modo === 'geocode' && !empty($locPreview['geocode_attempts'])) {
+        return [
+            'modo'      => 'geocode',
+            'attempts'  => $locPreview['geocode_attempts'],
+            'mapaQuery' => '',
+        ];
+    }
+    $mapaQuery = trim((string) ($locPreview['mapa_query'] ?? ''));
+    if ($modo === 'mapa_endereco' && $mapaQuery !== '') {
+        return [
+            'modo'      => 'mapa_endereco',
+            'attempts'  => [],
+            'mapaQuery' => $mapaQuery,
+        ];
+    }
+
+    return null;
+}
+
+/**
+ * Garante que GOOGLE_MAPS_API_KEY foi carregada de config.
+ */
+function crm_google_maps_bootstrap_config(): void
+{
+    if (!defined('GOOGLE_MAPS_API_KEY')) {
+        $configPath = __DIR__ . '/config.php';
+        if (is_file($configPath)) {
+            require_once $configPath;
+        }
+    }
+}
+
+/** Chave Google Maps (Maps Embed API + Street View metadata). */
+function crm_google_maps_api_key(): string
+{
+    crm_google_maps_bootstrap_config();
+
+    return defined('GOOGLE_MAPS_API_KEY') ? trim((string) GOOGLE_MAPS_API_KEY) : '';
+}
+
+function crm_google_maps_has_api_key(): bool
+{
+    return crm_google_maps_api_key() !== '';
+}
+
+/** Map ID (Cloud Console) para Advanced Markers no dashboard. Opcional. */
+function crm_google_maps_map_id(): string
+{
+    crm_google_maps_bootstrap_config();
+
+    return defined('GOOGLE_MAPS_MAP_ID') ? trim((string) GOOGLE_MAPS_MAP_ID) : '';
+}
+
+function crm_google_maps_has_map_id(): bool
+{
+    return crm_google_maps_map_id() !== '';
+}
+
+/**
+ * Coordenadas formatadas para URLs embed Google.
+ *
+ * @return array{0: string, 1: float, 2: float}
+ */
+function crm_google_maps_embed_location(float $lat, float $lng): array
+{
+    return [
+        rawurlencode(number_format($lat, 7, '.', '') . ',' . number_format($lng, 7, '.', '')),
+        $lat,
+        $lng,
+    ];
+}
+
+/** URL legada svembed (sem chave). */
+function crm_google_maps_legacy_streetview_embed_url(float $lat, float $lng): string
+{
+    [$loc] = crm_google_maps_embed_location($lat, $lng);
+
+    return 'https://www.google.com/maps?cbll=' . $loc . '&cbp=11,0,0,0,0&layer=c&output=svembed&hl=pt-BR';
+}
+
+/** URL iframe Street View (Embed API se houver chave). */
+function crm_google_maps_embed_streetview_url(float $lat, float $lng, string $apiKey = ''): string
+{
+    $apiKey = $apiKey !== '' ? $apiKey : crm_google_maps_api_key();
+    [$loc] = crm_google_maps_embed_location($lat, $lng);
+    if ($apiKey === '') {
+        return crm_google_maps_legacy_streetview_embed_url($lat, $lng);
+    }
+
+    return 'https://www.google.com/maps/embed/v1/streetview?key=' . rawurlencode($apiKey)
+        . '&location=' . $loc . '&heading=0&pitch=0&fov=80';
+}
+
+/** Link externo para abrir coordenadas no Google Maps. */
+function crm_google_maps_external_map_url(float $lat, float $lng): string
+{
+    [$loc] = crm_google_maps_embed_location($lat, $lng);
+
+    return 'https://www.google.com/maps/search/?api=1&query=' . $loc;
+}
+
+/** URL do script Maps JavaScript API (dashboard interativo). */
+function crm_google_maps_js_api_url(string $callback = 'crmGoogleMapsApiReady'): string
+{
+    $apiKey = crm_google_maps_api_key();
+    if ($apiKey === '') {
+        return '';
+    }
+    $callback = preg_replace('/[^a-zA-Z0-9_.]/', '', $callback) ?: 'crmGoogleMapsApiReady';
+
+    $url = 'https://maps.googleapis.com/maps/api/js?key=' . rawurlencode($apiKey)
+        . '&loading=async&callback=' . rawurlencode($callback);
+    if (crm_google_maps_has_map_id()) {
+        $url .= '&libraries=marker';
+    }
+
+    return $url;
+}
+
+/** URL iframe mapa (Embed API view — sem marcador). */
+function crm_google_maps_embed_view_url(float $lat, float $lng, int $zoom = 16, string $apiKey = ''): string
+{
+    $apiKey = $apiKey !== '' ? $apiKey : crm_google_maps_api_key();
+    [$loc] = crm_google_maps_embed_location($lat, $lng);
+    if ($apiKey === '') {
+        return '';
+    }
+    $zoom = max(1, min(21, $zoom));
+
+    return 'https://www.google.com/maps/embed/v1/view?key=' . rawurlencode($apiKey)
+        . '&center=' . $loc . '&zoom=' . $zoom;
+}
+
+/** URL iframe mapa com pin no ponto (Embed API place). */
+function crm_google_maps_embed_place_url(float $lat, float $lng, int $zoom = 16, string $apiKey = ''): string
+{
+    $apiKey = $apiKey !== '' ? $apiKey : crm_google_maps_api_key();
+    [$loc] = crm_google_maps_embed_location($lat, $lng);
+    if ($apiKey === '') {
+        return '';
+    }
+    $zoom = max(1, min(21, $zoom));
+
+    return 'https://www.google.com/maps/embed/v1/place?key=' . rawurlencode($apiKey)
+        . '&q=' . $loc . '&zoom=' . $zoom;
+}
+
+/**
+ * Chave Google Maps para embed oficial de Street View (Maps Embed API).
+ * @deprecated Use crm_google_maps_api_key()
+ */
+function chamado_google_maps_embed_api_key(): string
+{
+    return crm_google_maps_api_key();
+}
+
+/** URL do iframe Street View (Embed API se houver chave; senão embed legado svembed). */
+function chamado_street_view_embed_url(float $lat, float $lng, string $apiKey = ''): string
+{
+    return crm_google_maps_embed_streetview_url($lat, $lng, $apiKey);
+}

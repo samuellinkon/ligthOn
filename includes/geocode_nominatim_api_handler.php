@@ -41,6 +41,63 @@ if ($action === 'reverse') {
     exit;
 }
 
+if ($action === 'streetview_check') {
+    if (!defined('GOOGLE_MAPS_API_KEY')) {
+        require_once __DIR__ . '/config.php';
+    }
+    $lat = isset($_GET['lat']) ? (float) $_GET['lat'] : NAN;
+    $lon = isset($_GET['lon']) ? (float) $_GET['lon'] : NAN;
+    if (!is_finite($lat) || !is_finite($lon)) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'err' => 'Coordenadas inválidas.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $apiKey = defined('GOOGLE_MAPS_API_KEY') ? trim((string) GOOGLE_MAPS_API_KEY) : '';
+    if ($apiKey === '') {
+        // Sem chave: preferir mapa Leaflet; não forçar Street View embutido (svembed costuma falhar).
+        echo json_encode([
+            'ok'        => true,
+            'available' => false,
+            'reason'    => 'no_api_key',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $loc = rawurlencode(number_format($lat, 7, '.', '') . ',' . number_format($lon, 7, '.', ''));
+    $url = 'https://maps.googleapis.com/maps/api/streetview/metadata?location=' . $loc . '&key=' . rawurlencode($apiKey);
+    $ctx = stream_context_create([
+        'http' => [
+            'method'  => 'GET',
+            'timeout' => 8,
+            'header'  => "Accept: application/json\r\n",
+        ],
+    ]);
+    $raw = @file_get_contents($url, false, $ctx);
+    if ($raw === false || $raw === '') {
+        echo json_encode(['ok' => true, 'available' => false, 'reason' => 'metadata_failed'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $data = json_decode($raw, true);
+    $status = is_array($data) ? strtoupper(trim((string) ($data['status'] ?? ''))) : '';
+    $available = ($status === 'OK');
+    $googleErr = is_array($data) ? trim((string) ($data['error_message'] ?? '')) : '';
+    $reason = $available ? 'ok' : strtolower($status !== '' ? $status : 'zero_results');
+    $payload = [
+        'ok'        => true,
+        'available' => $available,
+        'reason'    => $reason,
+    ];
+    if ($googleErr !== '') {
+        $payload['google_error'] = $googleErr;
+    }
+    if ($reason === 'request_denied') {
+        $payload['hint'] =
+            'Ative a API Street View Static API no Google Cloud e use restrição da chave só por API '
+            . '(não só por sites/referrer), pois esta verificação roda no servidor PHP.';
+    }
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $street = trim((string) ($_GET['street'] ?? ''));
 $city = trim((string) ($_GET['city'] ?? ''));
 $uf = strtoupper(preg_replace('/\./', '', trim((string) ($_GET['state'] ?? $_GET['uf'] ?? ''))));

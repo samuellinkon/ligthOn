@@ -60,37 +60,34 @@ if (!$CRM_CATALOGO_IMPORT_PORTAL) {
     gestor_assert_escopo_cliente($clienteId, 'catalogo.php');
 }
 
+$catalogoTemEstoque    = repo_cliente_itens_estoque_saldo_column_exists();
+$catalogoTemCapacidade = repo_cliente_itens_estoque_capacidade_column_exists();
+
 if (!empty($_GET['exportar_modelo'])) {
-    $fn = 'modelo_importacao_catalogo.csv';
-    header('Content-Type: text/csv; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="' . $fn . '"');
-    header('Cache-Control: no-store');
-    echo "\xEF\xBB\xBF";
-    $out = fopen('php://output', 'w');
-    if ($out !== false) {
-        fputcsv($out, ['tipo', 'nome', 'codigo', 'unidade', 'valor_unitario', 'estoque_saldo', 'descricao'], ';');
-        fputcsv($out, ['produto', 'Exemplo produto', 'SKU-001', 'UN', '59,90', '25', 'Substitua pelos seus dados'], ';');
-        fputcsv($out, ['servico', 'Exemplo serviço', 'SERV-001', 'UN', '120,00', '0', ''], ';');
-        fclose($out);
-    }
+    require_once __DIR__ . '/../includes/catalogo_export_xlsx.php';
+    catalogo_modelo_xlsx_send($clienteId);
     exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once __DIR__ . '/../includes/catalogo_import.php';
+
     if (empty($_FILES['planilha']['tmp_name']) || !is_uploaded_file($_FILES['planilha']['tmp_name'])) {
-        flash_set('err', 'Selecione um arquivo CSV ou TXT.');
+        flash_set('err', 'Selecione um arquivo CSV, TXT ou XLSX.');
     } else {
-        $raw = file_get_contents($_FILES['planilha']['tmp_name']);
-        if ($raw === false) {
-            flash_set('err', 'Não foi possível ler o arquivo.');
+        $nomeArquivo = (string) ($_FILES['planilha']['name'] ?? '');
+        $parse = catalogo_import_parse_upload((string) $_FILES['planilha']['tmp_name'], $nomeArquivo);
+        if (!$parse['ok']) {
+            flash_set('err', $parse['erro'] !== '' ? $parse['erro'] : 'Falha ao interpretar a planilha.');
         } else {
-            $imp = repo_cliente_itens_importar_csv($clienteId, $raw);
+            $imp = repo_cliente_itens_importar_linhas($clienteId, $parse['linhas']);
             $msg = $imp['inseridos'] . ' linha(s) importada(s).';
             if ($imp['ignorados'] > 0) {
                 $msg .= ' ' . $imp['ignorados'] . ' ignorada(s).';
             }
-            if ($imp['erros']) {
-                $msg .= ' Avisos: ' . implode(' ', array_slice($imp['erros'], 0, 5));
+            $avisos = array_merge($parse['avisos'], $imp['erros']);
+            if ($avisos) {
+                $msg .= ' Avisos: ' . implode(' ', array_slice($avisos, 0, 5));
             }
             flash_set($imp['inseridos'] > 0 ? 'ok' : 'err', $msg);
         }
@@ -130,7 +127,7 @@ include __DIR__ . '/../includes/head.php';
     <form class="card" method="post" action="<?= htmlspecialchars($catalogoImportFormAction) ?>" enctype="multipart/form-data">
       <div class="panel-head">
         <h4>Enviar planilha</h4>
-        <span class="panel-sub">CSV ou TXT com separador vírgula ou ponto e vírgula</span>
+        <span class="panel-sub"><?= htmlspecialchars((string) ($cliente['empresa'] ?? '')) ?> · modelo XLSX institucional ou CSV UTF-8</span>
       </div>
       <div class="panel-body form form-grid">
         <?php if (!$CRM_CATALOGO_IMPORT_PORTAL): ?>
@@ -148,8 +145,8 @@ include __DIR__ . '/../includes/head.php';
         <?php endif; ?>
         <div class="form-group full">
           <label for="planilha">Arquivo</label>
-          <input type="file" id="planilha" name="planilha" class="input" accept=".csv,.txt,text/csv" required>
-          <span class="hint">Use UTF-8 quando possível. A primeira linha pode ser cabeçalho.</span>
+          <input type="file" id="planilha" name="planilha" class="input" accept=".xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+          <span class="hint">Recomendado: baixe o modelo XLSX abaixo. Também aceita CSV com separador <code>;</code> ou <code>,</code>. Extensão PHP <code>zip</code> obrigatória para .xlsx.</span>
         </div>
       </div>
       <div class="panel-body">
@@ -164,32 +161,43 @@ include __DIR__ . '/../includes/head.php';
       <div class="panel-head">
         <div>
           <h4>Formato da planilha</h4>
-          <span class="panel-sub">Campos aceitos</span>
+          <span class="panel-sub">Colunas da tabela <code>cliente_itens</code></span>
         </div>
-        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoImportModeloHref) ?>">Baixar CSV modelo</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoImportModeloHref) ?>">Baixar modelo XLSX</a>
       </div>
       <div class="panel-body">
         <p class="muted" style="line-height:1.6;margin-top:0;">
-          A planilha importa produtos e serviços para o catálogo da empresa. Unidades vinculadas usam o catálogo da matriz.
+          A planilha importa produtos e serviços para o catálogo da empresa raiz. Unidades vinculadas compartilham o catálogo da matriz. Itens são gravados como <strong>ativos</strong>. Código duplicado na mesma empresa é rejeitado com aviso.
         </p>
         <div class="table-wrap" style="border:1px solid var(--border);border-radius:12px;">
           <table>
             <thead>
-              <tr><th>Campo</th><th>Exemplo</th></tr>
+              <tr><th>Campo</th><th>Obrigatório</th><th>Exemplo</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>tipo</code></td><td><code>produto</code> ou <code>servico</code></td></tr>
-              <tr><td><code>nome</code></td><td>Filtro de água / Instalação</td></tr>
-              <tr><td><code>codigo</code></td><td>SKU-001</td></tr>
-              <tr><td><code>unidade</code></td><td>UN, M, KG, H</td></tr>
-              <tr><td><code>valor_unitario</code></td><td>19,90 ou 19.90</td></tr>
-              <tr><td><code>descricao</code></td><td>Texto opcional</td></tr>
+              <tr><td><code>Tipo</code> / <code>tipo</code></td><td>Sim</td><td><code>produto</code> ou <code>servico</code> (aceita Produto / Serviço)</td></tr>
+              <tr><td><code>Nome</code> / <code>nome</code></td><td>Sim</td><td>Filtro de água / Instalação</td></tr>
+              <tr><td><code>Código</code> / <code>codigo</code></td><td>Não</td><td>SKU-001</td></tr>
+              <tr><td><code>Unidade</code> / <code>unidade</code></td><td>Não</td><td>UN, M, KG, H (padrão UN)</td></tr>
+              <tr><td><code>Valor unit. (R$)</code> / <code>valor_unitario</code></td><td>Não</td><td>19,90 ou 19.90</td></tr>
+              <?php if ($catalogoTemEstoque && $catalogoTemCapacidade): ?>
+              <tr><td><code>Estoque</code> / <code>estoque</code> / <code>estoque_capacidade</code></td><td>Não</td><td>Referência no cadastro (ex.: 100)</td></tr>
+              <tr><td><code>Saldo</code> / <code>saldo</code> / <code>estoque_saldo</code></td><td>Não</td><td>Saldo inicial; vazio na linha = igual ao Estoque</td></tr>
+              <?php elseif ($catalogoTemEstoque): ?>
+              <tr><td><code>Estoque saldo</code> / <code>estoque_saldo</code></td><td>Não</td><td>25 ou 0 — execute <code>052_estoque_capacidade.sql</code> para colunas Estoque e Saldo</td></tr>
+              <?php else: ?>
+              <tr><td><code>estoque_saldo</code></td><td colspan="2" class="td-mute">Indisponível — execute a migração <code>database/migrations/045_cliente_itens_estoque_saldo.sql</code></td></tr>
+              <?php endif; ?>
+              <tr><td><code>Descrição</code> / <code>descricao</code></td><td>Não</td><td>Texto opcional (até 500 caracteres)</td></tr>
             </tbody>
           </table>
         </div>
-        <pre style="white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:12px;margin-top:14px;font-size:12px;">tipo;nome;codigo;unidade;valor_unitario;descricao
-produto;Filtro de água;SKU-001;UN;59,90;Filtro refil
-servico;Instalação padrão;SERV-001;UN;120,00;Serviço interno</pre>
+        <pre style="white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:12px;margin-top:14px;font-size:12px;">tipo;nome;codigo;unidade;valor_unitario;estoque;saldo;descricao
+produto;Filtro de água;SKU-001;UN;59,90;100;25;Filtro refil
+servico;Instalação padrão;SERV-001;UN;120,00;0;0;Serviço interno</pre>
+        <p class="muted" style="line-height:1.6;margin-bottom:0;font-size:13px;">
+          No modelo XLSX, a capa institucional fica acima do cabeçalho — não altere os títulos das colunas (<code>Tipo</code>, <code>Nome</code>, …). Preencha as linhas abaixo do cabeçalho e envie o arquivo.<?php if ($catalogoTemEstoque && $catalogoTemCapacidade): ?> Se a coluna <strong>Saldo</strong> estiver vazia na linha, o saldo inicial será igual ao <strong>Estoque</strong>.<?php endif; ?>
+        </p>
       </div>
     </div>
   </div>

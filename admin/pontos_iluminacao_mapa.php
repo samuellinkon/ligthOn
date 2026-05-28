@@ -67,12 +67,19 @@ $topSubtitle = $filtroMapa === 'chamados'
 $topSearch   = '';
 $topAction   = ['label' => 'Lista', 'href' => 'pontos_iluminacao.php?cliente_id=' . (int) $scopeId, 'icon' => '←'];
 
+require_once __DIR__ . '/../includes/chamado_geo.php';
+
+$loadPontosMapGoogle      = crm_google_maps_has_api_key();
+$loadLeaflet              = !$loadPontosMapGoogle;
+$loadLeafletMarkerCluster = $loadLeaflet;
+
 include __DIR__ . '/../includes/head.php';
 ?>
+<?php if ($loadLeaflet): ?>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="">
-<link rel="stylesheet" href="<?= htmlspecialchars($basePath) ?>assets/css/map-popup.css?v=<?= (int) @filemtime(__DIR__ . '/../assets/css/map-popup.css') ?>">
+<?php endif; ?>
 <style>
   #pontos-iluminacao-map{height:620px;border-radius:18px;border:1px solid var(--border);overflow:hidden;background:#eef1f7}
   .pontos-map-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-weight:700;text-align:center;padding:24px}
@@ -134,15 +141,10 @@ include __DIR__ . '/../includes/head.php';
   </div>
 </section>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
-<?php include __DIR__ . '/../includes/partials/leaflet_ponto_popup_assets.php'; ?>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
-<script>
-window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
-</script>
-<script src="<?= $basePath ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/ponto-marker-status.js') ?>"></script>
-<script src="<?= $basePath ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/pontos-iluminacao-map.js') ?>"></script>
+<?php
+$pontosMapPins = $pins;
+require __DIR__ . '/../includes/partials/pontos_iluminacao_map_scripts.php';
+?>
 
 </main>
 </div>

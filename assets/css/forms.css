@@ -14,6 +14,27 @@
 
 .form-grid .full { grid-column: 1 / -1; }
 
+/* Catálogo — estoque e saldo lado a lado no modal */
+.catalogo-modal-estoque-saldo__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+  width: 100%;
+}
+
+.catalogo-modal-estoque-saldo__col {
+  min-width: 0;
+}
+
+.catalogo-modal-estoque-saldo__col label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.catalogo-modal-estoque-saldo--solo .catalogo-modal-estoque-saldo__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* Ordem de serviço / chamado — uma coluna (painéis empilhados) */
 .os-form-layout {
   display: grid;
@@ -2246,13 +2267,14 @@ select.crm-custom-select-native,
   color: var(--text);
 }
 
-/* Largura total do painel: max-height + aspect-ratio fazia o bloco encolher horizontalmente */
+/* Preview OS / chamado: altura explícita (Leaflet + iframe SV no mesmo container) */
 .chamado-ponto-streetview__frame-wrap {
   position: relative;
   width: 100%;
   max-width: 100%;
-  height: 0;
-  padding-bottom: 40%; /* mais baixo que 16:9 — preview OS / chamado */
+  min-height: 260px;
+  height: auto;
+  aspect-ratio: 5 / 2;
   overflow: hidden;
   border-radius: 12px;
   border: 1px solid var(--border-soft);
@@ -2262,27 +2284,25 @@ select.crm-custom-select-native,
 /* Só dentro de __frame-wrap (Street View). Embed portal OS usa .os-ponto-map-embed__frame */
 .chamado-ponto-streetview__frame-wrap .chamado-ponto-streetview__frame {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
+  z-index: 2;
 }
 
-.os-ponto-preview--mapa-apenas .os-ponto-map-embed {
-  position: relative;
-  width: 100%;
-  height: 280px;
-  overflow: hidden;
-  border-radius: 12px;
+.chamado-loc-view-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
 }
 
-.os-ponto-map-embed__frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 280px;
+.chamado-loc-preview-wrap .chamado-map-mini,
+#chamado-loc-preview .chamado-map-mini {
+  height: 260px;
+  margin: 0;
   border: 0;
   border-radius: 12px;
 }
@@ -2298,8 +2318,7 @@ select.crm-custom-select-native,
 
 .chamado-ponto-streetview__frame-wrap .chamado-map-mini--in-frame {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   aspect-ratio: unset;
@@ -2309,8 +2328,66 @@ select.crm-custom-select-native,
   z-index: 1;
 }
 
-.chamado-ponto-streetview__frame-wrap .chamado-ponto-streetview__frame[hidden] {
+.chamado-ponto-streetview__frame-wrap .leaflet-container {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  border-radius: 12px;
+}
+
+.chamado-ponto-streetview__frame-wrap .chamado-ponto-streetview__frame[hidden],
+.chamado-ponto-streetview__frame-wrap .chamado-map-embed-frame[hidden] {
   display: none;
+}
+
+.chamado-ponto-streetview__frame-wrap .chamado-map-embed-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 12px;
+  z-index: 2;
+}
+
+.chamado-ponto-streetview__frame-wrap .chamado-map-embed-fallback {
+  z-index: 3;
+}
+
+.chamado-ponto-streetview__frame-wrap .chamado-map-mini--in-frame[hidden] {
+  display: none !important;
+}
+
+.chamado-loc-sv-external {
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.chamado-sv-embed-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 16px;
+  text-align: center;
+  background: #f1f5f9;
+  border-radius: 12px;
+}
+
+.chamado-sv-embed-fallback[hidden] {
+  display: none !important;
+}
+
+.chamado-sv-embed-fallback__text {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 /* ---------- Chamado detalhe (admin): cabeçalho compacto operacional ---------- */

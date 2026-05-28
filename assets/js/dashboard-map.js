@@ -2,6 +2,9 @@
  * Mapa Leaflet no dashboard: pins a partir de window.CHAMADOS_MAP_PINS.
  */
 (function () {
+  if (window.CRM_DASHBOARD_MAP_PROVIDER === 'google') {
+    return;
+  }
   if (!window.CrmDashboardMapChamados || typeof window.CrmDashboardMapChamados.init !== 'function') {
     return;
   }

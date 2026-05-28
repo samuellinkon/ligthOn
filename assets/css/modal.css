@@ -54,6 +54,38 @@
   white-space: pre-wrap;
 }
 
+.app-modal--prompt {
+  max-width: 440px;
+}
+
+.app-modal-input-wrap {
+  margin: 0 0 18px;
+}
+
+.app-modal-input-wrap[hidden] {
+  display: none !important;
+}
+
+.app-modal-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text, #1a1a2e);
+  background: var(--card, #fff);
+  border: 1px solid var(--border-soft, #e2e8f0);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.app-modal-input:focus {
+  border-color: var(--primary, #534ab7);
+  box-shadow: 0 0 0 3px rgba(83, 74, 183, 0.15);
+}
+
 .app-modal-actions {
   display: flex;
   flex-wrap: wrap;

@@ -2,6 +2,12 @@
  * Mapa dos pontos de iluminacao a partir de window.PONTOS_ILUMINACAO_MAP.
  */
 (function () {
+  if (
+    window.CRM_DASHBOARD_MAP_PROVIDER === 'google' ||
+    window.CRM_PONTOS_MAP_PROVIDER === 'google'
+  ) {
+    return;
+  }
   var pins = window.PONTOS_ILUMINACAO_MAP;
   var el = document.getElementById('pontos-iluminacao-map');
   var areaFilter = document.getElementById('map-filter-area');

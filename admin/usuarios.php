@@ -226,7 +226,7 @@ include __DIR__ . '/../includes/head.php';
             <td class="td-actions">
               <a class="action primary" href="usuario_editar.php?id=<?= (int) ($u['id'] ?? 0) ?>">Editar</a>
               <?php if ((int) ($u['id'] ?? 0) !== (int) ($me['id'] ?? 0)): ?>
-              <form method="post" action="usuarios.php" style="display:inline;" onsubmit="return confirm('Excluir permanentemente este utilizador? Esta ação não pode ser anulada.');">
+              <form method="post" action="usuarios.php" style="display:inline;" data-confirm="Excluir permanentemente este utilizador? Esta ação não pode ser anulada." data-confirm-danger>
                 <input type="hidden" name="excluir_usuario_id" value="<?= (int) ($u['id'] ?? 0) ?>">
                 <input type="hidden" name="ret_perfil" value="<?= htmlspecialchars($perfilFil, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="ret_q" value="<?= htmlspecialchars($q, ENT_QUOTES, 'UTF-8') ?>">

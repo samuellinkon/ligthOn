@@ -145,14 +145,13 @@ $perfilLabelAtual = $perfilLabels[$perfilAtual] ?? $perfilAtual;
       <a href="<?= htmlspecialchars($cancelHref, ENT_QUOTES, 'UTF-8') ?>" class="btn btn-secondary"<?= $embedForm ? ' target="_top"' : '' ?>>Cancelar</a>
       <button type="submit" class="btn btn-primary">Salvar</button>
       <?php if (!empty($escopoUe) && (int) ($me['id'] ?? 0) !== $userId): ?>
-      <button type="submit" form="form-excluir-usuario" class="btn btn-danger"
-        onclick="return confirm('Excluir este utilizador permanentemente? Esta ação não pode ser desfeita.');">Excluir</button>
+      <button type="submit" form="form-excluir-usuario" class="btn btn-danger">Excluir</button>
       <?php endif; ?>
     </div>
   </div>
 </form>
 <?php if (!empty($escopoUe) && (int) ($me['id'] ?? 0) !== $userId): ?>
-<form id="form-excluir-usuario" method="post" action="usuario_editar.php?id=<?= (int) $userId ?>" target="_top" style="display:none;">
+<form id="form-excluir-usuario" method="post" action="usuario_editar.php?id=<?= (int) $userId ?>" target="_top" style="display:none;" data-confirm="Excluir este utilizador permanentemente? Esta ação não pode ser desfeita." data-confirm-danger>
   <input type="hidden" name="acao" value="excluir_usuario">
   <?php if ($embedForm && $returnUrlHidden !== ''): ?>
   <input type="hidden" name="return_url" value="<?= htmlspecialchars($returnUrlHidden, ENT_QUOTES, 'UTF-8') ?>">

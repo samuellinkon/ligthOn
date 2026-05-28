@@ -1128,6 +1128,10 @@ a.card.metric.metric-card--link.metric-card--active {
   border-bottom: 0;
   box-sizing: border-box;
 }
+.dashboard-map-resize-wrap .dashboard-map-leaflet-host > div {
+  height: 100%;
+  width: 100%;
+}
 .dashboard-map-resize-wrap #chamados-map.dashboard-map-leaflet-host { background: #e8ecf4; }
 .dashboard-map-resize-wrap #pontos-iluminacao-map.dashboard-map-leaflet-host { background: #eef1f7; }
 .dashboard-map-resize-wrap #dashboard-mapa-combinado.dashboard-map-leaflet-host { background: #e8ecf4; }
@@ -1255,6 +1259,15 @@ body.dashboard-map-resize-dragging * {
 /* Lista admin: mapa em altura confortável */
 .pontos-iluminacao-lista-layout #pontos-iluminacao-map {
   height: 560px;
+  overflow: hidden;
+}
+.pontos-iluminacao-lista-layout #pontos-iluminacao-map > div {
+  height: 100%;
+  width: 100%;
+}
+#pontos-iluminacao-map:not(.dashboard-map-leaflet-host) > div {
+  height: 100%;
+  width: 100%;
 }
 .pontos-map-empty {
   display: flex;

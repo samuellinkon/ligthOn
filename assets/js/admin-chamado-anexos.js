@@ -13,8 +13,6 @@
   function alertMsg(msg, title) {
     if (typeof global.appAlert === 'function') {
       global.appAlert(msg, title || 'Anexos');
-    } else {
-      global.alert(msg);
     }
   }
 
@@ -181,7 +179,7 @@
     if (typeof global.appConfirm === 'function') {
       return global.appConfirm({ message: msg, title: title || 'Anexos', danger: true });
     }
-    return Promise.resolve(global.confirm(msg));
+    return Promise.resolve(false);
   }
 
   function deleteAnexo(anexoId) {
