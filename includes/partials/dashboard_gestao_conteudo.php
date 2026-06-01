@@ -114,7 +114,7 @@
     <div class="card dashboard-map-card">
       <div class="panel-head">
         <h4>Mapa de iluminação</h4>
-        <span class="panel-sub"><?= count($pontosPinsPass) ?> de <?= count($pontosPinsTodos) ?> ponto(s) · postes em vermelho com chamados abertos</span>
+        <span class="panel-sub"><?= count($pontosPinsPass) ?> de <?= count($pontosPinsTodos) ?> ponto(s) · postes em azul com chamados abertos</span>
       </div>
       <div class="panel-body">
         <div class="dashboard-map-filters dashboard-map-filters--pontos" aria-label="Filtros e ferramentas do mapa de postes">

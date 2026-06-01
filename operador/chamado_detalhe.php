@@ -506,7 +506,6 @@ foreach ($servicos as $ci) {
         'categoria' => $cat,
         'codigo'    => $cod,
         'unidade'   => $un,
-        'estoque'   => array_key_exists('estoque_saldo', $ci) ? (float) $ci['estoque_saldo'] : null,
         'hay'       => $hay,
     ];
 }
@@ -627,8 +626,6 @@ $topbarHideTitle = true;
     .op-item-combo__opt-main{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px}
     .op-item-combo__opt-name{font-size:14px;font-weight:700;color:var(--text,#0f172a);line-height:1.3;flex:1;min-width:0}
     .op-item-combo__opt-meta{font-size:12px;color:var(--muted,#64748b);line-height:1.35}
-    .op-item-combo__stock{flex-shrink:0;font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534;white-space:nowrap}
-    .op-item-combo__stock--low{background:#ffedd5;color:#c2410c}
     .op-item-combo__empty{padding:12px;font-size:13px;color:var(--muted)}
     .op-mat-panel{margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:#faf8f5}
     .chamado-materiais-op-add{margin-bottom:16px;padding:0;border:0;background:transparent}
@@ -928,10 +925,6 @@ $topbarHideTitle = true;
                 </div>
                 <button type="submit" class="btn btn-primary op-mat-submit" <?= empty($servicos) ? 'disabled' : '' ?>>Adicionar utilizado</button>
               </form>
-              <p class="op-mat-footnote op-mat-footnote--stock">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                Estoque baixo em destaque previne erros
-              </p>
             </div>
             <?php endif; ?>
             <div class="chamado-materiais-empty op-mat-empty" data-op-mat-empty="utilizado" <?= empty($itensUsadosOp) ? '' : 'hidden' ?>>

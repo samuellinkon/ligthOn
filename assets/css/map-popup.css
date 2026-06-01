@@ -46,8 +46,8 @@
 }
 
 .map-popup__status--danger {
-  background: linear-gradient(135deg, #fef2f2, #fee2e2);
-  color: #b91c1c;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  color: #1d4ed8;
 }
 
 .map-popup__header {
@@ -165,12 +165,12 @@
 }
 
 .map-popup__summary-card--danger {
-  background: #fef2f2;
-  border-color: #fecaca;
+  background: #eff6ff;
+  border-color: #bfdbfe;
 }
 
 .map-popup__summary-card--danger strong {
-  color: #b91c1c;
+  color: #1d4ed8;
 }
 
 .map-popup__summary-card:only-child {
@@ -238,8 +238,8 @@
 }
 
 .map-popup__call-dot--danger {
-  background: #dc2626;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
 .map-popup__call-content {

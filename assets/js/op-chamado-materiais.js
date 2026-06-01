@@ -4,8 +4,6 @@
 (function (global) {
   'use strict';
 
-  var LOW_STOCK = 10;
-
   function esc(s) {
     var d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
@@ -33,17 +31,6 @@
     return parts.join(' · ');
   }
 
-  function stockBadge(row) {
-    if (row.estoque === null || row.estoque === undefined || row.estoque === '') {
-      return '';
-    }
-    var n = Number(row.estoque);
-    if (isNaN(n)) return '';
-    var cls = 'op-item-combo__stock';
-    if (n < LOW_STOCK) cls += ' op-item-combo__stock--low';
-    return '<span class="' + cls + '">' + esc(String(n)) + ' un</span>';
-  }
-
   function renderOption(row, active) {
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -53,7 +40,6 @@
     btn.innerHTML =
       '<span class="op-item-combo__opt-main">' +
       '<span class="op-item-combo__opt-name">' + esc(row.nome || row.label) + '</span>' +
-      stockBadge(row) +
       '</span>' +
       '<span class="op-item-combo__opt-meta">' + esc(metaLine(row)) + '</span>';
     return btn;

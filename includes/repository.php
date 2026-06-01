@@ -4165,7 +4165,7 @@ function repo_medicao_bm_imports_totals_before_ym(int $clienteMatrizId, string $
 /**
  * Dados consolidados por item para o boletim BM v2: saldo + unitário (catálogo) por código normalizado.
  *
- * @return array<string, array{item_id:int, item_codigo:string, item_nome:string, unidade:string, valor_unitario:float, estoque_saldo:float}>
+ * @return array<string, array{item_id:int, item_codigo:string, item_nome:string, unidade:string, valor_unitario:float, estoque_saldo:float, estoque_capacidade:float}>
  */
 function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
 {
@@ -4178,6 +4178,8 @@ function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
     }
     $temEstoque = repo_cliente_itens_estoque_saldo_column_exists();
     $colEst     = $temEstoque ? 'it.estoque_saldo' : 'CAST(0 AS DECIMAL(14,4))';
+    $temCap     = repo_cliente_itens_estoque_capacidade_column_exists();
+    $colCap     = $temCap ? 'it.estoque_capacidade' : 'CAST(0 AS DECIMAL(14,4))';
 
     try {
         $sql = "
@@ -4187,7 +4189,8 @@ function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
                 it.nome AS item_nome,
                 it.unidade AS unidade,
                 it.valor_unitario AS valor_unitario,
-                {$colEst} AS estoque_saldo
+                {$colEst} AS estoque_saldo,
+                {$colCap} AS estoque_capacidade
             FROM cliente_itens it
             WHERE (it.cliente_id = ? OR it.empresa_id = ?)
         ";
@@ -4202,7 +4205,8 @@ function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
                 it.nome AS item_nome,
                 it.unidade AS unidade,
                 it.valor_unitario AS valor_unitario,
-                CAST(0 AS DECIMAL(14,4)) AS estoque_saldo
+                CAST(0 AS DECIMAL(14,4)) AS estoque_saldo,
+                CAST(0 AS DECIMAL(14,4)) AS estoque_capacidade
             FROM cliente_itens it
             WHERE (it.cliente_id = ? OR it.empresa_id = ?)
         ";
@@ -4226,12 +4230,13 @@ function repo_medicao_bm_catalogo_por_codigo_matriz(int $empresaRaizId): array
             continue;
         }
         $map[$cod] = [
-            'item_id'          => (int) ($r['item_id'] ?? 0),
-            'item_codigo'      => $codRaw,
-            'item_nome'        => (string) ($r['item_nome'] ?? ''),
-            'unidade'          => (string) ($r['unidade'] ?? 'UN'),
-            'valor_unitario'   => (float) ($r['valor_unitario'] ?? 0),
-            'estoque_saldo'    => (float) ($r['estoque_saldo'] ?? 0),
+            'item_id'             => (int) ($r['item_id'] ?? 0),
+            'item_codigo'         => $codRaw,
+            'item_nome'           => (string) ($r['item_nome'] ?? ''),
+            'unidade'             => (string) ($r['unidade'] ?? 'UN'),
+            'valor_unitario'      => (float) ($r['valor_unitario'] ?? 0),
+            'estoque_saldo'       => (float) ($r['estoque_saldo'] ?? 0),
+            'estoque_capacidade'  => (float) ($r['estoque_capacidade'] ?? 0),
         ];
     }
 

@@ -1360,8 +1360,22 @@ body.dashboard-map-resize-dragging * {
   background: #94a3b8;
 }
 .ponto-marker--alert {
-  border-color: #7f1d1d;
-  background: #dc2626;
+  border-color: #1d4ed8;
+  background: #3b82f6;
+}
+.chamado-marker {
+  display: block;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #1d4ed8;
+  background: #3b82f6;
+  box-shadow: 0 1px 4px rgba(29, 78, 216, 0.35);
+}
+.crm-chamado-marker-wrap {
+  background: transparent !important;
+  border: none !important;
 }
 .pontos-mapa-legenda {
   display: flex;
@@ -1404,9 +1418,15 @@ body.dashboard-map-resize-dragging * {
   box-shadow: 0 2px 10px rgba(100, 116, 139, 0.35);
 }
 .leaflet-marker-icon:hover .ponto-marker--alert {
-  background: #f87171 !important;
-  border-color: #991b1b !important;
-  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.45);
+  background: #60a5fa !important;
+  border-color: #1e40af !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.45);
+}
+.leaflet-marker-icon:hover .chamado-marker {
+  background: #60a5fa !important;
+  border-color: #1e40af !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.45);
+  transform: scale(1.25);
 }
 .dashboard-pontos-tools {
   display: grid;
@@ -1527,5 +1547,14 @@ body.dashboard-map-resize-dragging * {
 .op-thread-empty {
   padding: 24px 16px;
   text-align: center;
+}
+
+/* Dashboard: badges de prioridade em azul (mapas usam call-popup.css / map-popup.css) */
+.dashboard-admin-metrics .badge.urgent,
+.dashboard-admin-metrics .badge.status-urgente,
+.dashboard-admin-metrics .badge.status-vencido,
+.dashboard-admin-metrics .badge.status-alta {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info, #3b82f6);
 }
 

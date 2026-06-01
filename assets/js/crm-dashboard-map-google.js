@@ -74,8 +74,8 @@
       fill = '#94a3b8';
       stroke = '#64748b';
     } else if (cls.indexOf('ponto-marker--alert') !== -1) {
-      fill = '#dc2626';
-      stroke = '#7f1d1d';
+      fill = '#3b82f6';
+      stroke = '#1d4ed8';
     }
     return {
       path: global.google.maps.SymbolPath.CIRCLE,
@@ -87,6 +87,17 @@
     };
   }
 
+  function chamadoCircleIcon() {
+    return {
+      path: global.google.maps.SymbolPath.CIRCLE,
+      fillColor: '#3b82f6',
+      fillOpacity: 1,
+      strokeColor: '#1d4ed8',
+      strokeWeight: 2,
+      scale: 7,
+    };
+  }
+
   function createChamadoMarker(pin, map, infoWindow) {
     var position = { lat: pin.lat, lng: pin.lng };
     var marker;
@@ -94,15 +105,19 @@
       global.google.maps.marker && global.google.maps.marker.AdvancedMarkerElement;
 
     if (canUseAdvancedMarkers() && AdvancedMarkerElement) {
+      var span = document.createElement('span');
+      span.className = 'chamado-marker';
       marker = new AdvancedMarkerElement({
         position: position,
         map: null,
+        content: span,
         title: pin.titulo ? String(pin.titulo) : '',
       });
     } else {
       marker = new global.google.maps.Marker({
         position: position,
         map: null,
+        icon: chamadoCircleIcon(),
         title: pin.titulo ? String(pin.titulo) : '',
       });
     }

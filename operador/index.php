@@ -172,6 +172,7 @@ include __DIR__ . '/../includes/head.php';
   window.CHAMADOS_MAP_EMPTY_MSG = <?= json_encode($mapEmptyMsg, JSON_UNESCAPED_UNICODE) ?>;
   <?php endif; ?>
 </script>
+<script src="<?= $basePath ?>assets/js/dashboard-map-geocode.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/dashboard-map-geocode.js') ?>"></script>
 <script src="<?= $basePath ?>assets/js/dashboard-map.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/dashboard-map.js') ?>"></script>
 <?php endif; ?>
 

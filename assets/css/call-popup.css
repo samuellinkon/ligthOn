@@ -44,8 +44,8 @@
 }
 
 .call-popup--danger .call-popup__status {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
 }
 
 .call-popup--success .call-popup__status {
@@ -100,8 +100,8 @@
 }
 
 .call-popup__priority--danger {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
 }
 
 .call-popup__priority--warning {

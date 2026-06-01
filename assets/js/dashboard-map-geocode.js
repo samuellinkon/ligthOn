@@ -20,6 +20,15 @@
     return '<div class="call-popup"><p>Popup indisponível.</p></div>';
   }
 
+  function createChamadoLeafletIcon() {
+    return L.divIcon({
+      className: 'crm-chamado-marker-wrap',
+      html: '<span class="chamado-marker"></span>',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    });
+  }
+
   function initChamadosMap(opts) {
     opts = opts || {};
     var el = document.getElementById(opts.mapElementId || 'chamados-map');
@@ -78,7 +87,7 @@
 
     function addReadyPin(pin) {
       if (pin.lat == null || pin.lng == null) return;
-      var m = L.marker([pin.lat, pin.lng]);
+      var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon() });
       m.bindPopup(renderPopup(pin), { maxWidth: 360, minWidth: 280 });
       pin.pin_state = 'ready';
       markers.push({ pin: pin, marker: m });
@@ -168,7 +177,7 @@
 
   function createMarkerForPin(pin) {
     if (pin.lat == null || pin.lng == null) return null;
-    var m = L.marker([pin.lat, pin.lng]);
+    var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon() });
     m.bindPopup(renderPopup(pin), { maxWidth: 360, minWidth: 280 });
     return m;
   }

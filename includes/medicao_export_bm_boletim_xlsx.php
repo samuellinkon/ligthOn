@@ -1234,6 +1234,33 @@ function medicao_bm_boletim_v2_listar_keys_ordenadas(
 }
 
 /**
+ * Estoque de referência para BM (capacidade contratual; fallback saldo legado).
+ */
+function medicao_bm_boletim_v2_estoque_referencia(?array ...$fontes): float
+{
+    foreach ($fontes as $row) {
+        if ($row === null) {
+            continue;
+        }
+        $ref = catalogo_estoque_referencia($row);
+        if ($ref > 0) {
+            return $ref;
+        }
+    }
+    foreach ($fontes as $row) {
+        if ($row === null) {
+            continue;
+        }
+        $saldo = (float) ($row['estoque_saldo'] ?? 0);
+        if (abs($saldo) > 1e-9) {
+            return $saldo;
+        }
+    }
+
+    return 0.0;
+}
+
+/**
  * `@return array{rows:list<array<string,mixed>>, valor_medido_total:float}`
  */
 function medicao_bm_boletim_v2_compor_linhas(
@@ -1361,11 +1388,9 @@ function medicao_bm_boletim_v2_compor_linhas(
             $itemCatalogoRow = repo_cliente_item_por_id((int) ($crmLine['item_id'] ?? 0), $matrizId);
         }
 
-        $estoqueSaldo = 0.0;
-        $vu           = 0.0;
+        $vu = 0.0;
         if ($catLinha !== null) {
-            $estoqueSaldo = (float) ($catLinha['estoque_saldo'] ?? 0);
-            $vu           = (float) ($catLinha['valor_unitario'] ?? 0);
+            $vu = (float) ($catLinha['valor_unitario'] ?? 0);
             if (trim($nome) === '' && trim((string) ($catLinha['item_nome'] ?? '')) !== '') {
                 $nome = (string) $catLinha['item_nome'];
             }
@@ -1374,8 +1399,7 @@ function medicao_bm_boletim_v2_compor_linhas(
             }
         }
         if ($itemCatalogoRow !== null) {
-            $estoqueSaldo = (float) ($itemCatalogoRow['estoque_saldo'] ?? 0);
-            $vu           = (float) ($itemCatalogoRow['valor_unitario'] ?? 0);
+            $vu = (float) ($itemCatalogoRow['valor_unitario'] ?? 0);
             if (trim($nome) === '' && trim((string) ($itemCatalogoRow['nome'] ?? '')) !== '') {
                 $nome = (string) $itemCatalogoRow['nome'];
             }
@@ -1386,9 +1410,8 @@ function medicao_bm_boletim_v2_compor_linhas(
         if ($crmLine !== null && $vu == 0.0) {
             $vu = (float) ($crmLine['valor_unitario'] ?? 0);
         }
-        if (($estoqueSaldo == 0.0 && $crmLine !== null && repo_cliente_itens_estoque_saldo_column_exists())) {
-            $estoqueSaldo = (float) ($crmLine['estoque_saldo'] ?? 0);
-        }
+
+        $estoqueRef = medicao_bm_boletim_v2_estoque_referencia($itemCatalogoRow, $catLinha, $crmLine);
 
         $bmPQ = isset($priorBm[$k]) ? (float) ($priorBm[$k]['qtd'] ?? 0) : 0.0;
         $bmPV = isset($priorBm[$k]) ? (float) ($priorBm[$k]['valor'] ?? 0) : 0.0;
@@ -1410,12 +1433,12 @@ function medicao_bm_boletim_v2_compor_linhas(
         $valorMedidoSomaTotal += $mv;
 
         $acumq = $mq + $bmPQ;
-        $vqBase = ($estoqueSaldo * $vu);
+        $vqBase = ($estoqueRef * $vu);
         /* Acumulado financeiro: medido período + acumulados em BMs passados — evita usar qtd_medida*BMs que pode divergir dos valores gravados nos imports */
         $acumV = $mv + $bmPV;
-        /* Saldo físico a executar: saldo atual no catálogo menos consumo físico já acumulado */
-        $saldoQx = $estoqueSaldo - $acumq;
-        /* Saldo financeiro: valor nominal em catálogo (saldo*qtd) menos acumulado em R$ */
+        /* Saldo físico a executar: estoque de referência menos consumo físico já acumulado */
+        $saldoQx = $estoqueRef - $acumq;
+        /* Saldo financeiro: valor nominal em catálogo (estoque ref × unitário) menos acumulado em R$ */
         $saldoVx = ($vqBase) - ($acumV);
 
         $devFinRatio = null;
@@ -1428,7 +1451,7 @@ function medicao_bm_boletim_v2_compor_linhas(
             '_codigo_display'   => $codigoExibir,
             '_nome'             => $nome,
             '_unidade'          => $unidade,
-            '_estoque_saldo'    => $estoqueSaldo,
+            '_estoque_saldo'    => $estoqueRef,
             '_data_ini_excel'   => $dataExcel,
             '_soma_bm_q'        => $bmPQ,
             '_medido_q'         => $mq,
