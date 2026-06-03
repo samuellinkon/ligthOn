@@ -136,6 +136,7 @@ include __DIR__ . '/../includes/head.php';
       <span class="panel-sub"><?= count($mapPins) ?> com latitude e longitude · <?= count($chamadosAbertos) ?> ativo(s) atribuído(s) a você</span>
     </div>
     <div class="panel-body">
+      <?php require __DIR__ . '/../includes/partials/chamados_mapa_legenda.php'; ?>
       <div id="chamados-map" role="region" aria-label="Mapa dos chamados atribuídos ao operador"></div>
       <p class="muted" style="font-size:12px;margin-top:10px;margin-bottom:0;">
         Pins: chamados <strong>atribuídos a você</strong>, em <strong>Aberto</strong>, <strong>Em andamento</strong> ou <strong>Aguardando Aprovação</strong>, com coordenadas. A lista ao lado conta os mesmos status (com ou sem GPS).
@@ -166,6 +167,7 @@ include __DIR__ . '/../includes/head.php';
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <?php include __DIR__ . '/../includes/partials/leaflet_basemap_script.php'; ?>
 <?php include __DIR__ . '/../includes/partials/leaflet_chamado_popup_assets.php'; ?>
+<script src="<?= $basePath ?>assets/js/chamado-marker-status.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/chamado-marker-status.js') ?>"></script>
 <script>
   window.CHAMADOS_MAP_PINS = <?= json_encode($mapPins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
   <?php if ($mapEmptyMsg !== null): ?>

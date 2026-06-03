@@ -87,12 +87,23 @@
     };
   }
 
-  function chamadoCircleIcon() {
+  function chamadoMarkerClass(pin) {
+    if (typeof global.crmChamadoMarkerClass === 'function') {
+      return global.crmChamadoMarkerClass(pin);
+    }
+    return 'chamado-marker chamado-marker--open';
+  }
+
+  function chamadoCircleIcon(pin) {
+    var colors =
+      typeof global.crmChamadoMarkerIconColors === 'function'
+        ? global.crmChamadoMarkerIconColors(pin)
+        : { fillColor: '#3b82f6', strokeColor: '#1d4ed8' };
     return {
       path: global.google.maps.SymbolPath.CIRCLE,
-      fillColor: '#3b82f6',
+      fillColor: colors.fillColor,
       fillOpacity: 1,
-      strokeColor: '#1d4ed8',
+      strokeColor: colors.strokeColor,
       strokeWeight: 2,
       scale: 7,
     };
@@ -106,7 +117,7 @@
 
     if (canUseAdvancedMarkers() && AdvancedMarkerElement) {
       var span = document.createElement('span');
-      span.className = 'chamado-marker';
+      span.className = chamadoMarkerClass(pin);
       marker = new AdvancedMarkerElement({
         position: position,
         map: null,
@@ -117,7 +128,7 @@
       marker = new global.google.maps.Marker({
         position: position,
         map: null,
-        icon: chamadoCircleIcon(),
+        icon: chamadoCircleIcon(pin),
         title: pin.titulo ? String(pin.titulo) : '',
       });
     }

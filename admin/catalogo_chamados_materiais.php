@@ -152,9 +152,45 @@ foreach ($catalogoItensOpts as $it) {
         $itemSelecionadoLabel = $itLabel;
     }
 }
+$catalogoOrigemMedicao = false;
+$medicaoMesRef         = '';
+$medicaoPeriodoDe      = '';
+$medicaoPeriodoAte     = '';
+$catalogoMedicaoOrigemQs = [];
+if (trim((string) ($_GET['from'] ?? '')) === 'medicao') {
+    $medicaoMesRaw = trim((string) ($_GET['medicao_mes'] ?? ''));
+    if (!preg_match('/^\d{4}-\d{2}$/', $medicaoMesRaw) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe)) {
+        $medicaoMesRaw = substr($dataDe, 0, 7);
+    }
+    $medicaoPeriodoDeRaw  = trim((string) ($_GET['periodo_de'] ?? ''));
+    $medicaoPeriodoAteRaw = trim((string) ($_GET['periodo_ate'] ?? ''));
+    if (preg_match('/^\d{4}-\d{2}$/', $medicaoMesRaw)) {
+        $catalogoOrigemMedicao = true;
+        $medicaoMesRef         = $medicaoMesRaw;
+        $medicaoPeriodoDe      = preg_match('/^\d{4}-\d{2}-\d{2}$/', $medicaoPeriodoDeRaw) ? $medicaoPeriodoDeRaw : $dataDe;
+        $medicaoPeriodoAte     = preg_match('/^\d{4}-\d{2}-\d{2}$/', $medicaoPeriodoAteRaw) ? $medicaoPeriodoAteRaw : $dataAte;
+        $catalogoMedicaoOrigemQs = [
+            'from'        => 'medicao',
+            'medicao_mes' => $medicaoMesRef,
+            'periodo_de'  => $medicaoPeriodoDe,
+            'periodo_ate' => $medicaoPeriodoAte,
+        ];
+    }
+}
+$catalogoVoltarMedicaoHref = $catalogoOrigemMedicao
+    ? ('medicao_ver.php?' . http_build_query([
+        'mes'         => $medicaoMesRef,
+        'periodo_de'  => $medicaoPeriodoDe,
+        'periodo_ate' => $medicaoPeriodoAte,
+    ]))
+    : '';
+
 $filtrosLimparQs = [];
 if (!$CRM_CATALOGO_APLICADO_PORTAL) {
     $filtrosLimparQs['cliente_id'] = (int) $clienteId;
+}
+if ($catalogoMedicaoOrigemQs !== []) {
+    $filtrosLimparQs = array_merge($filtrosLimparQs, $catalogoMedicaoOrigemQs);
 }
 $limparHref = 'catalogo_chamados_materiais.php';
 if ($filtrosLimparQs !== []) {
@@ -171,7 +207,13 @@ foreach ($linhas as $ln) {
 $topTitle = 'Catálogo aplicado em chamados';
 $topSubtitle = (string) ($cliente['empresa'] ?? '');
 $topSearch = '';
-$topAction = ['label' => 'Voltar ao catálogo', 'href' => $catalogoAplicadoVoltarHref, 'icon' => '←'];
+if ($catalogoOrigemMedicao && $catalogoVoltarMedicaoHref !== '') {
+    $topAction  = ['label' => 'Voltar à medição', 'href' => $catalogoVoltarMedicaoHref, 'icon' => '←'];
+    $topActions = [['label' => 'Catálogo', 'href' => $catalogoAplicadoVoltarHref, 'icon' => '', 'class' => 'btn-secondary']];
+} else {
+    $topAction  = ['label' => 'Voltar ao catálogo', 'href' => $catalogoAplicadoVoltarHref, 'icon' => '←'];
+    $topActions = [];
+}
 
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -203,6 +245,9 @@ include __DIR__ . '/../includes/head.php';
         <?php if ($filtroTecId > 0): ?>
         <input type="hidden" name="tecnico_user_id" value="<?= (int) $filtroTecId ?>">
         <?php endif; ?>
+        <?php foreach ($catalogoMedicaoOrigemQs as $mqKey => $mqVal): ?>
+        <input type="hidden" name="<?= htmlspecialchars((string) $mqKey, ENT_QUOTES) ?>" value="<?= htmlspecialchars((string) $mqVal, ENT_QUOTES) ?>">
+        <?php endforeach; ?>
         <div class="catalogo-aplicado-filters-row catalogo-aplicado-filters-row--top">
         <div class="form-group">
           <label for="data_de">Período — de</label>
@@ -249,6 +294,9 @@ include __DIR__ . '/../includes/head.php';
           </div>
         </div>
         <div class="catalogo-aplicado-filters-actions">
+          <?php if ($catalogoOrigemMedicao && $catalogoVoltarMedicaoHref !== ''): ?>
+          <a href="<?= htmlspecialchars($catalogoVoltarMedicaoHref) ?>" class="btn btn-secondary">← Voltar à medição</a>
+          <?php endif; ?>
           <button type="submit" class="btn btn-primary">Filtrar</button>
           <a href="<?= htmlspecialchars($limparHref) ?>" class="btn btn-secondary">Limpar</a>
         </div>

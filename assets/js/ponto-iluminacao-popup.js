@@ -164,13 +164,15 @@
     var streetViewUrl = buildStreetViewUrl(ponto);
     var plural = abertos === 1 ? 'Chamado aberto' : 'Chamados abertos';
 
-    var html = '<div class="map-popup">';
+    var html = '<div class="map-popup map-popup--' + escapeHtml(statusVis.kind) + '">';
     html +=
       '<div class="map-popup__status ' +
       statusVis.className +
       '">' +
       escapeHtml(statusVis.label) +
       '</div>';
+
+    html += '<div class="map-popup__body">';
 
     html += '<div class="map-popup__header"><div class="map-popup__title-area">';
     html += '<h3 class="map-popup__title">Poste ' + escapeHtml(codigo) + '</h3>';
@@ -193,7 +195,7 @@
 
     if (ponto && ponto.endereco_completo) {
       html +=
-        '<div class="map-popup__address"><span class="map-popup__address-icon" aria-hidden="true">📍</span><span>' +
+        '<div class="map-popup__address"><span class="map-popup__address-icon" aria-hidden="true"></span><span>' +
         escapeHtml(ponto.endereco_completo) +
         '</span></div>';
     }
@@ -216,6 +218,8 @@
     html += '</div>';
 
     html += renderHistorico(ponto && ponto.chamados_historico);
+
+    html += '</div>';
 
     if (actionsMode !== 'none') {
       html += '<div class="map-popup__actions">';

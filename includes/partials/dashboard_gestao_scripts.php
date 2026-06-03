@@ -5,6 +5,13 @@ $dashMapsAtivos = $dashMapsAtivos ?? ($loadLeafletChamados || $loadPontosMap || 
 <?php if ($dashMapsAtivos): ?>
 <script src="<?= $basePath ?>assets/js/dashboard-map-resize.js?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/dashboard-map-resize.js') ?>"></script>
 <?php endif; ?>
+<?php
+$chamadoMarkerStatusJs = __DIR__ . '/../../assets/js/chamado-marker-status.js';
+$dashCarregaMapaChamados = !empty($loadLeafletChamados) || !empty($loadMapaCombinado);
+?>
+<?php if ($dashMapsAtivos && $dashCarregaMapaChamados): ?>
+<script src="<?= $basePath ?>assets/js/chamado-marker-status.js?v=<?= (int) @filemtime($chamadoMarkerStatusJs) ?>"></script>
+<?php endif; ?>
 <?php if ($loadGoogleMapsJs): ?>
 <?php
 $crmGmapsJsApiUrl = crm_google_maps_js_api_url('crmGoogleMapsApiReady');

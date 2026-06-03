@@ -64,6 +64,7 @@
   function getChamadoPopupVariant(ch) {
     var pri = String((ch && ch.prioridade) || '').trim();
     var st = String((ch && ch.status) || '').trim();
+    if (st === 'Cancelado' || st === 'Cancelada') return 'cancelled';
     if (SUCCESS_STATUSES.indexOf(st) !== -1) return 'success';
     if (pri === 'Urgente' || pri === 'Alta') return 'danger';
     if (WARNING_STATUSES.indexOf(st) !== -1) return 'warning';
@@ -118,6 +119,7 @@
     var html = '<div class="call-popup call-popup--' + variant + '">';
     html +=
       '<div class="call-popup__status">' + escapeHtml(statusLabel) + '</div>';
+    html += '<div class="call-popup__body">';
 
     html += '<div class="call-popup__header">';
     html += '<div class="call-popup__header-main">';
@@ -155,7 +157,7 @@
     }
     if (servico) {
       html +=
-        '<div class="call-popup__info-item"><span>Serviço</span><strong>' +
+        '<div class="call-popup__info-item call-popup__info-item--full"><span>Serviço</span><strong>' +
         escapeHtml(servico) +
         '</strong></div>';
     }
@@ -163,10 +165,12 @@
 
     if (endereco) {
       html +=
-        '<div class="call-popup__address"><span class="call-popup__address-icon" aria-hidden="true">📍</span><span>' +
+        '<div class="call-popup__address"><span class="call-popup__address-icon" aria-hidden="true"></span><span>' +
         escapeHtml(endereco) +
         '</span></div>';
     }
+
+    html += '</div>';
 
     html += '<div class="call-popup__actions">';
     html +=

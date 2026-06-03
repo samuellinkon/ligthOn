@@ -3937,6 +3937,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
     $sql = "
         SELECT
             ci.movimento,
+            it.id AS item_id,
             it.tipo AS item_tipo,
             it.codigo AS item_codigo,
             it.nome AS item_nome,
@@ -3951,7 +3952,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
-        GROUP BY ci.movimento, it.tipo, it.codigo, it.nome, it.unidade
+        GROUP BY ci.movimento, it.tipo, it.codigo, it.nome, it.unidade, it.id
         ORDER BY FIELD(ci.movimento, 'utilizado', 'devolvido'), it.tipo ASC, it.nome ASC
     ";
     $st = $pdo->prepare($sql);
@@ -3965,6 +3966,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         $r['quantidade']     = $qtd;
         $r['valor_total']    = $val;
         $r['valor_unitario'] = $qtd > 0 ? round($val / $qtd, 4) : 0.0;
+        $r['item_id']        = (int) ($r['item_id'] ?? 0);
         $r['n_lancamentos']  = (int) ($r['n_lancamentos'] ?? 0);
         $r['n_chamados']     = (int) ($r['n_chamados'] ?? 0);
 

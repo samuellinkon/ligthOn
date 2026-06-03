@@ -99,6 +99,7 @@
           </label>
           <div class="dashboard-pontos-tools-status dashboard-map-filters-chamados-meta" id="chamados-map-visible-count"><?php $nCh = count($mapPins); ?><?= (int) $nCh ?> de <?= (int) $nCh ?> chamado(s) visível(is)</div>
         </form>
+        <?php require __DIR__ . '/chamados_mapa_legenda.php'; ?>
         <div class="dashboard-map-resize-wrap" data-map-resize-key="<?= htmlspecialchars($dashMapResizePrefix) ?>_chamados">
           <div id="chamados-map" class="dashboard-map-leaflet-host" role="region" aria-label="Mapa de chamados"></div>
           <button type="button" class="dashboard-map-resize-handle" aria-label="Redimensionar altura do mapa" title="Arraste para ajustar a altura (salvo neste navegador)"></button>
@@ -292,6 +293,8 @@
           <div class="dashboard-pontos-tools-status" id="combo-map-visible-chamados">—</div>
           <div class="dashboard-pontos-tools-status" id="combo-map-visible-pontos">—</div>
         </div>
+
+        <?php require __DIR__ . '/chamados_mapa_legenda.php'; ?>
 
         <div class="dashboard-map-resize-wrap" data-map-resize-key="<?= htmlspecialchars($dashMapResizePrefix) ?>_combinado">
           <div id="dashboard-mapa-combinado" class="dashboard-map-leaflet-host" role="region" aria-label="Mapa combinado: chamados e postes"></div>

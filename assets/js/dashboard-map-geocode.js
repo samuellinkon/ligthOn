@@ -20,10 +20,17 @@
     return '<div class="call-popup"><p>Popup indisponível.</p></div>';
   }
 
-  function createChamadoLeafletIcon() {
+  function chamadoMarkerClass(pin) {
+    if (typeof global.crmChamadoMarkerClass === 'function') {
+      return global.crmChamadoMarkerClass(pin);
+    }
+    return 'chamado-marker chamado-marker--open';
+  }
+
+  function createChamadoLeafletIcon(pin) {
     return L.divIcon({
       className: 'crm-chamado-marker-wrap',
-      html: '<span class="chamado-marker"></span>',
+      html: '<span class="' + chamadoMarkerClass(pin) + '"></span>',
       iconSize: [12, 12],
       iconAnchor: [6, 6],
     });
@@ -87,7 +94,7 @@
 
     function addReadyPin(pin) {
       if (pin.lat == null || pin.lng == null) return;
-      var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon() });
+      var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon(pin) });
       m.bindPopup(renderPopup(pin), { maxWidth: 360, minWidth: 280 });
       pin.pin_state = 'ready';
       markers.push({ pin: pin, marker: m });
@@ -177,7 +184,7 @@
 
   function createMarkerForPin(pin) {
     if (pin.lat == null || pin.lng == null) return null;
-    var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon() });
+    var m = L.marker([pin.lat, pin.lng], { icon: createChamadoLeafletIcon(pin) });
     m.bindPopup(renderPopup(pin), { maxWidth: 360, minWidth: 280 });
     return m;
   }

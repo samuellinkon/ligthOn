@@ -187,6 +187,14 @@ include __DIR__ . '/../includes/head.php';
     overflow: auto;
   }
 
+  .medicao-item-aplicado-link {
+    cursor: pointer;
+  }
+
+  .medicao-item-aplicado-link:hover {
+    background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+  }
+
   @media (max-width: 1280px) {
     .medicao-view-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -320,8 +328,27 @@ include __DIR__ . '/../includes/head.php';
             <?php if (empty($itensLinhas)): ?>
             <tr><td colspan="8" class="muted" style="padding:28px;text-align:center;">Nenhum item usado ou devolvido foi lançado nos chamados deste mês.</td></tr>
             <?php else: foreach ($itensLinhas as $item): ?>
-            <?php $mov = (string) ($item['movimento'] ?? 'utilizado'); ?>
-            <tr <?= crm_sort_row_attr([
+            <?php
+              $mov = (string) ($item['movimento'] ?? 'utilizado');
+              $itemIdRow = (int) ($item['item_id'] ?? 0);
+              $itemAplicadoHref = '';
+              if ($itemIdRow > 0) {
+                  $itemAplicadoHref = 'catalogo_chamados_materiais.php?' . http_build_query([
+                      'from'         => 'medicao',
+                      'medicao_mes'  => $mesRef,
+                      'periodo_de'   => $dataDe,
+                      'periodo_ate'  => $dataAte,
+                      'cliente_id'   => $clienteId,
+                      'item_id'      => $itemIdRow,
+                      'data_de'      => $dataDe,
+                      'data_ate'     => $dataAte,
+                  ]);
+              }
+              $trLinkAttrs = $itemAplicadoHref !== ''
+                  ? ' class="medicao-item-aplicado-link" role="link" tabindex="0" data-href="' . htmlspecialchars($itemAplicadoHref, ENT_QUOTES) . '" title="Ver aplicado em chamados"'
+                  : '';
+            ?>
+            <tr<?= $trLinkAttrs ?> <?= crm_sort_row_attr([
                 'movimento' => $mov,
                 'item'      => (string) ($item['item_nome'] ?? ''),
                 'tipo'      => (string) ($item['item_tipo'] ?? ''),
@@ -490,6 +517,27 @@ include __DIR__ . '/../includes/head.php';
         return;
       }
       window.location.href = href;
+    });
+  });
+})();
+</script>
+<script>
+(function () {
+  document.querySelectorAll('.medicao-item-aplicado-link').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var href = row.getAttribute('data-href');
+      if (href) {
+        window.location.href = href;
+      }
+    });
+    row.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        var href = row.getAttribute('data-href');
+        if (href) {
+          window.location.href = href;
+        }
+      }
     });
   });
 })();
