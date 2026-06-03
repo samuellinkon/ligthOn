@@ -88,6 +88,19 @@
   box-sizing: border-box;
 }
 
+.map-popup__loading-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.map-popup__loading-text {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
 .map-popup__status {
   display: inline-flex;
   align-self: flex-start;

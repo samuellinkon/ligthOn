@@ -415,6 +415,34 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
   var mapGeocodeGeneration = 0;
   var lastMapGeocodeKey = '';
   var refreshPreviewTimer = null;
+  var coordsManualLock = false;
+
+  function resetCoordsForAddressChange() {
+    coordsManualLock = false;
+    clearChamadoCoordsFromPonto();
+    osLastCoords.lat = null;
+    osLastCoords.lng = null;
+    lastMapGeocodeKey = '';
+  }
+
+  function wireAddressFieldsClearCoords() {
+    var addressFieldIds = [
+      'os_cep',
+      'os_logradouro',
+      'os_numero',
+      'os_complemento',
+      'os_bairro',
+      'os_cidade',
+      'os_uf'
+    ];
+    addressFieldIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', resetCoordsForAddressChange);
+      el.addEventListener('change', resetCoordsForAddressChange);
+    });
+    document.addEventListener('crm:os-address-changed', resetCoordsForAddressChange);
+  }
   var osLastCoords = { lat: null, lng: null };
   var osLeafletMap = null;
   var osLeafletMarker = null;
@@ -902,28 +930,40 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
   }
 
   /** Evita aceitar "53416-020, Brasil" → bairro "020" em Lavras do Sul/RS. */
+  function osTextoComparavel(s) {
+    return String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function osTextoContem(haystack, needle) {
+    if (!needle) return true;
+    return osTextoComparavel(haystack).indexOf(osTextoComparavel(needle)) >= 0;
+  }
+
   function nominatimHitMatchesContext(hit, cidade, uf) {
     if (!hit) return false;
     cidade = String(cidade || '').trim();
     uf = String(uf || '').replace(/\./g, '').toUpperCase();
     if (!cidade && !uf) return true;
-    var dn = String(hit.display_name || '').toLowerCase();
+    var dn = String(hit.display_name || '');
     if (!dn) return false;
     var ufNome = osUfNome(uf).toLowerCase();
     if (uf) {
-      var okUf = dn.indexOf(uf.toLowerCase()) >= 0 || (ufNome && dn.indexOf(ufNome) >= 0);
+      var okUf = osTextoContem(dn, uf) || (ufNome && osTextoContem(dn, ufNome));
       if (!okUf && hit.address && hit.address.state) {
-        var st = String(hit.address.state).toLowerCase();
-        okUf = st.indexOf(ufNome) >= 0 || st === uf.toLowerCase();
+        var st = String(hit.address.state);
+        okUf = osTextoContem(st, ufNome) || osTextoContem(st, uf);
       }
       if (!okUf) return false;
     }
-    if (cidade && dn.indexOf(cidade.toLowerCase()) < 0) {
+    if (cidade && !osTextoContem(dn, cidade)) {
       if (hit.address) {
         var ct = String(
           hit.address.city || hit.address.town || hit.address.municipality || ''
-        ).toLowerCase();
-        if (ct && ct.indexOf(cidade.toLowerCase()) < 0) return false;
+        );
+        if (ct && !osTextoContem(ct, cidade)) return false;
       } else {
         return false;
       }
@@ -2027,11 +2067,13 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', function () {
+        coordsManualLock = true;
         osPreviewUserChoice = null;
         clearTimeout(reverseGeocodeTimer);
         reverseGeocodeTimer = root.setTimeout(reverseGeocodeFromLatLng, 1500);
       });
     });
+    wireAddressFieldsClearCoords();
     var mapRefreshBtn = document.getElementById('os_ponto_map_refresh_btn');
     if (mapRefreshBtn) {
       mapRefreshBtn.addEventListener('click', function () {

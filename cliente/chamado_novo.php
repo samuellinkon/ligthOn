@@ -23,8 +23,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: chamado_novo.php'); exit;
         }
         $os = chamado_os_parse_post($_POST);
+        $clienteIdChamado = (int) ($user['cliente_id'] ?? 0);
+        $pontoIdPost = (int) ($_POST['ponto_iluminacao_id'] ?? 0);
+        if ($pontoIdPost > 0) {
+            $pontoPost = repo_ponto_iluminacao($pontoIdPost);
+            $empresaRaiz = $clienteIdChamado > 0 ? repo_cliente_matriz_raiz_id($clienteIdChamado) : 0;
+            if ($pontoPost && $empresaRaiz > 0 && repo_ponto_iluminacao_pertence_empresa($pontoIdPost, $empresaRaiz)) {
+                $clienteIdChamado = (int) ($pontoPost['cliente_id'] ?? $clienteIdChamado);
+            }
+        }
         $id = repo_create_chamado(array_merge($os, [
-            'cliente_id'          => (int) ($user['cliente_id'] ?? 0),
+            'cliente_id'          => $clienteIdChamado,
             'criado_por_user_id'  => (int) ($user['id'] ?? 0),
             'ponto_iluminacao_id' => (int) ($_POST['ponto_iluminacao_id'] ?? 0),
             'titulo'              => chamado_os_titulo_from_post($_POST),
@@ -75,8 +84,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$pontosIluminacao = db_ok() && !empty($user['cliente_id'])
-    ? repo_pontos_iluminacao_options((int) $user['cliente_id'])
+$userClienteId = (int) ($user['cliente_id'] ?? 0);
+$empresaRaizChamado = $userClienteId > 0 ? repo_cliente_matriz_raiz_id($userClienteId) : 0;
+$pontosIluminacao = db_ok() && $empresaRaizChamado > 0
+    ? repo_pontos_iluminacao_list($empresaRaizChamado, true, '', 'Ativo')
     : [];
 
 $topTitle    = 'Abrir novo chamado';
@@ -101,9 +112,14 @@ include __DIR__ . '/../includes/head.php';
 
     <?php
     $ch_os_vals = [];
+    $prefillPonto = chamado_novo_aplicar_ponto_da_url($ch_os_vals, $pontosIluminacao ?: [], [
+        'modo'       => 'cliente',
+        'cliente_id' => $userClienteId,
+    ]);
+    $ch_os_vals = $prefillPonto['ch_os_vals'];
     $ch_os_descricao = '';
-    $ch_os_mostrar_ponto = !empty($pontosIluminacao);
-    $ch_os_pontos_opcoes = $pontosIluminacao ?: [];
+    $ch_os_mostrar_ponto = !empty($prefillPonto['pontos_opcoes']);
+    $ch_os_pontos_opcoes = $prefillPonto['pontos_opcoes'];
     include __DIR__ . '/../includes/chamado_os_grid_markup.php';
     ?>
 

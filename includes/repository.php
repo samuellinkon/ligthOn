@@ -780,6 +780,96 @@ function repo_pontos_iluminacao_list(int $clienteId, bool $escopoEmpresa = false
 }
 
 /**
+ * Lista paginada de pontos de iluminação (admin/cliente).
+ *
+ * @return array{rows: list<array<string,mixed>>, total: int}
+ */
+function repo_pontos_iluminacao_list_paginated(
+    int $clienteId,
+    bool $escopoEmpresa = false,
+    string $q = '',
+    string $status = '',
+    bool $somenteChamadosAbertos = false,
+    int $page = 1,
+    int $perPage = 50
+): array {
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0 || $perPage < 1) {
+        return ['rows' => [], 'total' => 0];
+    }
+
+    $where = [];
+    $params = [];
+    if ($escopoEmpresa) {
+        $where[] = 'pi.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteId;
+        $params[] = $clienteId;
+    } else {
+        $where[] = 'pi.cliente_id = ?';
+        $params[] = $clienteId;
+    }
+    if (in_array($status, ['Ativo', 'Inativo'], true)) {
+        $where[] = 'pi.status = ?';
+        $params[] = $status;
+    }
+    $q = trim($q);
+    if ($q !== '') {
+        $where[] = '(pi.codigo_poste LIKE ? OR pi.identificador_externo LIKE ? OR pi.endereco_completo LIKE ? OR pi.bairro LIKE ? OR pi.referencia LIKE ?)';
+        $term = '%' . $q . '%';
+        array_push($params, $term, $term, $term, $term, $term);
+    }
+    $sqlWhere = implode(' AND ', $where);
+    $havingCh = $somenteChamadosAbertos ? ' HAVING chamados_abertos > 0' : '';
+
+    try {
+        $stCount = $pdo->prepare("
+            SELECT COUNT(*) FROM (
+                SELECT pi.id,
+                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                FROM pontos_iluminacao pi
+                LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+                WHERE $sqlWhere
+                GROUP BY pi.id
+                $havingCh
+            ) sub
+        ");
+        $stCount->execute($params);
+        $total = (int) $stCount->fetchColumn();
+
+        $page = max(1, $page);
+        $totalPages = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $totalPages);
+        $offset = ($page - 1) * $perPage;
+
+        $st = $pdo->prepare("
+            SELECT
+                pi.*,
+                c.empresa AS cliente_empresa,
+                COUNT(ch.id) AS chamados_total,
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+            FROM pontos_iluminacao pi
+            JOIN clientes c ON c.id = pi.cliente_id
+            LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+            WHERE $sqlWhere
+            GROUP BY pi.id
+            $havingCh
+            ORDER BY pi.codigo_poste ASC, pi.id ASC
+            LIMIT $perPage OFFSET $offset
+        ");
+        $st->execute($params);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            _repo_ponto_iluminacao_normalizar($r);
+        }
+        unset($r);
+
+        return ['rows' => $rows, 'total' => $total];
+    } catch (Throwable $e) {
+        return ['rows' => [], 'total' => 0];
+    }
+}
+
+/**
  * @return list<array<string,mixed>>
  */
 function repo_pontos_iluminacao_options(int $clienteId): array
@@ -813,6 +903,25 @@ function repo_ponto_iluminacao_salvar(array $d): array
     if (!in_array($status, ['Ativo', 'Inativo'], true)) {
         $status = 'Ativo';
     }
+    $deltaPontos = 0;
+    if ($status === 'Ativo') {
+        if ($id <= 0) {
+            $deltaPontos = 1;
+        } else {
+            $atual = repo_ponto_iluminacao($id);
+            if ($atual && (string) ($atual['status'] ?? '') !== 'Ativo') {
+                $deltaPontos = 1;
+            }
+        }
+    }
+    if ($deltaPontos > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        try {
+            cliente_plano_assert($clienteId, 'pontos', $deltaPontos);
+        } catch (RuntimeException $e) {
+            return ['ok' => false, 'err' => $e->getMessage(), 'id' => $id];
+        }
+    }
     $vals = [
         'cliente_id' => $clienteId,
         'codigo_poste' => $codigo,
@@ -843,7 +952,14 @@ function repo_ponto_iluminacao_salvar(array $d): array
             ');
             $vals['id'] = $id;
             $st->execute($vals);
-            return ['ok' => true, 'err' => '', 'id' => $id];
+            $savedId = $id;
+            if ($status === 'Ativo') {
+                require_once __DIR__ . '/cliente_plano_limites.php';
+                cliente_plano_warn_pos_acao($clienteId, 'pontos');
+            }
+            require_once __DIR__ . '/pontos_mapa_cache.php';
+            pontos_mapa_cache_invalidate_cliente($clienteId);
+            return ['ok' => true, 'err' => '', 'id' => $savedId];
         }
         $st = $pdo->prepare('
             INSERT INTO pontos_iluminacao
@@ -852,7 +968,14 @@ function repo_ponto_iluminacao_salvar(array $d): array
                 (:cliente_id, :codigo_poste, :identificador_externo, :endereco_completo, :bairro, :referencia, :latitude, :longitude, :status, :observacoes)
         ');
         $st->execute($vals);
-        return ['ok' => true, 'err' => '', 'id' => (int) $pdo->lastInsertId()];
+        $newId = (int) $pdo->lastInsertId();
+        if ($status === 'Ativo') {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            cliente_plano_warn_pos_acao($clienteId, 'pontos');
+        }
+        require_once __DIR__ . '/pontos_mapa_cache.php';
+        pontos_mapa_cache_invalidate_cliente($clienteId);
+        return ['ok' => true, 'err' => '', 'id' => $newId];
     } catch (Throwable $e) {
         $msg = strpos($e->getMessage(), 'Duplicate') !== false
             ? 'Já existe um poste com este código para o cliente.'
@@ -880,6 +1003,27 @@ function repo_pontos_iluminacao_importar_linhas(int $clienteId, array $linhas): 
     if (!$linhas) {
         $ret['err'] = 'Nenhuma linha para importar.';
         return $ret;
+    }
+
+    $novosAtivos = 0;
+    foreach ($linhas as $linha) {
+        $stLin = (string) ($linha['status'] ?? 'Ativo');
+        if (!in_array($stLin, ['Ativo', 'Inativo'], true)) {
+            $stLin = 'Ativo';
+        }
+        if ($stLin === 'Ativo') {
+            $novosAtivos++;
+        }
+    }
+    if ($novosAtivos > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        try {
+            cliente_plano_assert($clienteId, 'pontos', $novosAtivos);
+        } catch (RuntimeException $e) {
+            $ret['err'] = $e->getMessage();
+
+            return $ret;
+        }
     }
 
     $sql = '
@@ -929,6 +1073,13 @@ function repo_pontos_iluminacao_importar_linhas(int $clienteId, array $linhas): 
         $ret['ok'] = $ret['processados'] > 0;
         if (!$ret['ok']) {
             $ret['err'] = 'Nenhum ponto foi importado.';
+        } else {
+            require_once __DIR__ . '/pontos_mapa_cache.php';
+            pontos_mapa_cache_invalidate_cliente($clienteId);
+            if ($novosAtivos > 0) {
+                require_once __DIR__ . '/cliente_plano_limites.php';
+                cliente_plano_warn_pos_acao($clienteId, 'pontos');
+            }
         }
         return $ret;
     } catch (Throwable $e) {
@@ -946,6 +1097,7 @@ function repo_ponto_iluminacao_delete(int $id): bool
     if (!$pdo || $id <= 0) {
         return false;
     }
+    $pontoAntes = repo_ponto_iluminacao($id);
     try {
         foreach (repo_ponto_iluminacao_imagens_list($id) as $img) {
             $path = upload_dir_ponto_iluminacao($id) . DIRECTORY_SEPARATOR . ($img['nome_arquivo'] ?? '');
@@ -958,7 +1110,13 @@ function repo_ponto_iluminacao_delete(int $id): bool
             @rmdir($dir);
         }
         $st = $pdo->prepare('DELETE FROM pontos_iluminacao WHERE id = ?');
-        return $st->execute([$id]);
+        $ok = $st->execute([$id]);
+        if ($ok && $pontoAntes) {
+            require_once __DIR__ . '/pontos_mapa_cache.php';
+            pontos_mapa_cache_invalidate_cliente((int) ($pontoAntes['cliente_id'] ?? 0));
+        }
+
+        return $ok;
     } catch (Throwable $e) {
         return false;
     }
@@ -1032,6 +1190,16 @@ function repo_ponto_iluminacao_imagem_inserir(int $pontoId, string $nomeOriginal
     if (!$pdo || $pontoId <= 0 || !repo_ponto_iluminacao($pontoId)) {
         return ['ok' => false, 'err' => 'Poste inválido.', 'id' => 0];
     }
+    $ponto = repo_ponto_iluminacao($pontoId);
+    $clientePonto = $ponto ? (int) ($ponto['cliente_id'] ?? 0) : 0;
+    if ($clientePonto > 0 && $tamanho > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        try {
+            cliente_plano_assert($clientePonto, 'storage', $tamanho);
+        } catch (RuntimeException $e) {
+            return ['ok' => false, 'err' => $e->getMessage(), 'id' => 0];
+        }
+    }
     $nomeOriginal = trim($nomeOriginal);
     if (function_exists('mb_substr')) {
         $nomeOriginal = mb_substr($nomeOriginal, 0, 255, 'UTF-8');
@@ -1068,8 +1236,13 @@ function repo_ponto_iluminacao_imagem_inserir(int $pontoId, string $nomeOriginal
             $principal ? 1 : 0,
             $ordem,
         ]);
+        $imgId = (int) $pdo->lastInsertId();
+        if ($clientePonto > 0) {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            cliente_plano_warn_pos_acao($clientePonto, 'storage');
+        }
 
-        return ['ok' => true, 'err' => '', 'id' => (int) $pdo->lastInsertId()];
+        return ['ok' => true, 'err' => '', 'id' => $imgId];
     } catch (Throwable $e) {
         $raw = $e->getMessage();
         if (stripos($raw, 'não existe') !== false
@@ -1247,9 +1420,11 @@ function repo_pontos_iluminacao_chamados_historico(array $pontoIds, int $limiteP
 }
 
 /**
- * @return list<array<string,mixed>>
+ * Pins mínimos para o mapa (sem foto, histórico nem joins extras).
+ *
+ * @return list<array{id:int,lat:float,lng:float,status:string,codigo_poste:string,bairro:string,chamados_abertos:int}>
  */
-function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false, string $status = 'Ativo'): array
+function repo_pontos_iluminacao_mapa_lite(int $clienteId, bool $escopoEmpresa = false, string $status = ''): array
 {
     $statusFiltro = in_array($status, ['Ativo', 'Inativo'], true) ? $status : '';
     $rows = repo_pontos_iluminacao_list($clienteId, $escopoEmpresa, '', $statusFiltro);
@@ -1260,51 +1435,712 @@ function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false
         }
         $out[] = [
             'id' => (int) $r['id'],
-            'codigo_poste' => (string) ($r['codigo_poste'] ?? ''),
-            'identificador_externo' => (string) ($r['identificador_externo'] ?? ''),
-            'cliente' => (string) ($r['cliente_empresa'] ?? ''),
-            'endereco_completo' => (string) ($r['endereco_completo'] ?? ''),
-            'bairro' => (string) ($r['bairro'] ?? ''),
-            'status' => (string) ($r['status'] ?? ''),
-            'chamados_abertos' => (int) ($r['chamados_abertos'] ?? 0),
-            'chamados_total' => (int) ($r['chamados_total'] ?? 0),
             'lat' => (float) $r['latitude'],
             'lng' => (float) $r['longitude'],
+            'status' => (string) ($r['status'] ?? ''),
+            'codigo_poste' => (string) ($r['codigo_poste'] ?? ''),
+            'bairro' => (string) ($r['bairro'] ?? ''),
+            'chamados_abertos' => (int) ($r['chamados_abertos'] ?? 0),
         ];
     }
 
-    if (!$out) {
-        return $out;
+    return $out;
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function repo_pontos_iluminacao_mapa(int $clienteId, bool $escopoEmpresa = false, string $status = 'Ativo'): array
+{
+    return repo_pontos_iluminacao_mapa_lite($clienteId, $escopoEmpresa, $status);
+}
+
+/**
+ * Dados completos de um poste para o popup do mapa (carregamento sob demanda).
+ *
+ * @return array<string,mixed>|null
+ */
+function repo_ponto_iluminacao_mapa_detalhe(int $id): ?array
+{
+    $r = repo_ponto_iluminacao($id);
+    if (!$r || ($r['latitude'] ?? null) === null || ($r['longitude'] ?? null) === null) {
+        return null;
     }
 
-    $pontoIds = array_map(function (array $r): int {
-        return (int) ($r['id'] ?? 0);
-    }, $out);
-    $imagens = repo_pontos_iluminacao_imagens_principais($pontoIds);
-    $historicos = repo_pontos_iluminacao_chamados_historico($pontoIds, 3);
+    $pontoId = (int) ($r['id'] ?? 0);
+    $chamadosAbertos = 0;
+    $chamadosTotal = 0;
+    $pdo = db();
+    if ($pdo && $pontoId > 0) {
+        try {
+            $st = $pdo->prepare("
+                SELECT
+                    COUNT(ch.id) AS chamados_total,
+                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                FROM chamados ch
+                WHERE ch.ponto_iluminacao_id = ?
+            ");
+            $st->execute([$pontoId]);
+            $cnt = $st->fetch(PDO::FETCH_ASSOC);
+            if ($cnt) {
+                $chamadosTotal = (int) ($cnt['chamados_total'] ?? 0);
+                $chamadosAbertos = (int) ($cnt['chamados_abertos'] ?? 0);
+            }
+        } catch (Throwable $e) {
+            $chamadosAbertos = 0;
+            $chamadosTotal = 0;
+        }
+    }
+    $imagens = repo_pontos_iluminacao_imagens_principais([$pontoId]);
+    $historicos = repo_pontos_iluminacao_chamados_historico([$pontoId], 3);
 
-    foreach ($out as &$ponto) {
-        $pontoId = (int) ($ponto['id'] ?? 0);
-        $img = $imagens[$pontoId] ?? null;
-        $fotoUrl = '';
-        $fotoNome = '';
-        if ($img && $pontoId > 0) {
-            $nomeFs = basename((string) ($img['nome_arquivo'] ?? ''));
-            $pathFs = $nomeFs !== ''
-                ? upload_dir_ponto_iluminacao($pontoId) . DIRECTORY_SEPARATOR . $nomeFs
-                : '';
-            if ($pathFs !== '' && is_file($pathFs) && is_readable($pathFs)) {
-                $fotoUrl = 'ponto_iluminacao_imagem.php?id=' . (int) ($img['id'] ?? 0);
-                $fotoNome = (string) ($img['nome_original'] ?? '');
+    $fotoUrl = '';
+    $fotoNome = '';
+    $img = $imagens[$pontoId] ?? null;
+    if ($img && $pontoId > 0) {
+        $nomeFs = basename((string) ($img['nome_arquivo'] ?? ''));
+        $pathFs = $nomeFs !== ''
+            ? upload_dir_ponto_iluminacao($pontoId) . DIRECTORY_SEPARATOR . $nomeFs
+            : '';
+        if ($pathFs !== '' && is_file($pathFs) && is_readable($pathFs)) {
+            $fotoUrl = 'ponto_iluminacao_imagem.php?id=' . (int) ($img['id'] ?? 0);
+            $fotoNome = (string) ($img['nome_original'] ?? '');
+        }
+    }
+
+    return [
+        'id' => $pontoId,
+        'codigo_poste' => (string) ($r['codigo_poste'] ?? ''),
+        'identificador_externo' => (string) ($r['identificador_externo'] ?? ''),
+        'cliente' => (string) ($r['cliente_empresa'] ?? ''),
+        'endereco_completo' => (string) ($r['endereco_completo'] ?? ''),
+        'bairro' => (string) ($r['bairro'] ?? ''),
+        'status' => (string) ($r['status'] ?? ''),
+        'chamados_abertos' => $chamadosAbertos,
+        'chamados_total' => $chamadosTotal,
+        'lat' => (float) $r['latitude'],
+        'lng' => (float) $r['longitude'],
+        'foto_url' => $fotoUrl,
+        'foto_nome' => $fotoNome,
+        'chamados_historico' => $historicos[$pontoId] ?? [],
+    ];
+}
+
+/**
+ * Bairros distintos com pontos georreferenciados (dropdown do mapa).
+ *
+ * @return list<string>
+ */
+function repo_pontos_iluminacao_bairros_distintos(int $clienteId, bool $escopoEmpresa = false): array
+{
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0) {
+        return [];
+    }
+
+    $where = ['pi.bairro IS NOT NULL', "TRIM(pi.bairro) <> ''", 'pi.latitude IS NOT NULL', 'pi.longitude IS NOT NULL'];
+    $params = [];
+    if ($escopoEmpresa) {
+        $where[] = 'pi.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteId;
+        $params[] = $clienteId;
+    } else {
+        $where[] = 'pi.cliente_id = ?';
+        $params[] = $clienteId;
+    }
+
+    try {
+        $sqlWhere = implode(' AND ', $where);
+        $st = $pdo->prepare("
+            SELECT DISTINCT TRIM(pi.bairro) AS bairro
+            FROM pontos_iluminacao pi
+            WHERE $sqlWhere
+            ORDER BY bairro ASC
+        ");
+        $st->execute($params);
+        $out = [];
+        foreach (($st->fetchAll(PDO::FETCH_ASSOC) ?: []) as $r) {
+            $b = trim((string) ($r['bairro'] ?? ''));
+            if ($b !== '') {
+                $out[] = $b;
             }
         }
-        $ponto['foto_url'] = $fotoUrl;
-        $ponto['foto_nome'] = $fotoNome;
-        $ponto['chamados_historico'] = $historicos[$pontoId] ?? [];
-    }
-    unset($ponto);
 
-    return $out;
+        return $out;
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Totais do parque no escopo (consultas COUNT — sem carregar todos os postes).
+ *
+ * @return array{total:int,com_geo:int,com_chamados_abertos:int,ativos:int,inativos:int}
+ */
+function repo_pontos_iluminacao_estatisticas_escopo(int $clienteId, bool $escopoEmpresa = false): array
+{
+    $pdo = db();
+    $empty = [
+        'total' => 0,
+        'com_geo' => 0,
+        'com_chamados_abertos' => 0,
+        'ativos' => 0,
+        'inativos' => 0,
+    ];
+    if (!$pdo || $clienteId <= 0) {
+        return $empty;
+    }
+
+    $where = [];
+    $params = [];
+    if ($escopoEmpresa) {
+        $where[] = 'pi.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteId;
+        $params[] = $clienteId;
+    } else {
+        $where[] = 'pi.cliente_id = ?';
+        $params[] = $clienteId;
+    }
+    $sqlWhere = implode(' AND ', $where);
+
+    try {
+        $st = $pdo->prepare("
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN pi.latitude IS NOT NULL AND pi.longitude IS NOT NULL THEN 1 ELSE 0 END) AS com_geo,
+                SUM(CASE WHEN pi.status = 'Ativo' THEN 1 ELSE 0 END) AS ativos,
+                SUM(CASE WHEN pi.status = 'Inativo' THEN 1 ELSE 0 END) AS inativos
+            FROM pontos_iluminacao pi
+            WHERE $sqlWhere
+        ");
+        $st->execute($params);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $stCh = $pdo->prepare("
+            SELECT COUNT(DISTINCT pi.id) AS total
+            FROM pontos_iluminacao pi
+            INNER JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+                AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')
+            WHERE $sqlWhere
+        ");
+        $stCh->execute($params);
+        $rowCh = $stCh->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'com_geo' => (int) ($row['com_geo'] ?? 0),
+            'com_chamados_abertos' => (int) ($rowCh['total'] ?? 0),
+            'ativos' => (int) ($row['ativos'] ?? 0),
+            'inativos' => (int) ($row['inativos'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        return $empty;
+    }
+}
+
+/**
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ */
+function _repo_pontos_mapa_bounds_where(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $latMin,
+    float $latMax,
+    float $lngMin,
+    float $lngMax,
+    array $filtros,
+    array &$params
+): string {
+    $where = [
+        'pi.latitude IS NOT NULL',
+        'pi.longitude IS NOT NULL',
+        'pi.latitude BETWEEN ? AND ?',
+        'pi.longitude BETWEEN ? AND ?',
+    ];
+    $params[] = $latMin;
+    $params[] = $latMax;
+    $params[] = $lngMin;
+    $params[] = $lngMax;
+
+    if ($escopoEmpresa) {
+        $where[] = 'pi.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)';
+        $params[] = $clienteId;
+        $params[] = $clienteId;
+    } else {
+        $where[] = 'pi.cliente_id = ?';
+        $params[] = $clienteId;
+    }
+
+    $status = trim((string) ($filtros['status'] ?? ''));
+    if (in_array($status, ['Ativo', 'Inativo'], true)) {
+        $where[] = 'pi.status = ?';
+        $params[] = $status;
+    }
+
+    $bairro = trim((string) ($filtros['bairro'] ?? ''));
+    if ($bairro !== '') {
+        $where[] = 'pi.bairro = ?';
+        $params[] = $bairro;
+    }
+
+    $busca = trim((string) ($filtros['busca'] ?? ''));
+    if ($busca !== '') {
+        $where[] = '(pi.codigo_poste LIKE ? OR pi.identificador_externo LIKE ? OR pi.endereco_completo LIKE ? OR pi.bairro LIKE ? OR pi.referencia LIKE ?)';
+        $term = '%' . $busca . '%';
+        array_push($params, $term, $term, $term, $term, $term);
+    }
+
+    return implode(' AND ', $where);
+}
+
+/**
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ */
+function repo_pontos_iluminacao_mapa_bounds_count(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $swLat,
+    float $swLng,
+    float $neLat,
+    float $neLng,
+    array $filtros = []
+): int {
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0) {
+        return 0;
+    }
+
+    $latMin = min($swLat, $neLat);
+    $latMax = max($swLat, $neLat);
+    $lngMin = min($swLng, $neLng);
+    $lngMax = max($swLng, $neLng);
+    $params = [];
+    $sqlWhere = _repo_pontos_mapa_bounds_where($clienteId, $escopoEmpresa, $latMin, $latMax, $lngMin, $lngMax, $filtros, $params);
+    $somenteCh = !empty($filtros['somente_chamados_abertos']);
+
+    try {
+        if ($somenteCh) {
+            $st = $pdo->prepare("
+                SELECT COUNT(*) AS total FROM (
+                    SELECT pi.id
+                    FROM pontos_iluminacao pi
+                    INNER JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+                        AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')
+                    WHERE $sqlWhere
+                    GROUP BY pi.id
+                ) sub
+            ");
+            $st->execute($params);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+
+            return (int) ($row['total'] ?? 0);
+        }
+
+        $st = $pdo->prepare("SELECT COUNT(*) AS total FROM pontos_iluminacao pi WHERE $sqlWhere");
+        $st->execute($params);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+
+        return (int) ($row['total'] ?? 0);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function repo_pontos_mapa_grid_precision(int $zoom, int $totalInBounds, bool $forcePoints = false): ?int
+{
+    if ($forcePoints) {
+        return null;
+    }
+
+    $precision = null;
+    if ($zoom <= 9) {
+        $precision = 1;
+    } elseif ($zoom <= 11) {
+        $precision = 2;
+    } elseif ($zoom <= 13) {
+        $precision = 3;
+    } elseif ($zoom <= 15) {
+        $precision = 4;
+    }
+
+    if ($precision === null) {
+        return null;
+    }
+
+    if ($totalInBounds > 5000) {
+        $precision = max(1, $precision - 2);
+    } elseif ($totalInBounds > 2000) {
+        $precision = max(1, $precision - 1);
+    } elseif ($totalInBounds < 200) {
+        $precision = min(5, $precision + 1);
+    }
+
+    return $precision;
+}
+
+/**
+ * Pontos ou clusters por área visível do mapa.
+ *
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ * @return array{items:list<array<string,mixed>>,total_in_bounds:int,total_estimated:int,limited:bool,message:string,mode:string}
+ */
+function repo_pontos_iluminacao_mapa_bounds(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $swLat,
+    float $swLng,
+    float $neLat,
+    float $neLng,
+    int $zoom,
+    array $filtros = []
+): array {
+    $pdo = db();
+    $empty = [
+        'items' => [],
+        'total_in_bounds' => 0,
+        'total_estimated' => 0,
+        'limited' => false,
+        'message' => '',
+        'mode' => 'points',
+    ];
+    if (!$pdo || $clienteId <= 0) {
+        return $empty;
+    }
+
+    $latMin = min($swLat, $neLat);
+    $latMax = max($swLat, $neLat);
+    $lngMin = min($swLng, $neLng);
+    $lngMax = max($swLng, $neLng);
+    $zoom = max(1, min(21, $zoom));
+
+    $totalInBounds = repo_pontos_iluminacao_mapa_bounds_count(
+        $clienteId,
+        $escopoEmpresa,
+        $swLat,
+        $swLng,
+        $neLat,
+        $neLng,
+        $filtros
+    );
+
+    $busca = trim((string) ($filtros['busca'] ?? ''));
+    $forcePoints = !empty($filtros['force_points']) || $busca !== '';
+    $gridPrecision = repo_pontos_mapa_grid_precision($zoom, $totalInBounds, $forcePoints);
+    if ($gridPrecision !== null) {
+        return _repo_pontos_iluminacao_mapa_bounds_grid(
+            $clienteId,
+            $escopoEmpresa,
+            $latMin,
+            $latMax,
+            $lngMin,
+            $lngMax,
+            $zoom,
+            $gridPrecision,
+            $filtros,
+            $totalInBounds
+        );
+    }
+
+    return _repo_pontos_iluminacao_mapa_bounds_points(
+        $clienteId,
+        $escopoEmpresa,
+        $latMin,
+        $latMax,
+        $lngMin,
+        $lngMax,
+        $zoom,
+        $filtros,
+        $totalInBounds
+    );
+}
+
+/**
+ * Postes mais próximos de coordenadas de referência (modo pinpoint do mapa).
+ *
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ * @return array{items:list<array<string,mixed>>,total_in_bounds:int,total_estimated:int,limited:bool,message:string,mode:string}
+ */
+function repo_pontos_iluminacao_mapa_proximo(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $refLat,
+    float $refLng,
+    int $raioM,
+    array $filtros = []
+): array {
+    $pdo = db();
+    $raioM = max(1, min(100, $raioM));
+    $empty = [
+        'items' => [],
+        'total_in_bounds' => 0,
+        'total_estimated' => 0,
+        'limited' => false,
+        'message' => 'Nenhum poste a ' . $raioM . ' m destas coordenadas',
+        'mode' => 'pinpoint',
+    ];
+    if (!$pdo || $clienteId <= 0) {
+        return $empty;
+    }
+
+    $delta = 0.00025;
+    $latMin = $refLat - $delta;
+    $latMax = $refLat + $delta;
+    $lngMin = $refLng - $delta;
+    $lngMax = $refLng + $delta;
+
+    $params = [];
+    $sqlWhere = _repo_pontos_mapa_bounds_where($clienteId, $escopoEmpresa, $latMin, $latMax, $lngMin, $lngMax, $filtros, $params);
+    $somenteCh = !empty($filtros['somente_chamados_abertos']);
+
+    $refLatLit = sprintf('%.8F', $refLat);
+    $refLngLit = sprintf('%.8F', $refLng);
+    $params[] = $raioM;
+
+    $havingCh = $somenteCh ? ' AND ranked.chamados_abertos > 0' : '';
+
+    try {
+        $st = $pdo->prepare("
+            SELECT * FROM (
+                SELECT
+                    sub.*,
+                    (6371000 * ACOS(LEAST(1.0, GREATEST(-1.0,
+                        COS(RADIANS($refLatLit)) * COS(RADIANS(sub.latitude)) * COS(RADIANS(sub.longitude) - RADIANS($refLngLit))
+                        + SIN(RADIANS($refLatLit)) * SIN(RADIANS(sub.latitude))
+                    )))) AS dist_m
+                FROM (
+                    SELECT
+                        pi.id,
+                        pi.codigo_poste,
+                        pi.latitude,
+                        pi.longitude,
+                        pi.status,
+                        pi.bairro,
+                        SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                    FROM pontos_iluminacao pi
+                    LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+                    WHERE $sqlWhere
+                    GROUP BY pi.id, pi.codigo_poste, pi.latitude, pi.longitude, pi.status, pi.bairro
+                ) sub
+            ) ranked
+            WHERE ranked.dist_m <= ? $havingCh
+            ORDER BY ranked.dist_m ASC
+            LIMIT 5
+        ");
+        $st->execute($params);
+        $items = [];
+        foreach (($st->fetchAll(PDO::FETCH_ASSOC) ?: []) as $r) {
+            $abertos = (int) ($r['chamados_abertos'] ?? 0);
+            $items[] = [
+                'type' => 'point',
+                'id' => (int) ($r['id'] ?? 0),
+                'codigo_poste' => (string) ($r['codigo_poste'] ?? ''),
+                'lat' => (float) ($r['latitude'] ?? 0),
+                'lng' => (float) ($r['longitude'] ?? 0),
+                'status' => (string) ($r['status'] ?? ''),
+                'bairro' => (string) ($r['bairro'] ?? ''),
+                'chamados_abertos' => $abertos,
+                'dist_m' => round((float) ($r['dist_m'] ?? 0), 1),
+            ];
+        }
+
+        $count = count($items);
+        if ($count === 0) {
+            $message = 'Nenhum poste a ' . $raioM . ' m destas coordenadas';
+        } elseif ($count === 1) {
+            $message = '1 poste neste ponto';
+        } else {
+            $message = $count . ' postes a até ' . $raioM . ' m';
+        }
+
+        return [
+            'items' => $items,
+            'total_in_bounds' => $count,
+            'total_estimated' => $count,
+            'limited' => false,
+            'message' => $message,
+            'mode' => 'pinpoint',
+        ];
+    } catch (Throwable $e) {
+        return $empty;
+    }
+}
+
+/**
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ * @return array{items:list<array<string,mixed>>,total_in_bounds:int,total_estimated:int,limited:bool,message:string,mode:string}
+ */
+function _repo_pontos_iluminacao_mapa_bounds_points(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $latMin,
+    float $latMax,
+    float $lngMin,
+    float $lngMax,
+    int $zoom,
+    array $filtros,
+    int $totalInBounds
+): array {
+    $pdo = db();
+    $params = [];
+    $sqlWhere = _repo_pontos_mapa_bounds_where($clienteId, $escopoEmpresa, $latMin, $latMax, $lngMin, $lngMax, $filtros, $params);
+    $somenteCh = !empty($filtros['somente_chamados_abertos']);
+    $having = $somenteCh ? ' HAVING chamados_abertos > 0' : '';
+    $forcePoints = !empty($filtros['force_points']);
+    $limit = $forcePoints ? 3000 : 800;
+
+    try {
+        $st = $pdo->prepare("
+            SELECT
+                pi.id,
+                pi.codigo_poste,
+                pi.latitude,
+                pi.longitude,
+                pi.status,
+                pi.bairro,
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+            FROM pontos_iluminacao pi
+            LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
+            WHERE $sqlWhere
+            GROUP BY pi.id
+            $having
+            ORDER BY pi.id ASC
+            LIMIT $limit
+        ");
+        $st->execute($params);
+        $items = [];
+        foreach (($st->fetchAll(PDO::FETCH_ASSOC) ?: []) as $r) {
+            $abertos = (int) ($r['chamados_abertos'] ?? 0);
+            $items[] = [
+                'type' => 'point',
+                'id' => (int) ($r['id'] ?? 0),
+                'codigo_poste' => (string) ($r['codigo_poste'] ?? ''),
+                'lat' => (float) ($r['latitude'] ?? 0),
+                'lng' => (float) ($r['longitude'] ?? 0),
+                'status' => (string) ($r['status'] ?? ''),
+                'bairro' => (string) ($r['bairro'] ?? ''),
+                'chamados_abertos' => $abertos,
+            ];
+        }
+
+        $count = count($items);
+        $limited = $count < $totalInBounds;
+        $message = '';
+        if ($limited) {
+            $message = 'Exibindo ' . $count . ' de ~' . $totalInBounds . '. Aproxime o mapa para carregar com mais precisão.';
+        }
+
+        return [
+            'items' => $items,
+            'total_in_bounds' => $totalInBounds,
+            'total_estimated' => $totalInBounds,
+            'limited' => $limited,
+            'message' => $message,
+            'mode' => 'points',
+        ];
+    } catch (Throwable $e) {
+        return [
+            'items' => [],
+            'total_in_bounds' => $totalInBounds,
+            'total_estimated' => $totalInBounds,
+            'limited' => false,
+            'message' => '',
+            'mode' => 'points',
+        ];
+    }
+}
+
+/**
+ * @param array{status?:string,bairro?:string,busca?:string,somente_chamados_abertos?:bool} $filtros
+ * @return array{items:list<array<string,mixed>>,total_in_bounds:int,total_estimated:int,limited:bool,message:string,mode:string}
+ */
+function _repo_pontos_iluminacao_mapa_bounds_grid(
+    int $clienteId,
+    bool $escopoEmpresa,
+    float $latMin,
+    float $latMax,
+    float $lngMin,
+    float $lngMax,
+    int $zoom,
+    int $precision,
+    array $filtros,
+    int $totalInBounds
+): array {
+    $pdo = db();
+    $params = [];
+    $sqlWhere = _repo_pontos_mapa_bounds_where($clienteId, $escopoEmpresa, $latMin, $latMax, $lngMin, $lngMax, $filtros, $params);
+    $somenteCh = !empty($filtros['somente_chamados_abertos']);
+    $having = $somenteCh ? ' HAVING com_chamado > 0' : '';
+    $prec = max(1, min(6, $precision));
+    $clusterLimit = 400;
+
+    try {
+        $st = $pdo->prepare("
+            SELECT
+                ROUND(pi.latitude, $prec) AS grid_lat,
+                ROUND(pi.longitude, $prec) AS grid_lng,
+                AVG(pi.latitude) AS lat,
+                AVG(pi.longitude) AS lng,
+                COUNT(*) AS count,
+                SUM(CASE WHEN pi.status = 'Ativo' THEN 1 ELSE 0 END) AS status_ativo,
+                SUM(CASE WHEN pi.status = 'Inativo' THEN 1 ELSE 0 END) AS status_inativo,
+                SUM(CASE WHEN COALESCE(ch_open.abertos, 0) > 0 THEN 1 ELSE 0 END) AS com_chamado
+            FROM pontos_iluminacao pi
+            LEFT JOIN (
+                SELECT ponto_iluminacao_id,
+                    SUM(CASE WHEN status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS abertos
+                FROM chamados
+                GROUP BY ponto_iluminacao_id
+            ) ch_open ON ch_open.ponto_iluminacao_id = pi.id
+            WHERE $sqlWhere
+            GROUP BY grid_lat, grid_lng
+            $having
+            ORDER BY count DESC
+            LIMIT $clusterLimit
+        ");
+        $st->execute($params);
+        $items = [];
+        foreach (($st->fetchAll(PDO::FETCH_ASSOC) ?: []) as $r) {
+            $items[] = [
+                'type' => 'cluster',
+                'count' => (int) ($r['count'] ?? 0),
+                'lat' => (float) ($r['lat'] ?? 0),
+                'lng' => (float) ($r['lng'] ?? 0),
+                'status_summary' => [
+                    'ativo' => (int) ($r['status_ativo'] ?? 0),
+                    'inativo' => (int) ($r['status_inativo'] ?? 0),
+                    'com_chamado' => (int) ($r['com_chamado'] ?? 0),
+                ],
+            ];
+        }
+
+        $count = count($items);
+        $limited = $count >= $clusterLimit;
+        $message = 'Aproxime o mapa para visualizar postes individuais.';
+        if ($totalInBounds > 0) {
+            $message = $count . ' região(ões) agregada(s) · ' . $totalInBounds . ' poste(s) nesta área. Aproxime o mapa.';
+            if ($limited) {
+                $message = 'Exibindo ' . $count . ' regiões principais · ' . $totalInBounds . ' poste(s) nesta área. Aproxime o mapa.';
+            }
+        }
+
+        return [
+            'items' => $items,
+            'total_in_bounds' => $totalInBounds,
+            'total_estimated' => $totalInBounds,
+            'limited' => $limited,
+            'message' => $message,
+            'mode' => 'grid',
+        ];
+    } catch (Throwable $e) {
+        return [
+            'items' => [],
+            'total_in_bounds' => $totalInBounds,
+            'total_estimated' => $totalInBounds,
+            'limited' => false,
+            'message' => '',
+            'mode' => 'grid',
+        ];
+    }
 }
 
 function repo_chamados(): array
@@ -5329,6 +6165,21 @@ function repo_create_usuario(array $d): ?int
     $pdo = db();
     if (!$pdo) return null;
 
+    $perfil = strtolower(trim((string) ($d['perfil'] ?? 'cliente')));
+    if (in_array($perfil, ['cliente', 'operador', 'gestor'], true)) {
+        $cidPlano = !empty($d['cliente_id']) ? (int) $d['cliente_id'] : 0;
+        $eidPlano = !empty($d['empresa_id']) ? (int) $d['empresa_id'] : 0;
+        $clientePlano = $cidPlano > 0 ? $cidPlano : $eidPlano;
+        if ($clientePlano > 0) {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            try {
+                cliente_plano_assert($clientePlano, 'usuarios', 1);
+            } catch (RuntimeException $e) {
+                throw $e;
+            }
+        }
+    }
+
     $senhaPlana = (string) ($d['senha'] ?? '');
     if (strlen($senhaPlana) < 6) {
         return null;
@@ -5405,7 +6256,16 @@ function repo_create_usuario(array $d): ?int
             $iniciais,
         ]);
     }
-    return (int) $pdo->lastInsertId();
+    $newUid = (int) $pdo->lastInsertId();
+    if ($newUid > 0 && in_array($perfil, ['cliente', 'operador', 'gestor'], true)) {
+        $clienteWarn = ($cid !== null && $cid > 0) ? (int) $cid : (int) ($eid ?? 0);
+        if ($clienteWarn > 0) {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            cliente_plano_warn_pos_acao($clienteWarn, 'usuarios');
+        }
+    }
+
+    return $newUid;
 }
 
 function repo_email_existe(string $email): bool
@@ -5458,6 +6318,12 @@ function repo_create_chamado(array $d): ?int
     $dab = isset($d['data_abertura_os']) && $d['data_abertura_os'] !== null && $d['data_abertura_os'] !== ''
         ? (string) $d['data_abertura_os']
         : null;
+
+    $cidCh = (int) ($d['cliente_id'] ?? 0);
+    if ($cidCh > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        cliente_plano_assert($cidCh, 'chamados_mes', 1);
+    }
 
     $stmt = $pdo->prepare('
         INSERT INTO chamados (
@@ -5518,6 +6384,12 @@ function repo_create_chamado(array $d): ?int
         require_once __DIR__ . '/notificacoes.php';
         $autorNotif = (int) ($d['criado_por_user_id'] ?? 0);
         notificar_chamado_criado($nid, $autorNotif);
+        if ($cidLog > 0) {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            cliente_plano_warn_pos_acao($cidLog, 'chamados_mes');
+            require_once __DIR__ . '/pontos_mapa_cache.php';
+            pontos_mapa_cache_invalidate_cliente($cidLog);
+        }
     }
 
     return $nid;
@@ -5803,6 +6675,10 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
             }
         }
     }
+    if ($cidLog > 0) {
+        require_once __DIR__ . '/pontos_mapa_cache.php';
+        pontos_mapa_cache_invalidate_cliente($cidLog);
+    }
 
     return true;
 }
@@ -5889,6 +6765,10 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
                     repo_notificacao_insert((int) $uidDest, $id, null, $tituloSt, $descSt, $tipoNot);
                 }
             }
+        }
+        if ($cidLog > 0 && (string) ($antes['status'] ?? '') !== $status) {
+            require_once __DIR__ . '/pontos_mapa_cache.php';
+            pontos_mapa_cache_invalidate_cliente($cidLog);
         }
     }
 
@@ -7172,6 +8052,12 @@ function repo_chamado_item_adicionar(
         && trim((string) ($it['catalogo_fluxo_status'] ?? '')) === 'Criado') {
         $movimento = 'devolvido';
     }
+    require_once __DIR__ . '/cliente_plano_limites.php';
+    try {
+        cliente_plano_assert($cid, 'itens_mes', (int) ceil($quantidade));
+    } catch (RuntimeException $e) {
+        return ['ok' => false, 'err' => $e->getMessage()];
+    }
     $vuCat = (float) ($it['valor_unitario'] ?? 0);
     $vuInf = $valorUnitarioInformado !== null ? (float) $valorUnitarioInformado : 0.0;
     $subInf = $subtotalInformado !== null ? (float) $subtotalInformado : 0.0;
@@ -7218,6 +8104,8 @@ function repo_chamado_item_adicionar(
             'movimento'  => $movimento,
             'quantidade' => rtrim(rtrim(sprintf('%.4f', $quantidade), '0'), '.'),
         ]);
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        cliente_plano_warn_pos_acao($cid, 'itens_mes');
 
         return ['ok' => true, 'err' => ''];
     } catch (Throwable $e) {
@@ -8136,6 +9024,17 @@ function repo_create_chamado_anexo(array $d): ?int
     $pdo = db();
     if (!$pdo) return null;
 
+    $chAnexo = repo_chamado((int) ($d['chamado_id'] ?? 0));
+    $bytes = (int) ($d['tamanho'] ?? 0);
+    if ($chAnexo && $bytes > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        try {
+            cliente_plano_assert((int) ($chAnexo['cliente_id'] ?? 0), 'storage', $bytes);
+        } catch (RuntimeException $e) {
+            throw $e;
+        }
+    }
+
     $stmt = $pdo->prepare('
         INSERT INTO chamado_anexos
             (chamado_id, resposta_id, nome_original, nome_arquivo, mime, tamanho,
@@ -8179,6 +9078,10 @@ function repo_create_chamado_anexo(array $d): ?int
                 : substr(trim((string) ($d['enviado_por'] ?? '')), 0, 120),
             'tipo_ficheiro'  => $ehFoto ? 'imagem' : 'outro',
         ]);
+        if ($cidA > 0) {
+            require_once __DIR__ . '/cliente_plano_limites.php';
+            cliente_plano_warn_pos_acao($cidA, 'storage');
+        }
     }
 
     return $newId;
@@ -9413,6 +10316,17 @@ function repo_create_cliente_anexo(array $d): ?int
     $pdo = db();
     if (!$pdo) return null;
 
+    $bytes = (int) ($d['tamanho'] ?? 0);
+    $cidAn = (int) ($d['cliente_id'] ?? 0);
+    if ($cidAn > 0 && $bytes > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        try {
+            cliente_plano_assert($cidAn, 'storage', $bytes);
+        } catch (RuntimeException $e) {
+            throw $e;
+        }
+    }
+
     $stmt = $pdo->prepare('
         INSERT INTO cliente_anexos
             (cliente_id, nome_original, nome_arquivo, mime, tamanho, tipo, descricao, enviado_por)
@@ -9429,7 +10343,13 @@ function repo_create_cliente_anexo(array $d): ?int
         ':descricao'     => $d['descricao'] ?? null,
         ':enviado_por'   => $d['enviado_por'] ?? null,
     ]);
-    return (int) $pdo->lastInsertId();
+    $newAnexoId = (int) $pdo->lastInsertId();
+    if ($newAnexoId > 0 && $cidAn > 0) {
+        require_once __DIR__ . '/cliente_plano_limites.php';
+        cliente_plano_warn_pos_acao($cidAn, 'storage');
+    }
+
+    return $newAnexoId;
 }
 
 function repo_cliente_anexos(int $clienteId): array

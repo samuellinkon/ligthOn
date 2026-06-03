@@ -23,6 +23,8 @@ if ($dashPainel === 'cliente') {
 $mapPeriodoRaw = strtolower(trim((string) ($_GET['map_periodo'] ?? '')));
 $mapPeriodoAllowed = ['hoje', 'ontem', 'semana', 'mes'];
 $mapPeriodo = in_array($mapPeriodoRaw, $mapPeriodoAllowed, true) ? $mapPeriodoRaw : 'mes';
+$mapMesRaw = trim((string) ($_GET['map_mes'] ?? ''));
+$mapMes = preg_match('/^\d{4}-\d{2}$/', $mapMesRaw) ? $mapMesRaw : '';
 
 $todayDash = new DateTimeImmutable('today');
 switch ($mapPeriodo) {
@@ -39,8 +41,15 @@ switch ($mapPeriodo) {
         break;
     case 'mes':
     default:
-        $mapDe = $todayDash->modify('first day of this month')->format('Y-m-d');
-        $mapAte = $todayDash->modify('last day of this month')->format('Y-m-d');
+        $ym = $mapMes !== '' ? $mapMes : $todayDash->format('Y-m');
+        $mesRef = DateTimeImmutable::createFromFormat('!Y-m-d', $ym . '-01');
+        if (!$mesRef) {
+            $mesRef = $todayDash->modify('first day of this month');
+            $ym = $mesRef->format('Y-m');
+        }
+        $mapMes = $ym;
+        $mapDe = $mesRef->format('Y-m-d');
+        $mapAte = $mesRef->modify('last day of this month')->format('Y-m-d');
         break;
 }
 
@@ -72,17 +81,37 @@ if ($dashMapaAba === 'pontos' && !$modulePontosMap && $moduleChamadosMap) {
     $dashMapaAba = 'chamados';
 }
 
+if (
+    $mapPeriodoRaw === ''
+    && ($moduleChamadosMap || $modulePontosMap)
+    && strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
+    && !headers_sent()
+) {
+    $params = $_GET;
+    $params['map_periodo'] = 'mes';
+    if (!isset($params['dash_mapa']) && !isset($params['mapa'])) {
+        $params['dash_mapa'] = $dashMapaAba;
+    }
+    header('Location: index.php?' . http_build_query($params));
+    exit;
+}
+
 $pontoMapFiltro = strtolower(trim((string) ($_GET['ponto_filtro'] ?? '')));
-if (!in_array($pontoMapFiltro, ['', 'chamados'], true)) {
+if (!in_array($pontoMapFiltro, ['', 'chamados', 'ativo', 'inativo'], true)) {
     $pontoMapFiltro = '';
 }
 
-$scopeIdPontos          = 0;
-$pontosPinsPass         = [];
-$pontosPinsTodos        = [];
-$bairrosPontosDash      = [];
-$totalPontosComChamados = 0;
-$empresasDashOptions    = [];
+$scopeIdPontos            = 0;
+$pontosPinsPass           = [];
+$pontosPinsTodos          = [];
+$totalPontosComGeo        = 0;
+$bairrosPontosDash        = [];
+$totalPontosComChamados   = 0;
+$totalAtivosPontosDash    = 0;
+$totalInativosPontosDash  = 0;
+$empresasDashOptions      = [];
+$dashPontosHrefRotas      = '';
+$dashPontosMapSubtitulo   = 'Todos os pontos com coordenadas';
 
 if ($modulePontosMap || $moduleChamadosMap) {
     if ($dashPainel === 'cliente') {
@@ -127,26 +156,29 @@ if ($modulePontosMap || $moduleChamadosMap) {
         if ($dashPainel === 'admin') {
             gestor_assert_escopo_cliente($scopeIdPontos, 'index.php');
         }
-        $pontosPinsTodos = repo_pontos_iluminacao_mapa($scopeIdPontos, true);
-        $totalPontosComChamados = count(array_filter($pontosPinsTodos, static function (array $p): bool {
-            return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-        }));
-        $pontosPinsPass = $pontosPinsTodos;
-        if ($pontoMapFiltro === 'chamados') {
-            $pontosPinsPass = array_values(array_filter($pontosPinsTodos, static function (array $p): bool {
-                return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-            }));
-        }
-        $bMap = [];
-        foreach ($pontosPinsTodos as $pp) {
-            $br = trim((string) ($pp['bairro'] ?? ''));
-            if ($br !== '') {
-                $bMap[$br] = true;
-            }
-        }
-        $bairrosPontosDash = array_keys($bMap);
-        natcasesort($bairrosPontosDash);
-        $bairrosPontosDash = array_values($bairrosPontosDash);
+        $pontosStatsEscopo = repo_pontos_iluminacao_estatisticas_escopo($scopeIdPontos, true);
+        $totalPontosComGeo = (int) ($pontosStatsEscopo['com_geo'] ?? 0);
+        $totalPontosComChamados = (int) ($pontosStatsEscopo['com_chamados_abertos'] ?? 0);
+        $totalAtivosPontosDash = (int) ($pontosStatsEscopo['ativos'] ?? 0);
+        $totalInativosPontosDash = (int) ($pontosStatsEscopo['inativos'] ?? 0);
+        $pontosPinsPass = [];
+        $bairrosPontosDash = repo_pontos_iluminacao_bairros_distintos($scopeIdPontos, true);
+        $pontoMapStatusFiltro = match ($pontoMapFiltro) {
+            'ativo' => 'Ativo',
+            'inativo' => 'Inativo',
+            default => '',
+        };
+        $crmPontosMapaConfigDash = crm_pontos_mapa_js_config(
+            $scopeIdPontos,
+            [
+                'status' => $pontoMapStatusFiltro,
+                'somente_chamados_abertos' => $pontoMapFiltro === 'chamados',
+            ],
+            $basePath ?? '../'
+        );
+        $dashPontosHrefRotas = ($dashPainel !== 'cliente' && $scopeIdPontos > 0)
+            ? 'pontos_iluminacao_rotas.php?cliente_id=' . $scopeIdPontos
+            : '';
     }
 }
 
@@ -174,7 +206,12 @@ $statusChamadosMap = array_keys($statusChamadosMap);
 natcasesort($statusChamadosMap);
 $statusChamadosMap = array_values($statusChamadosMap);
 
-$mapPeriodoLabel = date('d/m/Y', strtotime($mapDe)) . ' a ' . date('d/m/Y', strtotime($mapAte));
+if (!function_exists('medicao_mes_label_pt')) {
+    require_once __DIR__ . '/medicao_helpers.php';
+}
+$mapPeriodoLabel = $mapPeriodo === 'mes'
+    ? medicao_mes_label_pt($mapMes)
+    : date('d/m/Y', strtotime($mapDe)) . ' a ' . date('d/m/Y', strtotime($mapAte));
 $mapEmptyMsg     = null;
 $mapLoadingMsg   = null;
 if ($moduleChamadosMap) {
@@ -218,6 +255,15 @@ $loadLeafletChamados      = $moduleChamadosMap && $dashMapaAba === 'chamados';
 $loadPontosMap            = $modulePontosMap && $scopeIdPontos > 0 && $dashMapaAba === 'pontos';
 $loadMapaCombinado        = $moduleChamadosMap && $modulePontosMap && $scopeIdPontos > 0 && $dashMapaAba === 'ambos';
 $dashMapsAtivos           = $loadLeafletChamados || $loadPontosMap || $loadMapaCombinado;
+$loadPontosIluminacaoPageLoader = $loadPontosMap;
+$pontosPageLoaderMsg      = $loadPontosMap ? 'Preparando mapa de pontos…' : null;
+
+$dashPontosMapSubtitulo = match ($pontoMapFiltro) {
+    'chamados' => 'Somente postes com chamado em aberto',
+    'ativo' => 'Somente postes ativos',
+    'inativo' => 'Somente postes inativos',
+    default => 'Todos os pontos com coordenadas',
+};
 $loadGoogleMapsJs         = $dashMapsAtivos && crm_google_maps_has_api_key();
 $loadLeaflet              = $dashMapsAtivos && !$loadGoogleMapsJs;
 $loadLeafletMarkerCluster = $loadLeaflet;
@@ -225,8 +271,11 @@ $loadLeafletMarkerCluster = $loadLeaflet;
 $dashHrefChamados       = 'chamados.php';
 $dashHrefChamadosAbertos = 'chamados.php?f=Aberto';
 
-$dashQsPreserve = static function (array $override = []) use ($mapPeriodo, $escopoDash, $scopeIdPontos, $pontoMapFiltro, $dashMapaAba, $modoClienteUnicoAdmin, $dashPainel): string {
+$dashQsPreserve = static function (array $override = []) use ($mapPeriodo, $mapMes, $escopoDash, $scopeIdPontos, $pontoMapFiltro, $dashMapaAba, $modoClienteUnicoAdmin, $dashPainel): string {
     $qs = ['map_periodo' => $mapPeriodo, 'dash_mapa' => $dashMapaAba];
+    if ($mapPeriodo === 'mes' && $mapMes !== '') {
+        $qs['map_mes'] = $mapMes;
+    }
     if ($dashPainel === 'admin' && $escopoDash === null && $scopeIdPontos > 0 && !$modoClienteUnicoAdmin) {
         $qs['dash_cliente_id'] = $scopeIdPontos;
     }

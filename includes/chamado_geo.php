@@ -20,6 +20,46 @@ function chamado_geo_uf_nome(string $uf): string
     return $map[$uf] ?? $uf;
 }
 
+/** Texto normalizado para comparação (lowercase, sem acentos). */
+function chamado_geo_texto_comparavel(string $s): string
+{
+    $s = mb_strtolower(trim($s), 'UTF-8');
+    if ($s === '') {
+        return '';
+    }
+    if (class_exists('Transliterator')) {
+        $tr = \Transliterator::create('NFD; [:Nonspacing Mark:] Remove; NFC');
+        if ($tr !== null) {
+            $converted = $tr->transliterate($s);
+            if (is_string($converted)) {
+                $s = $converted;
+            }
+        }
+    } elseif (function_exists('iconv')) {
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+        if ($converted !== false) {
+            $s = strtolower($converted);
+        }
+    }
+
+    $s = preg_replace('/[^a-z0-9\s]/', '', $s);
+    $s = preg_replace('/\s+/u', ' ', trim($s));
+
+    return $s;
+}
+
+function chamado_geo_texto_contem(string $haystack, string $needle): bool
+{
+    if ($needle === '') {
+        return true;
+    }
+
+    return str_contains(
+        chamado_geo_texto_comparavel($haystack),
+        chamado_geo_texto_comparavel($needle)
+    );
+}
+
 /**
  * Rejeita resultado de geocode fora da cidade/UF esperada (ex.: CEP "020" → Lavras do Sul/RS).
  */
@@ -31,36 +71,36 @@ function chamado_geocode_hit_matches_context(array $hit, string $cidade, string 
         return true;
     }
 
-    $dn = mb_strtolower((string) ($hit['display_name'] ?? ''), 'UTF-8');
+    $dn = (string) ($hit['display_name'] ?? '');
     if ($dn === '') {
         return false;
     }
 
     $addr = $hit['address'] ?? null;
     if (is_array($addr)) {
-        $st = mb_strtolower(trim((string) ($addr['state'] ?? '')), 'UTF-8');
-        $ufNome = mb_strtolower(chamado_geo_uf_nome($uf), 'UTF-8');
+        $st = trim((string) ($addr['state'] ?? ''));
+        $ufNome = chamado_geo_uf_nome($uf);
         if ($uf !== '' && $st !== '') {
-            $okUf = ($st === mb_strtolower($uf, 'UTF-8'))
-                || ($ufNome !== '' && (str_contains($st, $ufNome) || str_contains($ufNome, $st)));
+            $okUf = chamado_geo_texto_contem($st, $uf)
+                || ($ufNome !== '' && (chamado_geo_texto_contem($st, $ufNome) || chamado_geo_texto_contem($ufNome, $st)));
             if (!$okUf) {
                 return false;
             }
         }
-        $ct = mb_strtolower(trim((string) ($addr['city'] ?? $addr['town'] ?? $addr['municipality'] ?? '')), 'UTF-8');
-        if ($cidade !== '' && $ct !== '' && !str_contains($ct, mb_strtolower($cidade, 'UTF-8'))) {
+        $ct = trim((string) ($addr['city'] ?? $addr['town'] ?? $addr['municipality'] ?? ''));
+        if ($cidade !== '' && $ct !== '' && !chamado_geo_texto_contem($ct, $cidade)) {
             return false;
         }
     }
 
     if ($uf !== '') {
-        $ufNome = mb_strtolower(chamado_geo_uf_nome($uf), 'UTF-8');
-        if (!str_contains($dn, mb_strtolower($uf, 'UTF-8')) && ($ufNome === '' || !str_contains($dn, $ufNome))) {
+        $ufNome = chamado_geo_uf_nome($uf);
+        if (!chamado_geo_texto_contem($dn, $uf) && ($ufNome === '' || !chamado_geo_texto_contem($dn, $ufNome))) {
             return false;
         }
     }
 
-    if ($cidade !== '' && !str_contains($dn, mb_strtolower($cidade, 'UTF-8'))) {
+    if ($cidade !== '' && !chamado_geo_texto_contem($dn, $cidade)) {
         return false;
     }
 
@@ -117,21 +157,18 @@ function chamado_geocode_hit_matches_logradouro(array $hit, string $logradouro):
         return true;
     }
 
-    $hay = mb_strtolower((string) ($hit['display_name'] ?? ''), 'UTF-8');
+    $hay = (string) ($hit['display_name'] ?? '');
     $addr = $hit['address'] ?? null;
     if (is_array($addr)) {
-        $hay .= ' ' . mb_strtolower(
-            trim(
-                (string) ($addr['road'] ?? '')
-                . ' ' . (string) ($addr['street'] ?? '')
-                . ' ' . (string) ($addr['pedestrian'] ?? '')
-            ),
-            'UTF-8'
+        $hay .= ' ' . trim(
+            (string) ($addr['road'] ?? '')
+            . ' ' . (string) ($addr['street'] ?? '')
+            . ' ' . (string) ($addr['pedestrian'] ?? '')
         );
     }
 
     foreach ($significant as $tok) {
-        if (str_contains($hay, $tok)) {
+        if (chamado_geo_texto_contem($hay, $tok)) {
             return true;
         }
     }
@@ -142,15 +179,20 @@ function chamado_geocode_hit_matches_logradouro(array $hit, string $logradouro):
 /**
  * @param array<int, array<string, mixed>> $hits
  */
-function chamado_geocode_pick_best_hit(array $hits, string $cidade, string $uf, string $logradouro = ''): ?array
-{
+function chamado_geocode_pick_best_hit(
+    array $hits,
+    string $cidade,
+    string $uf,
+    string $logradouro = '',
+    bool $requireLogradouro = true
+): ?array {
     $best = null;
     $bestScore = -1;
     foreach ($hits as $hit) {
         if (!is_array($hit) || !chamado_geocode_hit_matches_context($hit, $cidade, $uf)) {
             continue;
         }
-        if (!chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
+        if ($requireLogradouro && !chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
             continue;
         }
         $sc = chamado_geocode_hit_score($hit);
@@ -161,6 +203,19 @@ function chamado_geocode_pick_best_hit(array $hits, string $cidade, string $uf, 
     }
 
     return $best;
+}
+
+/**
+ * @param array<int, array<string, mixed>> $hits
+ */
+function chamado_geocode_pick_best_hit_relaxed(array $hits, string $cidade, string $uf, string $logradouro = ''): ?array
+{
+    $strict = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true);
+    if ($strict !== null) {
+        return $strict;
+    }
+
+    return chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, false);
 }
 
 /**
@@ -300,7 +355,7 @@ function chamado_geocode_resolve_os(
         if (!$r['ok']) {
             continue;
         }
-        $hit = chamado_geocode_pick_best_hit($r['hits'], $city, $uf, $logForPick);
+        $hit = chamado_geocode_pick_best_hit_relaxed($r['hits'], $city, $uf, $logForPick);
         if ($hit !== null) {
             return ['hit' => $hit, 'rate_limited' => false];
         }
@@ -515,6 +570,7 @@ function chamado_geocode_attempts_com_cep(array $ch): array
         return chamado_geocode_attempts($ch);
     }
     $cepFmt = substr($cepRaw, 0, 5) . '-' . substr($cepRaw, 5);
+    $pushQ($cepFmt . ', Brasil');
 
     $log    = trim((string) ($ch['os_logradouro'] ?? ''));
     $num    = trim((string) ($ch['os_numero'] ?? ''));
@@ -552,6 +608,37 @@ function chamado_geocode_attempts_com_cep(array $ch): array
             }
             $out[] = $row;
         }
+
+        if (chamado_geo_numero_valido($num)) {
+            $streetSemNum = $log;
+            $keySemNum    = 's:' . mb_strtolower($streetSemNum . '|' . $cidade . '|' . $uf . '|' . $cepFmt . '|semnum', 'UTF-8');
+            if (!isset($seen[$keySemNum])) {
+                $seen[$keySemNum] = true;
+                $rowSemNum        = [
+                    'type'   => 'structured',
+                    'street' => $streetSemNum,
+                    'city'   => $cidade,
+                    'state'  => $ufNom,
+                ];
+                if ($cepFmt !== '') {
+                    $rowSemNum['postalcode'] = $cepFmt;
+                }
+                $out[] = $rowSemNum;
+            }
+        }
+    }
+
+    if ($log !== '' && !chamado_geo_numero_valido($num)) {
+        $partsSemNum = [$log, $cepFmt];
+        if ($bairro !== '') {
+            $partsSemNum[] = $bairro;
+        }
+        if ($cidade !== '' && $uf !== '') {
+            $partsSemNum[] = $cidade . ' - ' . $uf;
+        } elseif ($cidade !== '') {
+            $partsSemNum[] = $cidade;
+        }
+        $pushQ(implode(', ', $partsSemNum));
     }
 
     if ($log !== '') {
@@ -573,6 +660,10 @@ function chamado_geocode_attempts_com_cep(array $ch): array
 
     if ($cidade !== '' && $uf !== '') {
         $pushQ($cepFmt . ', ' . $cidade . ' - ' . $uf);
+    }
+
+    if ($bairro !== '' && $cidade !== '' && $uf !== '') {
+        $pushQ($cepFmt . ', ' . $bairro . ', ' . $cidade . ' - ' . $uf);
     }
 
     foreach (chamado_geocode_attempts($ch) as $attempt) {
@@ -958,4 +1049,57 @@ function chamado_google_maps_embed_api_key(): string
 function chamado_street_view_embed_url(float $lat, float $lng, string $apiKey = ''): string
 {
     return crm_google_maps_embed_streetview_url($lat, $lng, $apiKey);
+}
+
+/** Centro e zoom padrão do mapa de pontos (Prefeitura do Ipojuca). */
+function crm_pontos_iluminacao_mapa_centro_default(): array
+{
+    return [
+        'lat' => -8.398075,
+        'lng' => -35.063889,
+        'zoom' => 10,
+    ];
+}
+
+/** URL relativa da API de detalhe do poste no mapa. */
+function crm_ponto_mapa_detalhe_api_url(string $basePath = '../'): string
+{
+    $base = rtrim(str_replace('\\', '/', $basePath), '/');
+    if ($base === '' || $base === '.') {
+        return 'api/ponto_mapa_detalhe.php';
+    }
+
+    return $base . '/api/ponto_mapa_detalhe.php';
+}
+
+/** URL relativa da API de pontos por viewport do mapa. */
+function crm_pontos_mapa_api_url(string $basePath = '../'): string
+{
+    $base = rtrim(str_replace('\\', '/', $basePath), '/');
+    if ($base === '' || $base === '.') {
+        return 'api/pontos_mapa.php';
+    }
+
+    return $base . '/api/pontos_mapa.php';
+}
+
+/** Configuração padrão enviada ao JavaScript do mapa por viewport. */
+function crm_pontos_mapa_js_config(int $escopoId, array $filtros = [], string $basePath = '../'): array
+{
+    if (!function_exists('pontos_mapa_cache_generation')) {
+        require_once __DIR__ . '/pontos_mapa_cache.php';
+    }
+
+    return [
+        'escopo_id' => $escopoId,
+        'api_url' => crm_pontos_mapa_api_url($basePath),
+        'detalhe_api_url' => crm_ponto_mapa_detalhe_api_url($basePath),
+        'center' => crm_pontos_iluminacao_mapa_centro_default(),
+        'cache_gen' => pontos_mapa_cache_generation($escopoId),
+        'filtros' => [
+            'status' => (string) ($filtros['status'] ?? ''),
+            'somente_chamados_abertos' => !empty($filtros['somente_chamados_abertos']),
+        ],
+        'debug' => defined('CRM_DEBUG') && CRM_DEBUG,
+    ];
 }

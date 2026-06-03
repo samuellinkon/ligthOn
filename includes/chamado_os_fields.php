@@ -397,6 +397,98 @@ function chamado_os_parse_post(array $post): array
     ];
 }
 
+/**
+ * Pré-preenche novo chamado quando a URL traz ?ponto_iluminacao_id= (ex.: mapa → Abrir chamado).
+ *
+ * @param array<string, mixed> $chOsVals
+ * @param list<array<string, mixed>> $pontosOpcoes
+ * @param array{
+ *   modo: 'cliente'|'gestao',
+ *   cliente_id?: int,
+ *   empresa_escopo_id?: int|null,
+ * } $ctx
+ * @return array{
+ *   ch_os_vals: array<string, mixed>,
+ *   pontos_opcoes: list<array<string, mixed>>,
+ *   cliente_id: int,
+ * }
+ */
+function chamado_novo_aplicar_ponto_da_url(array $chOsVals, array $pontosOpcoes, array $ctx): array
+{
+    $clienteId = (int) ($ctx['cliente_id'] ?? 0);
+    $result = [
+        'ch_os_vals'     => $chOsVals,
+        'pontos_opcoes'  => $pontosOpcoes,
+        'cliente_id'     => $clienteId,
+    ];
+
+    $pontoId = (int) ($_GET['ponto_iluminacao_id'] ?? 0);
+    if ($pontoId <= 0) {
+        return $result;
+    }
+    if (!function_exists('db_ok') || !db_ok()) {
+        return $result;
+    }
+
+    require_once __DIR__ . '/repository.php';
+
+    $modo = (string) ($ctx['modo'] ?? 'cliente');
+    $empresaEscopo = array_key_exists('empresa_escopo_id', $ctx) ? $ctx['empresa_escopo_id'] : null;
+
+    if ($modo === 'cliente') {
+        if ($clienteId <= 0) {
+            return $result;
+        }
+        $empresaRaiz = repo_cliente_matriz_raiz_id($clienteId);
+        if ($empresaRaiz <= 0 || !repo_ponto_iluminacao_pertence_empresa($pontoId, $empresaRaiz)) {
+            return $result;
+        }
+    } elseif ($empresaEscopo !== null && (int) $empresaEscopo > 0) {
+        if (!repo_ponto_iluminacao_pertence_empresa($pontoId, (int) $empresaEscopo)) {
+            return $result;
+        }
+    }
+
+    $ponto = repo_ponto_iluminacao($pontoId);
+    if (!$ponto) {
+        return $result;
+    }
+
+    $pontoClienteId = (int) ($ponto['cliente_id'] ?? 0);
+    if ($modo === 'cliente') {
+        $empresaRaiz = repo_cliente_matriz_raiz_id($clienteId);
+        if ($empresaRaiz > 0) {
+            $result['pontos_opcoes'] = repo_pontos_iluminacao_list($empresaRaiz, true, '', 'Ativo');
+        }
+        if ($pontoClienteId > 0) {
+            $result['cliente_id'] = $pontoClienteId;
+        }
+    } elseif ($modo === 'gestao' && $pontoClienteId > 0) {
+        $result['cliente_id'] = $pontoClienteId;
+        if ($empresaEscopo !== null && (int) $empresaEscopo > 0) {
+            $result['pontos_opcoes'] = repo_pontos_iluminacao_list((int) $empresaEscopo, true, '', 'Ativo');
+        } else {
+            $result['pontos_opcoes'] = repo_pontos_iluminacao_options($pontoClienteId);
+        }
+    }
+
+    $jaNaLista = false;
+    foreach ($result['pontos_opcoes'] as $pOpt) {
+        if ((int) ($pOpt['id'] ?? 0) === $pontoId) {
+            $jaNaLista = true;
+            break;
+        }
+    }
+    if (!$jaNaLista) {
+        $result['pontos_opcoes'][] = $ponto;
+    }
+
+    $result['ch_os_vals']['ponto_iluminacao_id'] = $pontoId;
+    $result['ch_os_vals'] = chamado_os_aplicar_dados_ponto($result['ch_os_vals'], $ponto, true);
+
+    return $result;
+}
+
 /** Operador não pode alterar itens/fotos após encerramento pelo gestor. */
 function operador_chamado_materiais_fotos_bloqueados(array $ch): bool
 {

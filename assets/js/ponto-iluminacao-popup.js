@@ -246,8 +246,127 @@
     return html;
   }
 
+  function renderLoadingPopup(pin) {
+    var codigo = escapeHtml(String((pin && pin.codigo_poste) || '…'));
+    return (
+      '<div class="map-popup map-popup--loading">' +
+      '<div class="map-popup__body" style="padding:20px 16px;text-align:center;">' +
+      '<p class="map-popup__loading-title">Poste ' +
+      codigo +
+      '</p>' +
+      '<p class="map-popup__loading-text">Carregando detalhes…</p>' +
+      '</div></div>'
+    );
+  }
+
+  function renderErrorPopup(pin, message) {
+    return (
+      '<div class="map-popup map-popup--error">' +
+      '<div class="map-popup__body" style="padding:16px;">' +
+      '<p class="map-popup__empty">' +
+      escapeHtml(message || 'Não foi possível carregar o poste.') +
+      '</p></div></div>'
+    );
+  }
+
+  function fetchPontoMapaDetalhe(pin, apiUrl) {
+    var id = pin && pin.id != null ? pin.id : 0;
+    var base = String(apiUrl || global.CRM_PONTO_MAPA_DETALHE_API || '').trim();
+    if (!base || !id) {
+      return Promise.reject(new Error('API de detalhe indisponível.'));
+    }
+    var sep = base.indexOf('?') >= 0 ? '&' : '?';
+    return fetch(base + sep + 'id=' + encodeURIComponent(String(id)), {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok || !data || !data.ok || !data.ponto) {
+          throw new Error((data && data.err) || 'Falha ao carregar detalhe.');
+        }
+        return data.ponto;
+      });
+    });
+  }
+
+  /**
+   * Abre popup no Google Maps (InfoWindow) com carregamento sob demanda.
+   */
+  function openLazyGoogle(opts) {
+    opts = opts || {};
+    var pin = opts.pin;
+    var map = opts.map;
+    var marker = opts.marker;
+    var infoWindow = opts.infoWindow;
+    var openFn = opts.openInfoWindow;
+    if (!pin || !map || !marker || !infoWindow || typeof openFn !== 'function') {
+      return;
+    }
+    openFn(infoWindow, map, marker, renderLoadingPopup(pin));
+    fetchPontoMapaDetalhe(pin, opts.apiUrl)
+      .then(function (ponto) {
+        openFn(infoWindow, map, marker, renderPontoIluminacaoPopup(ponto, opts.popupOptions));
+      })
+      .catch(function (err) {
+        openFn(
+          infoWindow,
+          map,
+          marker,
+          renderErrorPopup(pin, err && err.message ? err.message : undefined)
+        );
+      });
+  }
+
+  /**
+   * Vincula popup Leaflet com carregamento sob demanda.
+   */
+  function bindLazyLeaflet(marker, pin, options) {
+    options = options || {};
+    var popupOpts = {
+      maxWidth: options.maxWidth != null ? options.maxWidth : 360,
+      minWidth: options.minWidth != null ? options.minWidth : 280,
+    };
+    marker.bindPopup(renderLoadingPopup(pin), popupOpts);
+    marker.on('popupopen', function () {
+      if (marker._crmPontoDetalheCarregando) {
+        return;
+      }
+      if (marker._crmPontoDetalhePronto) {
+        marker.setPopupContent(
+          renderPontoIluminacaoPopup(
+            marker._crmPontoDetalhePronto,
+            options.popupOptions || { actions: 'full' }
+          )
+        );
+        return;
+      }
+      marker._crmPontoDetalheCarregando = true;
+      marker.setPopupContent(renderLoadingPopup(pin));
+      fetchPontoMapaDetalhe(pin, options.apiUrl)
+        .then(function (ponto) {
+          marker._crmPontoDetalhePronto = ponto;
+          marker.setPopupContent(
+            renderPontoIluminacaoPopup(ponto, options.popupOptions || { actions: 'full' })
+          );
+        })
+        .catch(function (err) {
+          marker.setPopupContent(
+            renderErrorPopup(pin, err && err.message ? err.message : undefined)
+          );
+        })
+        .finally(function () {
+          marker._crmPontoDetalheCarregando = false;
+        });
+    });
+  }
+
   global.CrmPontoIluminacaoPopup = {
     render: renderPontoIluminacaoPopup,
+    renderLoadingPopup: renderLoadingPopup,
+    renderErrorPopup: renderErrorPopup,
+    fetchPontoMapaDetalhe: fetchPontoMapaDetalhe,
+    openLazyGoogle: openLazyGoogle,
+    bindLazyLeaflet: bindLazyLeaflet,
     calcularStatusVisual: calcularStatusVisual,
     limitHistorico: limitHistorico,
     buildStreetViewUrl: buildStreetViewUrl,

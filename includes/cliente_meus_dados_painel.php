@@ -133,6 +133,11 @@ $desdeTxt = !empty($cliente['desde']) ? date('d/m/Y', strtotime((string) $client
     </div>
   </div>
 
+  <?php
+    $planoClienteRaizId = $empresaRaizId;
+    require __DIR__ . '/partials/cliente_plano_resumo_compacto.php'; // modal
+  ?>
+
   <!-- Acessos: abas Todos / Gestores / Clientes / Técnicos -->
   <div class="card cliente-acessos-card" style="margin-top:20px;">
     <div class="panel-head" style="flex-wrap:wrap;gap:12px;align-items:flex-start;">

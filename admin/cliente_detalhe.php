@@ -136,24 +136,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $newId = repo_create_usuario([
-            'nome'          => $nome,
-            'email'         => $email,
-            'senha'         => $senha,
-            'perfil'        => $perfilM,
-            'cliente_id'    => $clienteCriar,
-            'empresa_id'    => $empresaCriar,
-            'iniciais'      => repo_usuario_calcular_iniciais($nome),
-            'modulo_perfil' => null,
-        ]);
-        if (!$newId) {
-            flash_set('err', 'Não foi possível criar o usuário.');
+        try {
+            $newId = repo_create_usuario([
+                'nome'          => $nome,
+                'email'         => $email,
+                'senha'         => $senha,
+                'perfil'        => $perfilM,
+                'cliente_id'    => $clienteCriar,
+                'empresa_id'    => $empresaCriar,
+                'iniciais'      => repo_usuario_calcular_iniciais($nome),
+                'modulo_perfil' => null,
+            ]);
+            if (!$newId) {
+                flash_set('err', 'Não foi possível criar o usuário.');
+                header('Location: cliente_detalhe.php?id=' . $clienteId);
+                exit;
+            }
+            flash_set('ok', 'Usuário #' . $newId . ' criado. A conta já está ativa — pode entrar no portal com o e-mail e a senha definidos (sem confirmação por e-mail).');
+            header('Location: cliente_detalhe.php?id=' . $clienteId);
+            exit;
+        } catch (RuntimeException $e) {
+            flash_set('err', $e->getMessage());
             header('Location: cliente_detalhe.php?id=' . $clienteId);
             exit;
         }
-        flash_set('ok', 'Usuário #' . $newId . ' criado. A conta já está ativa — pode entrar no portal com o e-mail e a senha definidos (sem confirmação por e-mail).');
-        header('Location: cliente_detalhe.php?id=' . $clienteId);
-        exit;
     }
 }
 
@@ -183,6 +189,10 @@ $rowVincOper   = repo_cliente($empresaOperadorModal);
 $rowVincPortal = repo_cliente($clientePortalModal);
 $nomeEmpresaOperador  = trim((string) ($rowVincOper['empresa'] ?? ''));
 $nomeEmpresaPortal    = trim((string) ($rowVincPortal['empresa'] ?? ''));
+
+require_once __DIR__ . '/../includes/cliente_plano_limites.php';
+$topbarPlanoBtn = $empresaRaizId > 0 && repo_cliente_plano_columns_exists();
+$topbarPlanoWarn = $topbarPlanoBtn && cliente_plano_tem_alerta($empresaRaizId);
 
 $topTitle    = $cliente['empresa'];
 $topSubtitle = 'Cadastro #' . $clienteId . ' · ' . $cliente['status'];

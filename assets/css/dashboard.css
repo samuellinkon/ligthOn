@@ -550,6 +550,39 @@ a.card.metric.metric-card--link.metric-card--active {
   color: var(--danger, #dc2626);
 }
 
+.toast.toast-warn {
+  border-left-color: #d97706;
+}
+
+.toast.toast-warn .toast-icon {
+  background: rgba(217,119,6,.12);
+  color: #d97706;
+}
+
+.plano-alerta-topbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.plano-alerta-topbar a {
+  color: #b45309;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.plano-alerta-topbar-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 
@@ -980,8 +1013,473 @@ a.card.metric.metric-card--link.metric-card--active {
   .account-row { padding: 10px 16px; }
 }
 
-/* Mapa de chamados (dashboard) */
+/* Mapa dashboard — hierarquia visual (chamados + pontos) */
 .dashboard-map-card .panel-sub { max-width: 100%; }
+
+.dashboard-map-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+}
+.dashboard-map-header__content {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.dashboard-map-header__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+.dashboard-map-head-badge--primary {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+}
+.dashboard-map-head-badge--secondary {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.dashboard-map-card--chamados .dashboard-map-panel-head--compact,
+.dashboard-map-card--pontos .dashboard-map-panel-head--compact {
+  padding: 14px 18px 10px;
+  gap: 10px;
+  align-items: flex-start;
+}
+.dashboard-map-panel-head-main {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.dashboard-map-panel-head--compact h4,
+.dashboard-map-header h4 {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
+}
+.dashboard-map-panel-head--compact .panel-sub,
+.dashboard-map-header .panel-sub {
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
+  display: block;
+  color: #64748b;
+}
+.dashboard-map-head-badge {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.dashboard-map-panel-body--compact {
+  padding: 10px 18px 14px;
+}
+
+.dashboard-map-chamados-layout,
+.dashboard-map-pontos-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard-map-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 2px 0;
+}
+
+.dashboard-map-type-tabs--primary .btn-sm {
+  min-height: 38px;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 9px;
+}
+
+.dashboard-map-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dashboard-map-summary-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 84px;
+  padding: 6px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.dashboard-map-summary-chip:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.dashboard-map-summary-chip.is-active {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.12);
+}
+.dashboard-map-summary-chip__label {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.dashboard-map-summary-chip__value {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-map-summary-chip.is-active .dashboard-map-summary-chip__label {
+  color: #6d28d9;
+}
+.dashboard-map-summary-chip.is-active .dashboard-map-summary-chip__value {
+  color: #5b21b6;
+}
+
+.dashboard-map-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+.dashboard-map-filter-row .dashboard-map-chamados-period-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dashboard-map-filter-row .dashboard-map-chamados-period .btn-sm {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 7px;
+}
+.dashboard-map-filter-row .dashboard-map-chamados-period .btn-secondary {
+  background: #fff;
+  border-color: #e5e7eb;
+  color: #475569;
+}
+.dashboard-map-filter-row .dashboard-map-chamados-period .btn-primary {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+.dashboard-map-filter-row .dashboard-map-mes-picker-input {
+  min-height: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+.dashboard-map-filter-label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  line-height: 1;
+}
+
+.dashboard-map-tools-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-height: 32px;
+  max-height: none;
+  margin-top: 2px;
+  padding: 2px 0;
+}
+
+.dashboard-map-toolbar-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.dashboard-map-toolbar-secondary,
+.map-toolbar-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 8px;
+  min-height: 32px;
+}
+
+.dashboard-map-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dashboard-map-segmented .btn-sm {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 11px;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.dashboard-map-type-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.dashboard-map-chamados-period-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dashboard-map-chamados-period {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: auto;
+  margin: 0;
+}
+
+.dashboard-map-mes-picker-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.dashboard-map-mes-picker-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+.dashboard-map-mes-picker-label-text {
+  color: #64748b;
+}
+.dashboard-map-mes-picker-input {
+  min-height: 36px;
+  height: 36px;
+  min-width: 132px;
+  max-width: 156px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.dashboard-map-filters--chamados-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.dashboard-map-filters--chamados-controls .form-group--chamados-map-status {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 240px;
+  width: 240px;
+  max-width: 260px;
+}
+.dashboard-map-sr-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.dashboard-map-status-select,
+.dashboard-map-filters--chamados-controls .form-group--chamados-map-status .input,
+.dashboard-map-filters--chamados-controls .form-group--chamados-map-status .crm-custom-select__trigger {
+  min-height: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+.dashboard-map-filters--chamados-controls .form-group--chamados-map-status .crm-custom-select {
+  width: 100%;
+}
+.dashboard-map-btn-refresh {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.dashboard-map-cluster-toggle {
+  margin: 0;
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.dashboard-map-toolbar-secondary .chamados-mapa-legenda,
+.dashboard-map-toolbar-secondary .pontos-mapa-legenda {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  gap: 6px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.dashboard-map-toolbar-secondary .pontos-mapa-legenda-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1;
+}
+.dashboard-map-toolbar-secondary .chamados-mapa-legenda .chamado-marker {
+  width: 8px;
+  height: 8px;
+}
+
+.dashboard-map-card--chamados .dashboard-map-resize-wrap,
+.dashboard-map-card--pontos .dashboard-map-resize-wrap {
+  margin-top: 6px;
+}
+
+.dashboard-map-filter-row .dashboard-map-filters--pontos-controls {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+.dashboard-map-filter-row .form-group--pontos-map-area {
+  margin: 0;
+  flex: 0 1 240px;
+  min-width: 200px;
+  max-width: 260px;
+}
+.dashboard-map-filter-row .form-group--pontos-map-search {
+  margin: 0;
+  flex: 1 1 320px;
+  min-width: 240px;
+  max-width: 420px;
+}
+.dashboard-map-filter-row .form-group--pontos-map-empresa {
+  margin: 0;
+  flex: 0 1 240px;
+  min-width: 200px;
+  max-width: 280px;
+}
+.dashboard-map-filter-row .dashboard-map-filters--chamados-controls {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  margin-left: auto;
+}
+.dashboard-map-filter-row .dashboard-map-btn-refresh {
+  min-height: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+.dashboard-map-filter-row .dashboard-map-status-select,
+.dashboard-map-filter-row .dashboard-map-area-select,
+.dashboard-map-filter-row .dashboard-map-search-input,
+.dashboard-map-filter-row .dashboard-map-empresa-select,
+.dashboard-map-filter-row .crm-custom-select__trigger {
+  min-height: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.dashboard-map-card--pontos .dashboard-map-tools-row .dashboard-map-btn-rotas {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.dashboard-map-card--chamados .dashboard-map-tools-row .chamados-mapa-legenda,
+.dashboard-map-card--pontos .dashboard-map-tools-row .pontos-mapa-legenda {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}
+
+.dashboard-map-footnote {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+/* Mapa de chamados — filtros legado / pontos / shared */
 .dashboard-map-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1026,19 +1524,7 @@ a.card.metric.metric-card--link.metric-card--active {
   gap: 8px;
   align-items: center;
 }
-.dashboard-map-type-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.dashboard-map-chamados-period {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-}
+
 .dashboard-map-chamados-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1061,12 +1547,21 @@ a.card.metric.metric-card--link.metric-card--active {
   margin: 0;
   justify-content: flex-end;
 }
+.dashboard-map-filters--chamados .dashboard-map-chamados-toolbar .dashboard-map-chamados-period-wrap {
+  margin-bottom: 0;
+}
+.dashboard-map-pontos-toolbar .dashboard-map-chamados-period-wrap {
+  flex: 1 1 100%;
+  width: 100%;
+  justify-content: flex-start;
+}
 .dashboard-map-filters--chamados .dashboard-map-chamados-period {
   margin-bottom: 4px;
 }
 .dashboard-map-filters--chamados .dashboard-map-chamados-toolbar .dashboard-map-chamados-period {
   margin-bottom: 0;
 }
+
 .dashboard-map-pontos-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1109,6 +1604,76 @@ a.card.metric.metric-card--link.metric-card--active {
   margin: 0 0 0 auto;
   align-self: center;
   white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .dashboard-map-header__badges {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+  .dashboard-map-main-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dashboard-map-summary-chips {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .dashboard-map-summary-chip {
+    flex: 0 0 auto;
+  }
+  .dashboard-map-filter-row {
+    padding: 10px;
+  }
+  .dashboard-map-filter-row .dashboard-map-filters--pontos-controls,
+  .dashboard-map-filter-row .dashboard-map-filters--chamados-controls {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+  .dashboard-map-filter-row .form-group--pontos-map-area,
+  .dashboard-map-filter-row .form-group--pontos-map-search,
+  .dashboard-map-filter-row .form-group--pontos-map-empresa,
+  .dashboard-map-filter-row .form-group--chamados-map-status {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+  .dashboard-map-filter-row .dashboard-map-chamados-period-wrap {
+    flex: 1 1 100%;
+  }
+  .dashboard-map-filter-row .dashboard-map-btn-refresh {
+    width: 100%;
+    justify-content: center;
+  }
+  .dashboard-map-tools-row .chamados-mapa-legenda,
+  .dashboard-map-tools-row .pontos-mapa-legenda {
+    justify-content: flex-start;
+  }
+  .dashboard-map-head-badge {
+    align-self: flex-start;
+  }
+  .dashboard-map-card--pontos .dashboard-map-tools-row .dashboard-map-btn-rotas {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard-map-panel-body--compact {
+    padding: 12px 14px 14px;
+  }
+  .dashboard-map-chamados-period-wrap {
+    flex: 1 1 100%;
+  }
+  .dashboard-map-mes-picker-form {
+    flex: 1 1 100%;
+  }
 }
 
 /* Mapa redimensionável (admin/cliente painel) */
@@ -1330,10 +1895,34 @@ body.dashboard-map-resize-dragging * {
 .pontos-iluminacao-lista-layout .dashboard-pontos-tools {
   grid-template-columns: 1.1fr 1.4fr;
 }
+.pontos-mapa-geo-filter-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+.pontos-mapa-geo-filter-row .btn {
+  min-height: 38px;
+  align-self: end;
+}
 @media (max-width: 900px) {
   .pontos-iluminacao-lista-layout .dashboard-pontos-tools {
     grid-template-columns: 1fr;
   }
+  .pontos-mapa-geo-filter-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pontos-mapa-geo-filter-row .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+.pontos-mapa-geo-filter-hint {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
 }
 
 .ponto-marker {
@@ -1439,6 +2028,124 @@ body.dashboard-map-resize-dragging * {
   width: 10px;
   height: 10px;
   flex-shrink: 0;
+}
+.pontos-mapa-loading {
+  display: none !important;
+}
+.pontos-map-status--loading {
+  opacity: 0.72;
+}
+.pontos-map-status--loading::after {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-left: 6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: pontos-map-status-spin 0.75s linear infinite;
+}
+.pontos-map-status--error {
+  color: #b91c1c;
+}
+.dashboard-pontos-tools-status,
+.map-tools-status,
+#map-visible-count,
+#combo-map-visible-pontos {
+  min-height: 1.25em;
+  line-height: 1.25;
+}
+@keyframes pontos-map-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pontos-mapa-loading--error {
+  color: #b91c1c;
+}
+
+/* Overlay — carregamento inicial pontos de iluminação (admin, gestor, cliente) */
+.pontos-page-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 10070;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s ease, visibility 0.22s ease;
+}
+.pontos-page-loading.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+.pontos-page-loading[hidden] {
+  display: none !important;
+}
+body.pontos-page-loading-active {
+  overflow: hidden;
+}
+.pontos-page-loading__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 320px;
+  padding: 28px 32px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.22);
+  text-align: center;
+}
+.pontos-page-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: pontos-page-loading-spin 0.75s linear infinite;
+}
+.pontos-page-loading__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.pontos-page-loading__msg {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.45;
+}
+@keyframes pontos-page-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ponto-map-cluster-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #475569;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+}
+.ponto-map-cluster-marker--alert {
+  background: #3b82f6;
 }
 /* Hover no mapa: destaque + leve aumento (postes / pontos) */
 .leaflet-marker-icon:hover {

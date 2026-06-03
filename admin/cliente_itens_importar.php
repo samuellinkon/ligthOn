@@ -124,7 +124,7 @@ include __DIR__ . '/../includes/head.php';
 
 <section class="content">
   <div class="content-grid-2">
-    <form class="card" method="post" action="<?= htmlspecialchars($catalogoImportFormAction) ?>" enctype="multipart/form-data">
+    <form class="card js-crm-import-form" method="post" action="<?= htmlspecialchars($catalogoImportFormAction) ?>" enctype="multipart/form-data" data-import-msg="Importando catálogo…">
       <div class="panel-head">
         <h4>Enviar planilha</h4>
         <span class="panel-sub"><?= htmlspecialchars((string) ($cliente['empresa'] ?? '')) ?> · modelo XLSX institucional ou CSV UTF-8</span>
@@ -203,4 +203,5 @@ servico;Instalação padrão;SERV-001;UN;120,00;0;0;Serviço interno</pre>
   </div>
 </section>
 
+<script src="<?= $basePath ?>assets/js/crm-import-loading.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-import-loading.js') ?>"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

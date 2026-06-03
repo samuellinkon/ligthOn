@@ -118,7 +118,7 @@
 
       if (visibleCountEl) {
         visibleCountEl.textContent =
-          filtered.length + ' de ' + markers.length + ' chamado(s) visível(is)';
+          filtered.length + ' de ' + markers.length + ' visíveis';
       }
       if (bounds.length === 1) {
         map.setView(bounds[0], 14);

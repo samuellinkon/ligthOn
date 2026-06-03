@@ -23,6 +23,7 @@
 
   var pinsCh = Array.isArray(data.chamados) ? data.chamados : [];
   var pinsPt = Array.isArray(data.pontos) ? data.pontos : [];
+  var FIT_BOUNDS_MAX = 80;
 
   var map = L.map('dashboard-mapa-combinado', { scrollWheelZoom: false });
   el._crmLeafletMap = map;
@@ -75,11 +76,13 @@
     }
   }
 
-  function renderPopupPonto(p) {
-    if (window.CrmPontoIluminacaoPopup && typeof window.CrmPontoIluminacaoPopup.render === 'function') {
-      return window.CrmPontoIluminacaoPopup.render(p, { actions: 'full' });
+  function applyDefaultMapCenter(leafletMap) {
+    var c = window.CRM_PONTOS_MAP_CENTER;
+    if (c && c.lat != null && c.lng != null) {
+      leafletMap.setView([Number(c.lat), Number(c.lng)], typeof c.zoom === 'number' ? c.zoom : 12);
+      return;
     }
-    return '<div class="map-popup"><p>Popup indisponível.</p></div>';
+    leafletMap.setView([-8.398075, -35.063889], 12);
   }
 
   var markerClassPt = typeof window.crmPontoMarkerClass === 'function'
@@ -97,7 +100,23 @@
       popupAnchor: [0, -8],
     });
     var marker = L.marker([p.lat, p.lng], { icon: icon });
-    marker.bindPopup(renderPopupPonto(p), { maxWidth: 360, minWidth: 280 });
+    if (
+      window.CrmPontoIluminacaoPopup &&
+      typeof window.CrmPontoIluminacaoPopup.bindLazyLeaflet === 'function'
+    ) {
+      window.CrmPontoIluminacaoPopup.bindLazyLeaflet(marker, p, {
+        apiUrl: window.CRM_PONTO_MAPA_DETALHE_API,
+        popupOptions: { actions: 'full' },
+      });
+    } else if (
+      window.CrmPontoIluminacaoPopup &&
+      typeof window.CrmPontoIluminacaoPopup.render === 'function'
+    ) {
+      marker.bindPopup(window.CrmPontoIluminacaoPopup.render(p, { actions: 'full' }), {
+        maxWidth: 360,
+        minWidth: 280,
+      });
+    }
     return { pin: p, marker: marker };
   });
 
@@ -137,14 +156,7 @@
   function matchSearchPt(p) {
     if (!searchPt || !searchPt.value) return true;
     var q = normalizeText(searchPt.value);
-    var haystack = [
-      p.codigo_poste,
-      p.identificador_externo,
-      p.endereco_completo,
-      p.bairro,
-      p.cliente,
-      p.status,
-    ].join(' ');
+    var haystack = [p.codigo_poste, p.bairro, p.status].join(' ');
     return normalizeText(haystack).indexOf(q) !== -1;
   }
 
@@ -208,14 +220,18 @@
     }
 
     if (bounds.length === 0) {
-      map.setView([-14.235, -51.9253], 4);
+      applyDefaultMapCenter(map);
       return;
     }
     if (bounds.length === 1) {
       map.setView(bounds[0], 14);
-    } else {
-      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+      return;
     }
+    if (bounds.length <= FIT_BOUNDS_MAX) {
+      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+      return;
+    }
+    applyDefaultMapCenter(map);
   }
 
   if (layerCh) layerCh.addEventListener('change', rebuildLayers);

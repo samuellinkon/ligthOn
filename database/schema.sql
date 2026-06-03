@@ -7,6 +7,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS notificacoes;
+DROP TABLE IF EXISTS usuario_remember_tokens;
 DROP TABLE IF EXISTS usuario_password_resets;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS chamado_respostas;
@@ -49,6 +50,13 @@ CREATE TABLE clientes (
     status             ENUM('Ativo','Pendente','Fechado') NOT NULL DEFAULT 'Ativo',
     desde              DATE         DEFAULT NULL,
     obs                TEXT         DEFAULT NULL,
+    plano_codigo       ENUM('padrao','expandido','dedicado','personalizado') NOT NULL DEFAULT 'padrao',
+    plano_mensalidade  DECIMAL(10,2) NULL DEFAULT NULL,
+    limite_pontos      INT UNSIGNED NULL DEFAULT NULL,
+    limite_chamados_mes INT UNSIGNED NULL DEFAULT NULL,
+    limite_itens_mes   INT UNSIGNED NULL DEFAULT NULL,
+    limite_storage_mb  INT UNSIGNED NULL DEFAULT NULL,
+    limite_usuarios    INT UNSIGNED NULL DEFAULT NULL,
     criado_em          DATETIME     DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_clientes_status (status),
     INDEX idx_clientes_empresa_pai (empresa_id),
@@ -132,6 +140,22 @@ CREATE TABLE usuario_password_resets (
     INDEX idx_upr_user (usuario_id),
     INDEX idx_upr_expires (expires_at),
     CONSTRAINT fk_upr_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------
+-- Manter conectado (remember me)
+-- -----------------------------------------------------
+CREATE TABLE usuario_remember_tokens (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    usuario_id  INT UNSIGNED NOT NULL,
+    selector    CHAR(24) NOT NULL,
+    token_hash  CHAR(64) NOT NULL,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_remember_selector (selector),
+    INDEX idx_remember_user (usuario_id),
+    INDEX idx_remember_expires (expires_at),
+    CONSTRAINT fk_remember_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------

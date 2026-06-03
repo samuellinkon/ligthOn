@@ -118,7 +118,7 @@ include __DIR__ . '/../includes/head.php';
 
 <section class="content">
   <div class="content-grid-2">
-    <form class="card" method="post" action="pontos_iluminacao_importar.php?cliente_id=<?= (int) $clienteId ?>" enctype="multipart/form-data">
+    <form class="card js-crm-import-form" method="post" action="pontos_iluminacao_importar.php?cliente_id=<?= (int) $clienteId ?>" enctype="multipart/form-data" data-import-msg="Importando parque de iluminação…">
       <div class="panel-head">
         <h4>Enviar planilha</h4>
         <span class="panel-sub">Use o arquivo “Cadastro Ipojuca Janeiro 2026” como base.</span>
@@ -178,4 +178,5 @@ include __DIR__ . '/../includes/head.php';
 
 </main>
 </div>
+<script src="<?= $basePath ?>assets/js/crm-import-loading.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-import-loading.js') ?>"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

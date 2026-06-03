@@ -4,7 +4,7 @@
       <div class="metric-top">
         <div>
           <div class="metric-label">Total de Chamados</div>
-          <div class="metric-value"><?= $dash ? (int) ($dash['ch_total'] ?? 0) : count($MOCK_CHAMADOS) ?></div>
+          <div class="metric-value"><?= number_format($dash ? (int) ($dash['ch_total'] ?? 0) : count($MOCK_CHAMADOS), 0, ',', '.') ?></div>
         </div>
         <div class="icon-box">CH</div>
       </div>
@@ -15,7 +15,7 @@
       <div class="metric-top">
         <div>
           <div class="metric-label">Total de Chamados Abertos</div>
-          <div class="metric-value"><?= $dash ? (int) $dash['ch_abertos'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Aberto')) ?></div>
+          <div class="metric-value"><?= number_format($dash ? (int) $dash['ch_abertos'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => ($c['status'] ?? '') === 'Aberto')), 0, ',', '.') ?></div>
         </div>
         <div class="icon-box">AB</div>
       </div>
@@ -26,7 +26,7 @@
       <div class="metric-top">
         <div>
           <div class="metric-label">Total de pontos</div>
-          <div class="metric-value"><?= $dash ? (int) ($dash['pontos_total'] ?? 0) : 0 ?></div>
+          <div class="metric-value"><?= number_format($dash ? (int) ($dash['pontos_total'] ?? 0) : 0, 0, ',', '.') ?></div>
         </div>
         <div class="icon-box">PT</div>
       </div>
@@ -49,103 +49,112 @@
   <?php if ($moduleChamadosMap || $modulePontosMap): ?>
   <div class="dashboard-maps-row" style="grid-template-columns:1fr;">
     <?php if ($loadLeafletChamados): ?>
-    <div class="card dashboard-map-card">
-      <div class="panel-head">
-        <h4>Mapa de chamados</h4>
-        <span class="panel-sub">Geolocalização dos chamados pela data de abertura</span>
+    <div class="card dashboard-map-card dashboard-map-card--chamados">
+      <div class="panel-head dashboard-map-panel-head--compact dashboard-map-header">
+        <div class="dashboard-map-header__content dashboard-map-panel-head-main">
+          <h4>Mapa de chamados</h4>
+          <span class="panel-sub">Geolocalização pela data de abertura · <?= htmlspecialchars($mapPeriodoLabel) ?></span>
+        </div>
+        <div class="dashboard-map-header__badges">
+          <div class="dashboard-pontos-tools-status dashboard-map-filters-chamados-meta dashboard-map-head-badge dashboard-map-head-badge--primary" id="chamados-map-visible-count"><?php $nCh = count($mapPins); ?><?= (int) $nCh ?> de <?= (int) $nCh ?> chamado(s) visível(is)</div>
+          <span class="dashboard-map-head-badge dashboard-map-head-badge--secondary"><?= htmlspecialchars($mapPeriodoLabel) ?></span>
+        </div>
       </div>
-      <div class="panel-body">
-        <form class="dashboard-map-filters dashboard-map-filters--chamados" method="get" action="index.php" aria-label="Filtros e ferramentas do mapa de chamados">
-          <input type="hidden" name="dash_mapa" value="chamados">
-          <input type="hidden" name="map_periodo" value="<?= htmlspecialchars($mapPeriodo) ?>">
-          <?php if ($dashPainel === 'admin' && $escopoDash === null && $scopeIdPontos > 0 && !$modoClienteUnicoAdmin): ?>
-          <input type="hidden" name="dash_cliente_id" value="<?= (int) $scopeIdPontos ?>">
-          <?php endif; ?>
-          <?php if ($pontoMapFiltro !== ''): ?>
-          <input type="hidden" name="ponto_filtro" value="<?= htmlspecialchars($pontoMapFiltro) ?>">
-          <?php endif; ?>
-          <div class="dashboard-map-chamados-toolbar">
-            <div class="dashboard-map-type-tabs" role="group" aria-label="Tipo de mapa">
-              <?php if ($moduleChamadosMap): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'chamados' ? 'btn-primary' : 'btn-secondary' ?>">Chamados</a>
-              <?php endif; ?>
-              <?php if ($modulePontosMap): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'pontos' ? 'btn-primary' : 'btn-secondary' ?>">Pontos</a>
-              <?php endif; ?>
-              <?php if ($dashMapaCombinadoHabilitado && $moduleChamadosMap && $modulePontosMap && $scopeIdPontos > 0): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'ambos' ? 'btn-primary' : 'btn-secondary' ?>">Mapa combinado</a>
-              <?php endif; ?>
+      <div class="panel-body dashboard-map-panel-body--compact dashboard-map-chamados-layout">
+        <div class="dashboard-map-main-row">
+          <?php require __DIR__ . '/dashboard_map_type_tabs.php'; ?>
+        </div>
+        <div class="dashboard-map-filter-row" aria-label="Filtros do mapa de chamados">
+          <?php require __DIR__ . '/dashboard_map_periodo_filtro.php'; ?>
+          <form class="dashboard-map-filters dashboard-map-filters--chamados dashboard-map-filters--chamados-controls" method="get" action="index.php">
+            <input type="hidden" name="dash_mapa" value="chamados">
+            <input type="hidden" name="map_periodo" value="<?= htmlspecialchars($mapPeriodo) ?>">
+            <?php if ($mapPeriodo === 'mes' && ($mapMes ?? '') !== ''): ?>
+            <input type="hidden" name="map_mes" value="<?= htmlspecialchars((string) $mapMes) ?>">
+            <?php endif; ?>
+            <?php if ($dashPainel === 'admin' && $escopoDash === null && $scopeIdPontos > 0 && !$modoClienteUnicoAdmin): ?>
+            <input type="hidden" name="dash_cliente_id" value="<?= (int) $scopeIdPontos ?>">
+            <?php endif; ?>
+            <?php if ($pontoMapFiltro !== ''): ?>
+            <input type="hidden" name="ponto_filtro" value="<?= htmlspecialchars($pontoMapFiltro) ?>">
+            <?php endif; ?>
+            <div class="form-group form-group--chamados-map-status">
+              <label for="chamados-map-filter-status" class="dashboard-map-sr-label">Status</label>
+              <select id="chamados-map-filter-status" class="input dashboard-map-status-select" aria-label="Filtrar por status">
+                <option value="">Todos os status</option>
+                <?php foreach ($statusChamadosMap as $statusMap): ?>
+                <option value="<?= htmlspecialchars($statusMap) ?>"><?= htmlspecialchars($statusMap) ?></option>
+                <?php endforeach; ?>
+              </select>
             </div>
-            <div class="dashboard-map-chamados-period" role="group" aria-label="Período do mapa">
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados', 'map_periodo' => 'hoje'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'hoje' ? 'btn-primary' : 'btn-secondary' ?>">Dia atual</a>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados', 'map_periodo' => 'ontem'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'ontem' ? 'btn-primary' : 'btn-secondary' ?>">Dia anterior</a>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados', 'map_periodo' => 'semana'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'semana' ? 'btn-primary' : 'btn-secondary' ?>">Semana atual</a>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados', 'map_periodo' => 'mes'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'mes' ? 'btn-primary' : 'btn-secondary' ?>">Mês atual</a>
-            </div>
-          </div>
-          <div class="form-group form-group--chamados-map-status">
-            <label for="chamados-map-filter-status">Status</label>
-            <select id="chamados-map-filter-status" class="input">
-              <option value="">Todos os status</option>
-              <?php foreach ($statusChamadosMap as $statusMap): ?>
-              <option value="<?= htmlspecialchars($statusMap) ?>"><?= htmlspecialchars($statusMap) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <button type="submit" class="btn btn-primary">Atualizar mapa</button>
-          <label class="dashboard-pontos-tools-toggle" for="chamados-map-toggle-cluster">
+            <button type="submit" class="btn btn-secondary btn-sm dashboard-map-btn-refresh">Atualizar</button>
+          </form>
+        </div>
+        <div class="dashboard-map-tools-row map-toolbar-secondary dashboard-map-toolbar-secondary" aria-label="Ferramentas do mapa de chamados">
+          <label class="dashboard-map-cluster-toggle dashboard-pontos-tools-toggle" for="chamados-map-toggle-cluster">
             <input type="checkbox" id="chamados-map-toggle-cluster" checked>
-            Agrupar clusters
+            Clusters
           </label>
-          <div class="dashboard-pontos-tools-status dashboard-map-filters-chamados-meta" id="chamados-map-visible-count"><?php $nCh = count($mapPins); ?><?= (int) $nCh ?> de <?= (int) $nCh ?> chamado(s) visível(is)</div>
-        </form>
-        <?php require __DIR__ . '/chamados_mapa_legenda.php'; ?>
+          <?php require __DIR__ . '/chamados_mapa_legenda.php'; ?>
+        </div>
         <div class="dashboard-map-resize-wrap" data-map-resize-key="<?= htmlspecialchars($dashMapResizePrefix) ?>_chamados">
           <div id="chamados-map" class="dashboard-map-leaflet-host" role="region" aria-label="Mapa de chamados"></div>
           <button type="button" class="dashboard-map-resize-handle" aria-label="Redimensionar altura do mapa" title="Arraste para ajustar a altura (salvo neste navegador)"></button>
         </div>
-        <p class="muted" style="font-size:12px;margin-top:10px;margin-bottom:0;">
-          <?= count($mapPins) ?> chamado(s) com coordenadas no período.
-        </p>
+        <p class="muted dashboard-map-footnote"><?= count($mapPins) ?> chamado(s) com coordenadas · período: <?= htmlspecialchars($mapPeriodoLabel) ?>.</p>
       </div>
     </div>
     <?php endif; ?>
 
     <?php if ($loadPontosMap): ?>
-    <div class="card dashboard-map-card">
-      <div class="panel-head">
-        <h4>Mapa de iluminação</h4>
-        <span class="panel-sub"><?= count($pontosPinsPass) ?> de <?= count($pontosPinsTodos) ?> ponto(s) · postes em azul com chamados abertos</span>
+    <div class="card dashboard-map-card dashboard-map-card--pontos">
+      <div class="panel-head dashboard-map-panel-head--compact dashboard-map-header">
+        <div class="dashboard-map-header__content dashboard-map-panel-head-main">
+          <h4>Mapa de iluminação</h4>
+          <span class="panel-sub"><?= number_format((int) $totalPontosComGeo, 0, ',', '.') ?> ponto(s) no parque · carregamento por área visível</span>
+        </div>
+        <div class="dashboard-map-header__badges">
+          <div class="dashboard-pontos-tools-status dashboard-map-filters-pontos-meta dashboard-map-head-badge dashboard-map-head-badge--primary" id="map-visible-count" aria-live="polite" aria-busy="true">—</div>
+          <span class="dashboard-map-head-badge dashboard-map-head-badge--secondary"><?= htmlspecialchars($dashPontosMapSubtitulo) ?></span>
+        </div>
       </div>
-      <div class="panel-body">
-        <div class="dashboard-map-filters dashboard-map-filters--pontos" aria-label="Filtros e ferramentas do mapa de postes">
-          <div class="dashboard-map-pontos-toolbar">
-            <div class="dashboard-map-type-tabs" role="group" aria-label="Tipo de mapa">
-              <?php if ($moduleChamadosMap): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'chamados'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'chamados' ? 'btn-primary' : 'btn-secondary' ?>">Chamados</a>
-              <?php endif; ?>
-              <?php if ($modulePontosMap): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'pontos' ? 'btn-primary' : 'btn-secondary' ?>">Pontos</a>
-              <?php endif; ?>
-              <?php if ($dashMapaCombinadoHabilitado && $moduleChamadosMap && $modulePontosMap && $scopeIdPontos > 0): ?>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos'])) ?>" class="btn btn-sm <?= $dashMapaAba === 'ambos' ? 'btn-primary' : 'btn-secondary' ?>">Mapa combinado</a>
-              <?php endif; ?>
-            </div>
-            <div class="dashboard-map-pontos-presets" role="group" aria-label="Exibição dos postes">
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => null])) ?>" class="btn btn-sm <?= $pontoMapFiltro === '' ? 'btn-primary' : 'btn-secondary' ?>">Todos os pontos</a>
-              <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => 'chamados'])) ?>" class="btn btn-sm <?= $pontoMapFiltro === 'chamados' ? 'btn-primary' : 'btn-secondary' ?>">Com chamados (<?= (int) $totalPontosComChamados ?>)</a>
-            </div>
+      <div class="panel-body dashboard-map-panel-body--compact dashboard-map-pontos-layout">
+        <div class="dashboard-map-main-row">
+          <?php require __DIR__ . '/dashboard_map_type_tabs.php'; ?>
+          <div class="dashboard-map-summary-chips" role="group" aria-label="Visão do parque de postes">
+            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => null])) ?>" class="dashboard-map-summary-chip<?= $pontoMapFiltro === '' ? ' is-active' : '' ?>">
+              <span class="dashboard-map-summary-chip__label">Todos</span>
+              <span class="dashboard-map-summary-chip__value"><?= number_format((int) $totalPontosComGeo, 0, ',', '.') ?></span>
+            </a>
+            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => 'ativo'])) ?>" class="dashboard-map-summary-chip<?= $pontoMapFiltro === 'ativo' ? ' is-active' : '' ?>">
+              <span class="dashboard-map-summary-chip__label">Ativos</span>
+              <span class="dashboard-map-summary-chip__value"><?= number_format((int) $totalAtivosPontosDash, 0, ',', '.') ?></span>
+            </a>
+            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => 'chamados'])) ?>" class="dashboard-map-summary-chip<?= $pontoMapFiltro === 'chamados' ? ' is-active' : '' ?>">
+              <span class="dashboard-map-summary-chip__label">Com chamado</span>
+              <span class="dashboard-map-summary-chip__value"><?= number_format((int) $totalPontosComChamados, 0, ',', '.') ?></span>
+            </a>
+            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'pontos', 'ponto_filtro' => 'inativo'])) ?>" class="dashboard-map-summary-chip<?= $pontoMapFiltro === 'inativo' ? ' is-active' : '' ?>">
+              <span class="dashboard-map-summary-chip__label">Inativos</span>
+              <span class="dashboard-map-summary-chip__value"><?= number_format((int) $totalInativosPontosDash, 0, ',', '.') ?></span>
+            </a>
           </div>
+        </div>
+        <div class="dashboard-map-filter-row" aria-label="Filtros operacionais do mapa de postes">
+          <?php $dashboardMapPeriodoAba = 'pontos'; require __DIR__ . '/dashboard_map_periodo_filtro.php'; unset($dashboardMapPeriodoAba); ?>
           <?php if ($dashPainel === 'admin' && $escopoDash === null && !empty($empresasDashOptions) && !$modoClienteUnicoAdmin): ?>
-          <form class="dashboard-map-filters--pontos-empresa" method="get" action="index.php">
+          <form class="dashboard-map-filters dashboard-map-filters--pontos-empresa dashboard-map-filters--pontos-controls" method="get" action="index.php">
             <input type="hidden" name="dash_mapa" value="pontos">
             <input type="hidden" name="map_periodo" value="<?= htmlspecialchars($mapPeriodo) ?>">
+            <?php if ($mapPeriodo === 'mes' && ($mapMes ?? '') !== ''): ?>
+            <input type="hidden" name="map_mes" value="<?= htmlspecialchars((string) $mapMes) ?>">
+            <?php endif; ?>
             <?php if ($pontoMapFiltro !== ''): ?>
             <input type="hidden" name="ponto_filtro" value="<?= htmlspecialchars($pontoMapFiltro) ?>">
             <?php endif; ?>
-            <div class="form-group form-group--grow">
-              <label for="dash_cliente_id">Empresa (mapa)</label>
-              <select id="dash_cliente_id" name="dash_cliente_id" class="select" onchange="this.form.submit()">
+            <div class="form-group form-group--pontos-map-empresa">
+              <label for="dash_cliente_id" class="dashboard-map-filter-label">Empresa</label>
+              <select id="dash_cliente_id" name="dash_cliente_id" class="select dashboard-map-empresa-select" aria-label="Empresa do mapa" onchange="this.form.submit()">
                 <?php foreach ($empresasDashOptions as $empOp): ?>
                 <option value="<?= (int) $empOp['id'] ?>" <?= (int) $scopeIdPontos === (int) $empOp['id'] ? 'selected' : '' ?>>
                   <?= htmlspecialchars((string) ($empOp['empresa'] ?? $empOp['nome'] ?? 'Cadastro')) ?> #<?= (int) $empOp['id'] ?>
@@ -155,31 +164,37 @@
             </div>
           </form>
           <?php endif; ?>
-
-          <div class="form-group">
-            <label for="map-filter-area">Área / bairro</label>
-            <select id="map-filter-area" class="input">
-              <option value="">Todas as áreas</option>
-              <?php foreach ($bairrosPontosDash as $bairro): ?>
-              <option value="<?= htmlspecialchars($bairro) ?>"><?= htmlspecialchars($bairro) ?></option>
-              <?php endforeach; ?>
-            </select>
+          <div class="dashboard-map-filters dashboard-map-filters--pontos-controls">
+            <div class="form-group form-group--pontos-map-area">
+              <label for="map-filter-area" class="dashboard-map-filter-label">Área</label>
+              <select id="map-filter-area" class="input dashboard-map-area-select" aria-label="Filtrar por área ou bairro">
+                <option value="">Todas as áreas</option>
+                <?php foreach ($bairrosPontosDash as $bairro): ?>
+                <option value="<?= htmlspecialchars($bairro) ?>"><?= htmlspecialchars($bairro) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="form-group form-group--pontos-map-search">
+              <label for="map-filter-search" class="dashboard-map-filter-label">Buscar</label>
+              <input id="map-filter-search" class="input dashboard-map-search-input" type="search" placeholder="Poste, endereço, bairro ou referência" aria-label="Buscar no mapa">
+            </div>
           </div>
-          <div class="form-group">
-            <label for="map-filter-search">Buscar no mapa</label>
-            <input id="map-filter-search" class="input" type="search" placeholder="Poste, endereço, bairro ou referência">
-          </div>
-          <label class="dashboard-pontos-tools-toggle" for="map-toggle-cluster">
-            <input type="checkbox" id="map-toggle-cluster" checked>
-            Agrupar clusters
-          </label>
-          <div class="dashboard-pontos-tools-status dashboard-map-filters-pontos-meta" id="map-visible-count"><?= count($pontosPinsPass) ?> ponto(s) visível(is)</div>
         </div>
-
+        <div class="dashboard-map-tools-row map-toolbar-secondary dashboard-map-toolbar-secondary" aria-label="Ferramentas do mapa de postes">
+          <label class="dashboard-map-cluster-toggle dashboard-pontos-tools-toggle" for="map-toggle-cluster">
+            <input type="checkbox" id="map-toggle-cluster" checked>
+            Clusters
+          </label>
+          <?php require __DIR__ . '/pontos_iluminacao_mapa_legenda.php'; ?>
+          <?php if ($dashPontosHrefRotas !== ''): ?>
+          <a href="<?= htmlspecialchars($dashPontosHrefRotas) ?>" class="btn btn-sm btn-secondary dashboard-map-btn-rotas">Rotas</a>
+          <?php endif; ?>
+        </div>
         <div class="dashboard-map-resize-wrap" data-map-resize-key="<?= htmlspecialchars($dashMapResizePrefix) ?>_pontos">
           <div id="pontos-iluminacao-map" class="dashboard-map-leaflet-host" role="region" aria-label="Mapa de pontos de iluminação"></div>
           <button type="button" class="dashboard-map-resize-handle" aria-label="Redimensionar altura do mapa" title="Arraste para ajustar a altura (salvo neste navegador)"></button>
         </div>
+        <p class="muted dashboard-map-footnote"><?= number_format((int) $totalPontosComGeo, 0, ',', '.') ?> ponto(s) com coordenadas no escopo · <?= htmlspecialchars($dashPontosMapSubtitulo) ?>.</p>
       </div>
     </div>
     <?php elseif ($modulePontosMap && $scopeIdPontos <= 0): ?>
@@ -202,12 +217,7 @@
       </div>
       <div class="panel-body">
         <div class="dashboard-map-filters" style="margin-bottom:12px;">
-          <div class="dashboard-map-chamados-period" role="group" aria-label="Período dos chamados no mapa">
-            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos', 'map_periodo' => 'hoje'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'hoje' ? 'btn-primary' : 'btn-secondary' ?>">Dia atual</a>
-            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos', 'map_periodo' => 'ontem'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'ontem' ? 'btn-primary' : 'btn-secondary' ?>">Dia anterior</a>
-            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos', 'map_periodo' => 'semana'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'semana' ? 'btn-primary' : 'btn-secondary' ?>">Semana atual</a>
-            <a href="index.php?<?= htmlspecialchars($dashQsPreserve(['dash_mapa' => 'ambos', 'map_periodo' => 'mes'])) ?>" class="btn btn-sm <?= $mapPeriodo === 'mes' ? 'btn-primary' : 'btn-secondary' ?>">Mês atual</a>
-          </div>
+          <?php $dashboardMapPeriodoAba = 'ambos'; require __DIR__ . '/dashboard_map_periodo_filtro.php'; unset($dashboardMapPeriodoAba); ?>
         </div>
 
         <?php if ($dashPainel === 'admin' && $escopoDash === null && !empty($empresasDashOptions) && !$modoClienteUnicoAdmin): ?>
@@ -253,7 +263,7 @@
         </div>
 
         <p class="muted" style="font-size:12px;margin:0 0 10px;">
-          <?= count($mapPins) ?> chamado(s) com coordenadas no período · <?= count($pontosPinsPass) ?> de <?= count($pontosPinsTodos) ?> poste(s) carregado(s)
+          <?= count($mapPins) ?> chamado(s) com coordenadas no período · <?= (int) $totalPontosComGeo ?> poste(s) no parque (por área visível)
         </p>
 
         <div class="dashboard-pontos-tools dashboard-chamados-tools" aria-label="Filtros dos chamados no mapa combinado" style="margin-bottom:10px;">

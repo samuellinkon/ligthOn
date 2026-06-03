@@ -4,6 +4,8 @@ require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/app_runtime.php';
 require_once __DIR__ . '/includes/audit_log.php';
 
+auth_redirect_se_logado();
+
 $pageTitle = 'Acessar o sistema';
 $erro = '';
 $msgSenhaOk = '';
@@ -17,9 +19,10 @@ if ($flashLogin && ($flashLogin['tipo'] ?? '') === 'err' && ($flashLogin['msg'] 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = $_POST['email'] ?? '';
     $senha = $_POST['senha'] ?? '';
+    $manterConectado = !empty($_POST['manter_conectado']);
     $emailPreenchido = $email;
 
-    $u = mock_login($email, $senha);
+    $u = mock_login($email, $senha, $manterConectado);
     if ($u) {
         $cidLog = 0;
         if (!empty($u['empresa_id'])) {
@@ -133,7 +136,7 @@ $cssBustLogin = static function (string $file): int {
 
       <div class="flex-between" style="margin-bottom:20px;">
         <label class="checkbox">
-          <input type="checkbox" checked>
+          <input type="checkbox" name="manter_conectado" value="1" checked>
           <span>Manter conectado</span>
         </label>
         <a href="esqueci_senha.php" style="color:var(--primary); font-weight:600; font-size:13px;">Esqueci minha senha</a>

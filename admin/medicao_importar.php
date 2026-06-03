@@ -512,7 +512,7 @@ include __DIR__ . '/../includes/head.php';
       <?php endif; ?>
     </div>
     <div class="panel-body">
-      <form method="post" action="medicao_importar.php" class="form">
+      <form method="post" action="medicao_importar.php" class="form js-crm-import-form" data-import-msg="Importando medição…">
         <input type="hidden" name="confirm_import" value="1">
         <input type="hidden" name="preview_token" value="<?= htmlspecialchars($previewToken) ?>">
         <p class="muted" style="margin:0 0 16px;line-height:1.55;">Só depois de confirmar os dados são gravados no banco. Esta ação não pode ser desfeita automaticamente.</p>
@@ -527,7 +527,7 @@ include __DIR__ . '/../includes/head.php';
   <?php else: ?>
 
   <div class="content-grid-2">
-    <form class="card" method="post" action="medicao_importar.php" enctype="multipart/form-data">
+    <form class="card js-crm-import-form" method="post" action="medicao_importar.php" enctype="multipart/form-data" data-import-msg="Pré-visualizando importação…">
       <div class="panel-head">
         <h4>Enviar planilha BM</h4>
         <span class="panel-sub"><?= htmlspecialchars((string) ($clienteMatriz['empresa'] ?? '')) ?> · mês de referência e arquivo (.csv ou .xlsx)</span>
@@ -651,4 +651,5 @@ include __DIR__ . '/../includes/head.php';
   sync();
 })();
 </script>
+<script src="<?= $basePath ?>assets/js/crm-import-loading.js?v=<?= (int) @filemtime(dirname(__DIR__) . '/assets/js/crm-import-loading.js') ?>"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

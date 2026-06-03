@@ -123,6 +123,18 @@ if (db_ok()) {
     }
 }
 
+$ch_os_vals = [];
+$prefillPonto = chamado_novo_aplicar_ponto_da_url($ch_os_vals, $pontosIluminacaoChamado ?: [], [
+    'modo'               => 'gestao',
+    'cliente_id'         => $chamadoNovoClienteId,
+    'empresa_escopo_id'  => $escopoCli,
+]);
+$ch_os_vals = $prefillPonto['ch_os_vals'];
+if ($prefillPonto['cliente_id'] > 0) {
+    $chamadoNovoClienteId = $prefillPonto['cliente_id'];
+}
+$pontosIluminacaoChamado = $prefillPonto['pontos_opcoes'];
+
 $loadLeaflet = !crm_google_maps_has_api_key();
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -143,11 +155,6 @@ include __DIR__ . '/../includes/head.php';
     <?php endif; ?>
 
     <?php
-    $ch_os_vals = [];
-    $pontoPre = (int) ($_GET['ponto_iluminacao_id'] ?? 0);
-    if ($pontoPre > 0) {
-        $ch_os_vals['ponto_iluminacao_id'] = $pontoPre;
-    }
     $ch_os_descricao = '';
     $ch_os_mostrar_ponto = !empty($pontosIluminacaoChamado);
     $ch_os_pontos_opcoes = $pontosIluminacaoChamado ?: [];

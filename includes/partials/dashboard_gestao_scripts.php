@@ -8,6 +8,8 @@ $dashMapsAtivos = $dashMapsAtivos ?? ($loadLeafletChamados || $loadPontosMap || 
 <?php
 $chamadoMarkerStatusJs = __DIR__ . '/../../assets/js/chamado-marker-status.js';
 $dashCarregaMapaChamados = !empty($loadLeafletChamados) || !empty($loadMapaCombinado);
+$viewportJsDash = __DIR__ . '/../../assets/js/pontos-iluminacao-map-viewport.js';
+$crmPontosMapaConfigDash = $crmPontosMapaConfigDash ?? null;
 ?>
 <?php if ($dashMapsAtivos && $dashCarregaMapaChamados): ?>
 <script src="<?= $basePath ?>assets/js/chamado-marker-status.js?v=<?= (int) @filemtime($chamadoMarkerStatusJs) ?>"></script>
@@ -52,6 +54,13 @@ $dashGoogleJs = __DIR__ . '/../../assets/js/crm-dashboard-map-google.js';
 <?php if ($loadPontosMap): ?>
 <script>
   window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pontosPinsPass, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
+  window.CRM_PONTOS_MAPA_VIEWPORT = true;
+  <?php if (!empty($crmPontosMapaConfigDash)): ?>
+  window.CRM_PONTOS_MAPA_CONFIG = <?= json_encode($crmPontosMapaConfigDash, JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAPA_API = <?= json_encode($crmPontosMapaConfigDash['api_url'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTO_MAPA_DETALHE_API = <?= json_encode($crmPontosMapaConfigDash['detalhe_api_url'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAP_CENTER = <?= json_encode($crmPontosMapaConfigDash['center'] ?? crm_pontos_iluminacao_mapa_centro_default(), JSON_UNESCAPED_UNICODE) ?>;
+  <?php endif; ?>
 </script>
 <?php endif; ?>
 <?php if ($loadMapaCombinado): ?>
@@ -60,6 +69,13 @@ $dashGoogleJs = __DIR__ . '/../../assets/js/crm-dashboard-map-google.js';
     chamados: <?= json_encode($mapPins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>,
     pontos: <?= json_encode($pontosPinsPass, JSON_UNESCAPED_UNICODE) ?: '[]' ?>
   };
+  window.CRM_PONTOS_MAPA_VIEWPORT = true;
+  <?php if (!empty($crmPontosMapaConfigDash)): ?>
+  window.CRM_PONTOS_MAPA_CONFIG = <?= json_encode($crmPontosMapaConfigDash, JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAPA_API = <?= json_encode($crmPontosMapaConfigDash['api_url'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTO_MAPA_DETALHE_API = <?= json_encode($crmPontosMapaConfigDash['detalhe_api_url'] ?? '', JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAP_CENTER = <?= json_encode($crmPontosMapaConfigDash['center'] ?? crm_pontos_iluminacao_mapa_centro_default(), JSON_UNESCAPED_UNICODE) ?>;
+  <?php endif; ?>
   window.CHAMADOS_MAP_GEOCODE_API = <?= json_encode(
       ($dashPainel ?? 'admin') === 'cliente'
           ? $basePath . 'cliente/geocode_nominatim_api.php'
@@ -87,6 +103,9 @@ $dashGoogleJs = __DIR__ . '/../../assets/js/crm-dashboard-map-google.js';
 </script>
 <script src="<?= $basePath ?>assets/js/dashboard-map-geocode-core.js?v=<?= (int) @filemtime($geocodeCoreJs) ?>"></script>
 <script src="<?= $basePath ?>assets/js/crm-google-maps-js-loader.js?v=<?= (int) @filemtime($gmapsLoaderJs) ?>"></script>
+<?php if ($loadPontosMap || $loadMapaCombinado): ?>
+<script src="<?= $basePath ?>assets/js/pontos-iluminacao-map-viewport.js?v=<?= (int) @filemtime($viewportJsDash) ?>"></script>
+<?php endif; ?>
 <script src="https://cdn.jsdelivr.net/npm/@googlemaps/markerclusterer@2.5.3/dist/index.min.js" crossorigin=""></script>
 <script src="<?= $basePath ?>assets/js/crm-dashboard-map-google.js?v=<?= (int) @filemtime($dashGoogleJs) ?>"></script>
 <?php if ($crmGmapsJsApiUrl !== ''): ?>
@@ -135,8 +154,17 @@ $geocodeCoreJsPath = __DIR__ . '/../../assets/js/dashboard-map-geocode-core.js';
 <script src="<?= $basePath ?>assets/js/ponto-marker-status.js?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/ponto-marker-status.js') ?>"></script>
 <?php endif; ?>
 <?php if ($loadPontosMap && $loadLeaflet): ?>
+<?php
+if (!function_exists('crm_ponto_mapa_detalhe_api_url')) {
+    require_once __DIR__ . '/../chamado_geo.php';
+}
+$crmPontoMapaDetalheApiDash = crm_ponto_mapa_detalhe_api_url($basePath);
+$crmPontosMapCenterDash = crm_pontos_iluminacao_mapa_centro_default();
+?>
 <script>
   window.PONTOS_ILUMINACAO_MAP = <?= json_encode($pontosPinsPass, JSON_UNESCAPED_UNICODE) ?: '[]' ?>;
+  window.CRM_PONTO_MAPA_DETALHE_API = <?= json_encode($crmPontoMapaDetalheApiDash, JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAP_CENTER = <?= json_encode($crmPontosMapCenterDash, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="<?= $basePath ?>assets/js/pontos-iluminacao-map.js?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/pontos-iluminacao-map.js') ?>"></script>
 <?php endif; ?>
@@ -144,11 +172,20 @@ $geocodeCoreJsPath = __DIR__ . '/../../assets/js/dashboard-map-geocode-core.js';
 <?php include __DIR__ . '/leaflet_chamado_popup_assets.php'; ?>
 <?php endif; ?>
 <?php if ($loadMapaCombinado && $loadLeaflet): ?>
+<?php
+if (!function_exists('crm_ponto_mapa_detalhe_api_url')) {
+    require_once __DIR__ . '/../chamado_geo.php';
+}
+$crmPontoMapaDetalheApiDash = crm_ponto_mapa_detalhe_api_url($basePath);
+$crmPontosMapCenterDash = crm_pontos_iluminacao_mapa_centro_default();
+?>
 <script>
   window.DASHBOARD_MAP_COMBINED = {
     chamados: <?= json_encode($mapPins, JSON_UNESCAPED_UNICODE) ?: '[]' ?>,
     pontos: <?= json_encode($pontosPinsPass, JSON_UNESCAPED_UNICODE) ?: '[]' ?>
   };
+  window.CRM_PONTO_MAPA_DETALHE_API = <?= json_encode($crmPontoMapaDetalheApiDash, JSON_UNESCAPED_UNICODE) ?>;
+  window.CRM_PONTOS_MAP_CENTER = <?= json_encode($crmPontosMapCenterDash, JSON_UNESCAPED_UNICODE) ?>;
   window.CHAMADOS_MAP_GEOCODE_API = <?= json_encode(
       ($dashPainel ?? 'admin') === 'cliente'
           ? $basePath . 'cliente/geocode_nominatim_api.php'

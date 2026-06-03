@@ -108,9 +108,14 @@ $logradouro = trim((string) ($_GET['logradouro'] ?? ''));
 $numero = trim((string) ($_GET['numero'] ?? ''));
 
 if ($street === '' && $q === '' && $logradouro === '') {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'err' => 'Parâmetros insuficientes.'], JSON_UNESCAPED_UNICODE);
-    exit;
+    $postalDigits = preg_replace('/\D/', '', $postal);
+    if (strlen($postalDigits) === 8) {
+        $q = substr($postalDigits, 0, 5) . '-' . substr($postalDigits, 5) . ', Brasil';
+    } else {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'err' => 'Parâmetros insuficientes.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 }
 
 $resolved = chamado_geocode_resolve_os($street, $city, $uf, $postal, $q, $bairro, $logradouro, $numero);
@@ -121,7 +126,17 @@ if ($resolved['rate_limited']) {
     exit;
 }
 
+$source = 'nominatim';
 $hit = $resolved['hit'];
+if ($hit === null) {
+    require_once __DIR__ . '/google_geocode_client.php';
+    $googleHit = google_geocode_resolve_os($street, $city, $uf, $postal, $q, $bairro, $logradouro, $numero);
+    if ($googleHit !== null) {
+        $hit = $googleHit;
+        $source = 'google';
+    }
+}
+
 if ($hit === null) {
     echo json_encode(['ok' => false, 'err' => 'not_found'], JSON_UNESCAPED_UNICODE);
     exit;
@@ -129,6 +144,7 @@ if ($hit === null) {
 
 echo json_encode([
     'ok' => true,
+    'source' => $source,
     'hit' => [
         'lat' => (float) ($hit['lat'] ?? 0),
         'lon' => (float) ($hit['lon'] ?? 0),

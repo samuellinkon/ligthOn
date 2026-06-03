@@ -9,16 +9,20 @@ require_once __DIR__ . '/mock.php';
 require_once __DIR__ . '/flash.php';
 
 if (session_status() === PHP_SESSION_NONE) {
-    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+    require_once __DIR__ . '/auth_remember.php';
+    $https = auth_remember_https();
     session_set_cookie_params([
         'lifetime' => 0,
-        'path' => '/',
-        'secure' => $https,
+        'path'     => auth_app_cookie_path(),
+        'secure'   => $https,
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
     session_start();
+    auth_remember_try_restore();
+} elseif (!function_exists('auth_remember_try_restore')) {
+    require_once __DIR__ . '/auth_remember.php';
+    auth_remember_try_restore();
 }
 
 /**
@@ -27,13 +31,24 @@ if (session_status() === PHP_SESSION_NONE) {
  * - Se não, cai no fallback dos mocks.
  * Retorna o array do usuário (sem a senha) ou null.
  */
-function mock_login(string $email, string $senha): ?array
+function mock_login(string $email, string $senha, bool $manterConectado = false): ?array
 {
     if (db_ok()) {
         $row = repo_user_by_email($email);
         if ($row && password_verify($senha, $row['senha_hash'])) {
             unset($row['senha_hash']);
             $_SESSION['user'] = $row;
+            if ($manterConectado) {
+                if (!function_exists('auth_remember_set')) {
+                    require_once __DIR__ . '/auth_remember.php';
+                }
+                auth_remember_set((int) ($row['id'] ?? 0));
+            } else {
+                if (!function_exists('auth_remember_clear')) {
+                    require_once __DIR__ . '/auth_remember.php';
+                }
+                auth_remember_clear((int) ($row['id'] ?? 0));
+            }
             return $row;
         }
         return null;
@@ -98,6 +113,11 @@ function auth_painel_destino_apos_login(array $u): array
  */
 function mock_logout(): void
 {
+    $uid = (int) (current_user()['id'] ?? 0);
+    if (!function_exists('auth_remember_clear')) {
+        require_once __DIR__ . '/auth_remember.php';
+    }
+    auth_remember_clear($uid > 0 ? $uid : null);
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
@@ -124,6 +144,11 @@ function current_user(): ?array
 function require_auth(?string $perfil = null, string $basePath = '../'): array
 {
     $u = current_user();
+
+    if ($u && db_ok() && function_exists('auth_usuario_sessao_valida') && !auth_usuario_sessao_valida($u)) {
+        mock_logout();
+        $u = null;
+    }
 
     // Fallback mock: se ninguém está logado, loga automaticamente
     // como o perfil esperado para não quebrar a navegação direta.

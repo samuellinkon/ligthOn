@@ -39,26 +39,11 @@ $filtroMapa = strtolower(trim((string) ($_GET['filtro'] ?? '')));
 if (!in_array($filtroMapa, ['', 'chamados'], true)) {
     $filtroMapa = '';
 }
-$pinsTodos = repo_pontos_iluminacao_mapa($scopeId, true);
-$pins = $pinsTodos;
-if ($filtroMapa === 'chamados') {
-    $pins = array_values(array_filter($pinsTodos, function (array $p): bool {
-        return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-    }));
-}
-$totalComChamados = count(array_filter($pinsTodos, function (array $p): bool {
-    return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-}));
-$bairrosMapa = [];
-foreach ($pins as $p) {
-    $bairro = trim((string) ($p['bairro'] ?? ''));
-    if ($bairro !== '') {
-        $bairrosMapa[$bairro] = true;
-    }
-}
-$bairrosMapa = array_keys($bairrosMapa);
-natcasesort($bairrosMapa);
-$bairrosMapa = array_values($bairrosMapa);
+$pontosStatsMapa = repo_pontos_iluminacao_estatisticas_escopo($scopeId, true);
+$totalComChamados = (int) ($pontosStatsMapa['com_chamados_abertos'] ?? 0);
+$totalComGeo = (int) ($pontosStatsMapa['com_geo'] ?? 0);
+$bairrosMapa = repo_pontos_iluminacao_bairros_distintos($scopeId, true);
+$pins = [];
 
 $topTitle    = 'Mapa de pontos de iluminação';
 $topSubtitle = $filtroMapa === 'chamados'
@@ -72,6 +57,7 @@ require_once __DIR__ . '/../includes/chamado_geo.php';
 $loadPontosMapGoogle      = crm_google_maps_has_api_key();
 $loadLeaflet              = !$loadPontosMapGoogle;
 $loadLeafletMarkerCluster = $loadLeaflet;
+$loadPontosIluminacaoPageLoader = true;
 
 include __DIR__ . '/../includes/head.php';
 ?>
@@ -108,7 +94,7 @@ include __DIR__ . '/../includes/head.php';
   <div class="card">
     <div class="panel-head">
       <h4>Mapa de acompanhamento</h4>
-      <span class="panel-sub"><?= count($pins) ?> de <?= count($pinsTodos) ?> ponto(s) com coordenadas</span>
+      <span class="panel-sub"><?= (int) $totalComGeo ?> ponto(s) com coordenadas · carregamento por área visível</span>
     </div>
     <div class="panel-body">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
@@ -134,7 +120,7 @@ include __DIR__ . '/../includes/head.php';
           <input type="checkbox" id="map-toggle-cluster" checked>
           Agrupar clusters
         </label>
-        <div class="map-tools-status" id="map-visible-count"><?= count($pins) ?> ponto(s) visível(is)</div>
+        <div class="map-tools-status" id="map-visible-count" aria-live="polite" aria-busy="true">—</div>
       </div>
       <div id="pontos-iluminacao-map" role="region" aria-label="Mapa de pontos de iluminação"></div>
     </div>
@@ -142,7 +128,13 @@ include __DIR__ . '/../includes/head.php';
 </section>
 
 <?php
-$pontosMapPins = $pins;
+$pontosMapPins = [];
+$crmPontosMapaViewport = true;
+$crmPontosMapaConfig = crm_pontos_mapa_js_config(
+    $scopeId,
+    ['somente_chamados_abertos' => $filtroMapa === 'chamados'],
+    $basePath
+);
 require __DIR__ . '/../includes/partials/pontos_iluminacao_map_scripts.php';
 ?>
 

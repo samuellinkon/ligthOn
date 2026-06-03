@@ -30,6 +30,42 @@
     };
   }
 
+  var FIT_BOUNDS_MAX_PONTOS = 80;
+
+  function resolvePontosMapCreateOpts(opts) {
+    opts = opts || {};
+    var c = opts.mapCenter || global.CRM_PONTOS_MAP_CENTER;
+    if (c && c.lat != null && c.lng != null) {
+      return {
+        center: { lat: Number(c.lat), lng: Number(c.lng) },
+        zoom: typeof c.zoom === 'number' ? c.zoom : 12,
+      };
+    }
+    return {};
+  }
+
+  function applyPontosMapDefaultCenter(map) {
+    if (!map || !GJs) return;
+    var c = global.CRM_PONTOS_MAP_CENTER;
+    if (c && c.lat != null && c.lng != null) {
+      map.setCenter(GJs.latLng({ lat: Number(c.lat), lng: Number(c.lng) }));
+      map.setZoom(typeof c.zoom === 'number' ? c.zoom : 12);
+      return;
+    }
+    map.setCenter(GJs.DEFAULT_CENTER);
+    map.setZoom(GJs.DEFAULT_ZOOM);
+  }
+
+  function shouldFitMapBounds(count, max) {
+    max = typeof max === 'number' ? max : FIT_BOUNDS_MAX_PONTOS;
+    return count > 0 && count <= max;
+  }
+
+  function maybeFitToPositions(map, positions, fitOpts, maxCount) {
+    if (!shouldFitMapBounds(positions.length, maxCount)) return;
+    GJs.fitToPositions(map, positions, fitOpts || { maxZoom: 16, singleZoom: 16 });
+  }
+
   function renderChamadoPopup(ch) {
     if (global.CrmChamadoPopup && typeof global.CrmChamadoPopup.render === 'function') {
       return global.CrmChamadoPopup.render(ch, { showStreetView: true });
@@ -162,6 +198,21 @@
     }
 
     bindMarkerClick(marker, function () {
+      if (
+        global.CrmPontoIluminacaoPopup &&
+        typeof global.CrmPontoIluminacaoPopup.openLazyGoogle === 'function'
+      ) {
+        global.CrmPontoIluminacaoPopup.openLazyGoogle({
+          pin: pin,
+          map: map,
+          marker: marker,
+          infoWindow: infoWindow,
+          openInfoWindow: openInfoWindow,
+          apiUrl: global.CRM_PONTO_MAPA_DETALHE_API,
+          popupOptions: { actions: 'full' },
+        });
+        return;
+      }
       openInfoWindow(infoWindow, map, marker, renderPontoPopup(pin));
     });
     return marker;
@@ -336,13 +387,34 @@
     var visibleCount = opts.visibleCountEl || document.getElementById('map-visible-count');
 
     if (!el || !GJs || !GJs.mapsReady()) return null;
+
+    var useViewport =
+      global.CRM_PONTOS_MAPA_VIEWPORT !== false &&
+      global.CRM_PONTOS_MAPA_CONFIG &&
+      global.CrmPontosMapViewport &&
+      typeof global.CrmPontosMapViewport.initGoogle === 'function';
+
+    if (useViewport) {
+      return global.CrmPontosMapViewport.initGoogle({
+        el: el,
+        mapElementId: opts.mapElementId || 'pontos-iluminacao-map',
+        config: opts.config || global.CRM_PONTOS_MAPA_CONFIG,
+        areaFilter: areaFilter,
+        searchFilter: searchFilter,
+        clusterToggle: clusterToggle,
+        visibleCountEl: visibleCount,
+        createPontoMarker: createPontoMarker,
+        openInfoWindow: openInfoWindow,
+      });
+    }
+
     if (!Array.isArray(pins) || pins.length === 0) {
       el.innerHTML =
         '<div class="pontos-map-empty">Nenhum ponto com latitude e longitude cadastrado.</div>';
       return null;
     }
 
-    var map = GJs.createMap(el);
+    var map = GJs.createMap(el, resolvePontosMapCreateOpts(opts));
     var infoWindow = new global.google.maps.InfoWindow({ maxWidth: 360 });
     var items = pins.map(function (p) {
       return { pin: p, marker: createPontoMarker(p, map, infoWindow) };
@@ -361,14 +433,7 @@
     function matchSearch(p) {
       if (!searchFilter || !searchFilter.value) return true;
       var q = normalizeText(searchFilter.value);
-      var haystack = [
-        p.codigo_poste,
-        p.identificador_externo,
-        p.endereco_completo,
-        p.bairro,
-        p.cliente,
-        p.status,
-      ].join(' ');
+      var haystack = [p.codigo_poste, p.bairro, p.status].join(' ');
       return normalizeText(haystack).indexOf(q) !== -1;
     }
 
@@ -397,9 +462,7 @@
       if (visibleCount) {
         visibleCount.textContent = filtered.length + ' de ' + items.length + ' ponto(s) visível(is)';
       }
-      if (positions.length) {
-        GJs.fitToPositions(map, positions, { maxZoom: 16, singleZoom: 16 });
-      }
+      maybeFitToPositions(map, positions, { maxZoom: 16, singleZoom: 16 });
     }
 
     renderMarkers();
@@ -432,11 +495,17 @@
 
     var pinsCh = Array.isArray(data.chamados) ? data.chamados : [];
     var pinsPt = Array.isArray(data.pontos) ? data.pontos : [];
+    var usePontosViewport =
+      global.CRM_PONTOS_MAPA_VIEWPORT !== false &&
+      global.CRM_PONTOS_MAPA_CONFIG &&
+      global.CrmPontosMapViewport &&
+      typeof global.CrmPontosMapViewport.attachGoogle === 'function';
     var geocodeApi = global.CHAMADOS_MAP_GEOCODE_API || '';
     var persistApi = global.CHAMADOS_MAP_PERSIST_API || '';
     var hasChamadosData = pinsCh.length > 0;
+    var hasPontosData = pinsPt.length > 0 || usePontosViewport;
 
-    if (!hasChamadosData && pinsPt.length === 0) {
+    if (!hasChamadosData && !hasPontosData) {
       var comboEmpty =
         global.CHAMADOS_MAP_EMPTY_MSG ||
         'Não há chamados no período nem postes com coordenadas para exibir.';
@@ -444,16 +513,35 @@
       return null;
     }
 
-    var map = GJs.createMap(el);
+    var map = GJs.createMap(el, resolvePontosMapCreateOpts(opts));
     var infoWindowCh = new global.google.maps.InfoWindow({ maxWidth: 360 });
     var infoWindowPt = new global.google.maps.InfoWindow({ maxWidth: 360 });
     var itemsCh = [];
-    var itemsPt = pinsPt.map(function (p) {
-      return { pin: p, marker: createPontoMarker(p, map, infoWindowPt) };
-    });
+    var itemsPt = usePontosViewport
+      ? []
+      : pinsPt.map(function (p) {
+          return { pin: p, marker: createPontoMarker(p, map, infoWindowPt) };
+        });
     var clustererCh = null;
     var clustererPt = null;
+    var pontosViewportCtrl = null;
     var loadingBanner = null;
+
+    if (usePontosViewport) {
+      pontosViewportCtrl = global.CrmPontosMapViewport.attachGoogle({
+        map: map,
+        config: global.CRM_PONTOS_MAPA_CONFIG,
+        areaFilter: areaFilter,
+        searchFilter: searchPt,
+        clusterToggle: clusterToggle,
+        visibleCountEl: visiblePt,
+        createPontoMarker: createPontoMarker,
+        openInfoWindow: openInfoWindow,
+        skipResize: true,
+        autoLoad: false,
+        enabled: layerPt ? layerPt.checked : true,
+      });
+    }
 
     function useCluster() {
       return !clusterToggle || clusterToggle.checked;
@@ -520,14 +608,7 @@
     function matchSearchPt(p) {
       if (!searchPt || !searchPt.value) return true;
       var q = normalizeText(searchPt.value);
-      var haystack = [
-        p.codigo_poste,
-        p.identificador_externo,
-        p.endereco_completo,
-        p.bairro,
-        p.cliente,
-        p.status,
-      ].join(' ');
+      var haystack = [p.codigo_poste, p.bairro, p.status].join(' ');
       return normalizeText(haystack).indexOf(q) !== -1;
     }
 
@@ -581,7 +662,12 @@
         clustererCh = null;
       }
 
-      if (showPontosLayer()) {
+      if (usePontosViewport && pontosViewportCtrl) {
+        pontosViewportCtrl.setEnabled(showPontosLayer());
+        if (showPontosLayer()) {
+          pontosViewportCtrl.reload();
+        }
+      } else if (showPontosLayer()) {
         var ptMarkers = ptFiltered.map(function (i) {
           return i.marker;
         });
@@ -589,24 +675,29 @@
         ptFiltered.forEach(function (item) {
           positions.push({ lat: item.pin.lat, lng: item.pin.lng });
         });
+        if (visiblePt) {
+          visiblePt.textContent =
+            ptFiltered.length + ' de ' + itemsPt.length + ' ponto(s) visível(is)';
+        }
       } else {
         clustererPt = null;
+        if (visiblePt && !usePontosViewport) {
+          visiblePt.textContent = '0 de ' + itemsPt.length + ' ponto(s) visível(is)';
+        }
       }
 
       if (visibleCh) {
         visibleCh.textContent =
           chFiltered.length + ' de ' + itemsCh.length + ' chamado(s) visível(is)';
       }
-      if (visiblePt) {
-        visiblePt.textContent =
-          ptFiltered.length + ' de ' + itemsPt.length + ' ponto(s) visível(is)';
-      }
 
-      if (positions.length === 0) {
-        map.setCenter(GJs.DEFAULT_CENTER);
-        map.setZoom(GJs.DEFAULT_ZOOM);
-      } else {
-        GJs.fitToPositions(map, positions, { maxZoom: 15, singleZoom: 14 });
+      if (positions.length === 0 && !usePontosViewport) {
+        applyPontosMapDefaultCenter(map);
+      } else if (positions.length > 0) {
+        maybeFitToPositions(map, positions, { maxZoom: 15, singleZoom: 14 }, FIT_BOUNDS_MAX_PONTOS);
+        if (!shouldFitMapBounds(positions.length)) {
+          applyPontosMapDefaultCenter(map);
+        }
       }
     }
 
@@ -622,7 +713,7 @@
       if (pinsCh.length === 0) {
         layerCh.checked = false;
         layerPt.checked = true;
-      } else if (itemsPt.length === 0) {
+      } else if (!usePontosViewport && itemsPt.length === 0) {
         layerCh.checked = true;
         layerPt.checked = false;
       } else {
@@ -636,6 +727,9 @@
     }
 
     rebuildLayers();
+    if (usePontosViewport && pontosViewportCtrl && showPontosLayer()) {
+      pontosViewportCtrl.reload();
+    }
     requestAnimationFrame(function () {
       GJs.triggerResize(map);
     });

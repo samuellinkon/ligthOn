@@ -56,6 +56,10 @@ $meusDadosPainelClientePortalModal = $clientePortalModal;
 $meusDadosPainelUnicoEmpresaModo = $unicoEmpresaModo;
 $meusDadosPainelCatPadraoId = $catPadraoId;
 
+require_once __DIR__ . '/../includes/cliente_plano_limites.php';
+$topbarPlanoBtn = $empresaRaizId > 0 && repo_cliente_plano_columns_exists();
+$topbarPlanoWarn = $topbarPlanoBtn && cliente_plano_tem_alerta($empresaRaizId);
+
 $topTitle    = 'Meus dados';
 $topSubtitle = 'Cadastro da prefeitura e contas com acesso ao sistema';
 $topSearch   = '';

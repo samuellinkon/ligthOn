@@ -396,7 +396,6 @@
     var btn = document.getElementById('topbarNotifBtn');
     var dd = document.getElementById('topbarNotifDropdown');
     var list = document.getElementById('topbarNotifList');
-    var empty = document.getElementById('topbarNotifEmpty');
     var badge = document.getElementById('topbarNotifBadge');
     var markAll = document.getElementById('topbarNotifMarkAll');
     var headCount = document.getElementById('topbarNotifHeadCount');
@@ -455,7 +454,7 @@
     }
 
     function renderList() {
-      if (!list || !empty) return;
+      if (!list) return;
 
       var filtered = filterNotifications(allItems, activeFilter);
       var grouped = groupNotificationsByChamado(filtered);
@@ -463,22 +462,9 @@
 
       list.innerHTML = '';
       if (!visible.length) {
-        empty.hidden = false;
-        var emptyStrong = empty.querySelector('strong');
-        var emptySpan = empty.querySelector('span');
-        if (emptyStrong && emptySpan) {
-          if (allItems.length === 0) {
-            emptyStrong.textContent = 'Você está em dia';
-            emptySpan.textContent = 'Nenhuma nova notificação no momento.';
-          } else {
-            emptyStrong.textContent = 'Nada neste filtro';
-            emptySpan.textContent = 'Tente outra aba ou veja todas as notificações.';
-          }
-        }
         if (markAll) markAll.hidden = true;
         return;
       }
-      empty.hidden = true;
 
       var anyUnread = false;
       visible.forEach(function (g) {

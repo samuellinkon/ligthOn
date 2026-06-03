@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/modules.php';
 
 require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once __DIR__ . '/../includes/cliente_plano_limites.php';
 
 $isSuperAdminConfig = !empty($me['is_super_admin']);
 if (!$isSuperAdminConfig) {
@@ -140,6 +141,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($isSuperAdminConfig && $postSecao === 'clientes' && repo_cliente_plano_columns_exists()) {
+        $planoClienteIdSave = (int) (repo_catalogo_cliente_id_padrao_admin() ?? repo_cliente_raiz_principal_id() ?? 0);
+        if ($planoClienteIdSave > 0) {
+            $ok = repo_cliente_plano_salvar($planoClienteIdSave, [
+                'plano_codigo' => $_POST['plano_codigo'] ?? 'padrao',
+                'plano_mensalidade' => $_POST['plano_mensalidade'] ?? '',
+                'limite_pontos' => $_POST['limite_pontos'] ?? '',
+                'limite_chamados_mes' => $_POST['limite_chamados_mes'] ?? '',
+                'limite_itens_mes' => $_POST['limite_itens_mes'] ?? '',
+                'limite_storage_mb' => $_POST['limite_storage_mb'] ?? '',
+                'limite_usuarios' => $_POST['limite_usuarios'] ?? '',
+            ]) && $ok;
+        }
+    }
+
     $mailFrom = trim((string) ($_POST['mail_from'] ?? ''));
     $mailName = trim((string) ($_POST['mail_from_name'] ?? ''));
     if ($mailFrom !== '' && !filter_var($mailFrom, FILTER_VALIDATE_EMAIL)) {
@@ -210,8 +226,18 @@ $schemeCfg = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https
 $apiV1Abs = ($hostCfg !== '' ? $schemeCfg . '://' . $hostCfg : '') . $apiV1Path;
 
 $empresasMatrizCatalogoCfg = [];
+$planoClienteId = 0;
+$planoLimites = [];
+$planoResumo = [];
 if ($tab === 'geral' && $isSuperAdminConfig && db_ok()) {
     $empresasMatrizCatalogoCfg = repo_clientes_empresas();
+    if (repo_cliente_plano_columns_exists()) {
+        $planoClienteId = (int) (repo_catalogo_cliente_id_padrao_admin() ?? repo_cliente_raiz_principal_id() ?? 0);
+        if ($planoClienteId > 0) {
+            $planoLimites = cliente_plano_limites($planoClienteId);
+            $planoResumo = cliente_plano_resumo_metricas($planoClienteId);
+        }
+    }
 }
 
 $modsSuper = $modsGestor = $modsCliente = $modsOperador = [];
@@ -249,6 +275,16 @@ include __DIR__ . '/../includes/head.php';
     cursor: pointer;
     font: inherit;
   }
+  .plano-uso-grid { display: grid; gap: 14px; }
+  .plano-uso-row-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+  .plano-uso-valores { color: var(--muted); font-size: 13px; }
+  .plano-uso-bar { height: 8px; border-radius: 999px; background: var(--border-soft, #e2e8f0); overflow: hidden; margin-top: 8px; }
+  .plano-uso-bar-fill { display: block; height: 100%; border-radius: inherit; background: #22c55e; transition: width .2s ease; }
+  .plano-uso-warn .plano-uso-bar-fill { background: #f59e0b; }
+  .plano-uso-danger .plano-uso-bar-fill { background: #ef4444; }
+  .plano-uso-pct { font-weight: 600; }
+  .plano-limite-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .plano-limite-row .input { flex: 1; min-width: 140px; }
 </style>
 <div class="app">
 <?php include __DIR__ . '/../includes/sidebar-admin.php'; ?>
@@ -344,6 +380,10 @@ include __DIR__ . '/../includes/head.php';
         </small>
       </div>
     </div>
+    <?php endif; ?>
+
+    <?php if ($isSuperAdminConfig && $planoClienteId > 0 && repo_cliente_plano_columns_exists()): ?>
+      <?php include __DIR__ . '/../includes/partials/config_cliente_plano_panel.php'; ?>
     <?php endif; ?>
     </div>
 

@@ -101,6 +101,31 @@ $cssBust = static function (string $file): int {
   <?php if ($crmGoogleMapsMapIdHead !== ''): ?>
   <script>window.CRM_GOOGLE_MAPS_MAP_ID = <?= json_encode($crmGoogleMapsMapIdHead, JSON_UNESCAPED_UNICODE) ?>;</script>
   <?php endif; ?>
+  <?php if (!empty($loadPontosIluminacaoPageLoader)): ?>
+  <style>
+    .pontos-page-loading{position:fixed;inset:0;z-index:10070;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.52);backdrop-filter:blur(4px);opacity:0;visibility:hidden;transition:opacity .22s ease,visibility .22s ease}
+    .pontos-page-loading.is-visible{opacity:1;visibility:visible}
+    body.pontos-page-loading-active{overflow:hidden}
+    .pontos-page-loading__panel{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:320px;padding:28px 32px;border-radius:16px;background:#fff;box-shadow:0 20px 50px rgba(15,23,42,.22);text-align:center}
+    .pontos-page-loading__spinner{width:40px;height:40px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:pontos-page-loading-spin .75s linear infinite}
+    .pontos-page-loading__title{margin:0;font-size:1rem;font-weight:800;color:#0f172a}
+    .pontos-page-loading__msg{margin:0;font-size:.875rem;font-weight:600;color:#64748b;line-height:1.45}
+    @keyframes pontos-page-loading-spin{to{transform:rotate(360deg)}}
+  </style>
+  <?php
+  $pontosPageLoaderJs = dirname(__DIR__) . '/assets/js/pontos-iluminacao-page-loader.js';
+  ?>
+  <script src="<?= $basePath ?>assets/js/pontos-iluminacao-page-loader.js?v=<?= (int) @filemtime($pontosPageLoaderJs) ?>" defer></script>
+  <?php endif; ?>
 </head>
-<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?><?= !empty($pageBodyAttrs) ? (string) $pageBodyAttrs : '' ?><?= $crmGoogleMapsApiKeyHead !== '' ? ' data-google-maps-key="' . htmlspecialchars($crmGoogleMapsApiKeyHead, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
+<body<?= app_debug_mode() ? ' data-form-fill-dev="1"' : '' ?><?= !empty($loadPontosIluminacaoPageLoader) ? ' class="pontos-page-loading-active"' : '' ?><?= !empty($pageBodyAttrs) ? (string) $pageBodyAttrs : '' ?><?= $crmGoogleMapsApiKeyHead !== '' ? ' data-google-maps-key="' . htmlspecialchars($crmGoogleMapsApiKeyHead, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
 <div class="sidebar-overlay"></div>
+<?php if (!empty($loadPontosIluminacaoPageLoader)): ?>
+<div id="pontos-page-loader" class="pontos-page-loading is-visible" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite" aria-label="Carregando pontos de iluminação">
+  <div class="pontos-page-loading__panel">
+    <div class="pontos-page-loading__spinner" aria-hidden="true"></div>
+    <p class="pontos-page-loading__title">Carregando</p>
+    <p class="pontos-page-loading__msg"><?= htmlspecialchars((string) ($pontosPageLoaderMsg ?? 'Preparando mapa e listagem…'), ENT_QUOTES, 'UTF-8') ?></p>
+  </div>
+</div>
+<?php endif; ?>

@@ -34,49 +34,66 @@ if (!in_array($filtroMapa, ['', 'chamados'], true)) {
     $filtroMapa = '';
 }
 
-$pontosTodosEscopo = repo_pontos_iluminacao_list($pontosPainelEscopoId, true, '', '');
-$totalPontosStats  = count($pontosTodosEscopo);
-$comChamadoStats   = count(array_filter($pontosTodosEscopo, static function (array $p): bool {
-    return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-}));
-$totalAtivosStats = count(array_filter($pontosTodosEscopo, static function (array $p): bool {
-    return ($p['status'] ?? '') === 'Ativo';
-}));
-$totalInativosStats = count(array_filter($pontosTodosEscopo, static function (array $p): bool {
-    return ($p['status'] ?? '') === 'Inativo';
-}));
+$pontosTodosEscopo = repo_pontos_iluminacao_estatisticas_escopo($pontosPainelEscopoId, true);
+$totalPontosStats  = (int) ($pontosTodosEscopo['total'] ?? 0);
+$comChamadoStats   = (int) ($pontosTodosEscopo['com_chamados_abertos'] ?? 0);
+$totalAtivosStats  = (int) ($pontosTodosEscopo['ativos'] ?? 0);
+$totalInativosStats = (int) ($pontosTodosEscopo['inativos'] ?? 0);
 
-$pontos = repo_pontos_iluminacao_list($pontosPainelEscopoId, true, $q, $status);
-if ($filtroMapa === 'chamados') {
-    $pontos = array_values(array_filter($pontos, static function (array $p): bool {
-        return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-    }));
+$pontosPerPage = 50;
+$pontosPage = max(1, (int) ($_GET['page'] ?? 1));
+$pontosListagem = repo_pontos_iluminacao_list_paginated(
+    $pontosPainelEscopoId,
+    true,
+    $q,
+    $status,
+    $filtroMapa === 'chamados',
+    $pontosPage,
+    $pontosPerPage
+);
+$pontos = $pontosListagem['rows'];
+$pontosTotalFiltrado = (int) ($pontosListagem['total'] ?? 0);
+$pontosTotalPages = max(1, (int) ceil($pontosTotalFiltrado / $pontosPerPage));
+$pontosPage = min($pontosPage, $pontosTotalPages);
+$pontosOffset = ($pontosPage - 1) * $pontosPerPage;
+if ($pontosTotalFiltrado === 0) {
+    $pontosMostrarDe = $pontosMostrarAte = 0;
+} else {
+    $pontosMostrarDe = $pontosOffset + 1;
+    $pontosMostrarAte = $pontosOffset + count($pontos);
 }
 
-$pinsTodos = repo_pontos_iluminacao_mapa($pontosPainelEscopoId, true, $status);
-$pinsMapa  = $pinsTodos;
-if ($filtroMapa === 'chamados') {
-    $pinsMapa = array_values(array_filter($pinsTodos, static function (array $p): bool {
-        return ((int) ($p['chamados_abertos'] ?? 0)) > 0;
-    }));
-}
-$pontoIdsLista = [];
-foreach ($pontos as $pRow) {
-    $pontoIdsLista[(int) ($pRow['id'] ?? 0)] = true;
-}
-$pinsMapa = array_values(array_filter($pinsMapa, static function (array $p) use ($pontoIdsLista): bool {
-    return isset($pontoIdsLista[(int) ($p['id'] ?? 0)]);
-}));
-$bairrosMapa = [];
-foreach ($pinsMapa as $p) {
-    $bairro = trim((string) ($p['bairro'] ?? ''));
-    if ($bairro !== '') {
-        $bairrosMapa[$bairro] = true;
+/**
+ * @return list<int>
+ */
+$pontosPaginationVisiblePages = static function (int $current, int $lastPage): array {
+    if ($lastPage <= 1) {
+        return [];
     }
-}
-$bairrosMapa = array_keys($bairrosMapa);
-natcasesort($bairrosMapa);
-$bairrosMapa = array_values($bairrosMapa);
+    if ($lastPage <= 9) {
+        return range(1, $lastPage);
+    }
+    $set = [1, $lastPage];
+    for ($i = max(2, $current - 2); $i <= min($lastPage - 1, $current + 2); $i++) {
+        $set[] = $i;
+    }
+    $set = array_values(array_unique($set));
+    sort($set, SORT_NUMERIC);
+    $out = [];
+    $prev = 0;
+    foreach ($set as $p) {
+        if ($prev > 0 && $p - $prev > 1) {
+            $out[] = 0;
+        }
+        $out[] = $p;
+        $prev = $p;
+    }
+
+    return $out;
+};
+$pontosPaginasVisiveis = $pontosPaginationVisiblePages($pontosPage, $pontosTotalPages);
+
+$bairrosMapa = repo_pontos_iluminacao_bairros_distintos($pontosPainelEscopoId, true);
 
 $pontosListaQs = static function (array $override = []) use ($pontosPainelHiddenQuery, $q, $status, $filtroMapa): string {
     $p = [];
@@ -101,6 +118,10 @@ $pontosListaQs = static function (array $override = []) use ($pontosPainelHidden
     }
 
     return http_build_query($p);
+};
+
+$pontosListaPageUrl = static function (int $pageNum) use ($pontosListaQs): string {
+    return $pontosListaQs($pageNum > 1 ? ['page' => (string) $pageNum] : ['page' => null]);
 };
 
 $metricaAtiva = 'total';
@@ -191,7 +212,7 @@ if ($metricaAtiva === 'chamados') {
   <div class="card" id="mapa-pontos">
     <div class="panel-head">
       <h4>Mapa de acompanhamento</h4>
-      <span class="panel-sub"><?= count($pinsMapa) ?> de <?= count($pinsTodos) ?> ponto(s) no mapa · <?= htmlspecialchars($mapaSubtituloFiltro) ?></span>
+      <span class="panel-sub"><?= (int) $totalPontosStats ?> ponto(s) no parque · <?= htmlspecialchars($mapaSubtituloFiltro) ?> · carregamento progressivo por zoom</span>
     </div>
     <div class="panel-body">
       <div class="pontos-mapa-toolbar" aria-label="Vistas do mapa">
@@ -201,16 +222,13 @@ if ($metricaAtiva === 'chamados') {
           <input type="checkbox" id="map-toggle-cluster" checked>
           <span>Agrupar em clusters</span>
         </label>
+        <button type="button" id="map-toggle-force-points" class="btn btn-sm btn-secondary" aria-pressed="false">Ver postes individuais</button>
         <span class="pontos-mapa-toolbar-spacer" aria-hidden="true"></span>
         <?php if ($pontosPainelMostrarRotas && $pontosPainelHrefRotas !== ''): ?>
         <a href="<?= htmlspecialchars($pontosPainelHrefRotas) ?>" class="btn btn-sm btn-primary">Rotas</a>
         <?php endif; ?>
       </div>
-      <div class="pontos-mapa-legenda" aria-label="Legenda do mapa">
-        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--ativo" aria-hidden="true"></span> Ativo</span>
-        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--alert" aria-hidden="true"></span> Com chamado aberto</span>
-        <span class="pontos-mapa-legenda-item"><span class="ponto-marker ponto-marker--inativo" aria-hidden="true"></span> Inativo</span>
-      </div>
+      <?php require __DIR__ . '/partials/pontos_iluminacao_mapa_legenda.php'; ?>
       <div class="dashboard-pontos-tools" aria-label="Ferramentas do mapa">
         <div>
           <label for="map-filter-area">Área / bairro</label>
@@ -225,7 +243,20 @@ if ($metricaAtiva === 'chamados') {
           <label for="map-filter-search">Buscar no mapa</label>
           <input id="map-filter-search" class="input" type="search" placeholder="Poste, endereço, bairro ou referência">
         </div>
-        <div class="dashboard-pontos-tools-status" id="map-visible-count"><?= count($pinsMapa) ?> ponto(s) visível(is)</div>
+        <div class="pontos-mapa-geo-filter-row" aria-label="Localizar no mapa por coordenadas">
+          <div>
+            <label for="map-filter-lat">Latitude</label>
+            <input id="map-filter-lat" class="input" type="text" inputmode="decimal" placeholder="Ex.: -8.398075" autocomplete="off">
+          </div>
+          <div>
+            <label for="map-filter-lng">Longitude</label>
+            <input id="map-filter-lng" class="input" type="text" inputmode="decimal" placeholder="Ex.: -35.063889" autocomplete="off">
+          </div>
+          <button type="button" id="map-filter-geo-go" class="btn btn-sm btn-secondary">Ir</button>
+        </div>
+        <p class="pontos-mapa-geo-filter-hint">Por padrão, regiões agregadas. Aproxime o mapa ou use a busca para localizar postes. Busca por coordenadas: raio de 15 m.</p>
+        <div class="dashboard-pontos-tools-status" id="map-visible-count" aria-live="polite" aria-busy="true">—</div>
+        <div class="pontos-mapa-loading" id="map-loading-status" hidden aria-live="polite"></div>
       </div>
       <div id="pontos-iluminacao-map" role="region" aria-label="Mapa de pontos de iluminação"></div>
     </div>
@@ -234,7 +265,7 @@ if ($metricaAtiva === 'chamados') {
   <div class="card">
     <div class="panel-head">
       <h4>Listagem de pontos</h4>
-      <span class="panel-sub"><?= count($pontos) ?> ponto(s) no filtro atual</span>
+      <span class="panel-sub"><?= (int) $pontosTotalFiltrado ?> ponto(s) no filtro atual<?php if ($pontosTotalPages > 1): ?> · página <?= (int) $pontosPage ?> de <?= (int) $pontosTotalPages ?><?php endif; ?></span>
     </div>
 
     <form class="filters filters--form" method="get" action="<?= htmlspecialchars($pontosPainelFormAction) ?>">
@@ -310,11 +341,49 @@ if ($metricaAtiva === 'chamados') {
         </tbody>
       </table>
     </div>
+
+    <div class="pagination">
+      <span class="pag-info">Mostrando <?= (int) $pontosMostrarDe ?>–<?= (int) $pontosMostrarAte ?> de <?= (int) $pontosTotalFiltrado ?></span>
+      <?php if ($pontosTotalPages > 1): ?>
+      <div class="pag-controls">
+        <?php if ($pontosPage <= 1): ?>
+          <span class="pag-btn pag-btn--static" aria-hidden="true">‹</span>
+        <?php else: ?>
+          <a class="pag-btn" href="<?= htmlspecialchars($pontosPainelFormAction . '?' . $pontosListaPageUrl($pontosPage - 1), ENT_QUOTES, 'UTF-8') ?>" aria-label="Página anterior">‹</a>
+        <?php endif; ?>
+
+        <?php foreach ($pontosPaginasVisiveis as $pv): ?>
+          <?php if ($pv === 0): ?>
+            <span class="pag-ellipsis" aria-hidden="true">…</span>
+          <?php elseif ($pv === $pontosPage): ?>
+            <span class="pag-btn active" aria-current="page"><?= (int) $pv ?></span>
+          <?php else: ?>
+            <a class="pag-btn" href="<?= htmlspecialchars($pontosPainelFormAction . '?' . $pontosListaPageUrl((int) $pv), ENT_QUOTES, 'UTF-8') ?>"><?= (int) $pv ?></a>
+          <?php endif; ?>
+        <?php endforeach; ?>
+
+        <?php if ($pontosPage >= $pontosTotalPages): ?>
+          <span class="pag-btn pag-btn--static" aria-hidden="true">›</span>
+        <?php else: ?>
+          <a class="pag-btn" href="<?= htmlspecialchars($pontosPainelFormAction . '?' . $pontosListaPageUrl($pontosPage + 1), ENT_QUOTES, 'UTF-8') ?>" aria-label="Próxima página">›</a>
+        <?php endif; ?>
+      </div>
+      <?php endif; ?>
+    </div>
   </div>
 </section>
 
 <?php
-$pontosMapPins = $pinsMapa;
+$pontosMapPins = [];
+$crmPontosMapaViewport = true;
+$crmPontosMapaConfig = crm_pontos_mapa_js_config(
+    $pontosPainelEscopoId,
+    [
+        'status' => $status,
+        'somente_chamados_abertos' => $filtroMapa === 'chamados',
+    ],
+    $basePath ?? '../'
+);
 $loadPontosMapGoogle = !empty($loadPontosMapGoogle);
 $loadLeaflet = !empty($loadLeaflet) || !$loadPontosMapGoogle;
 require __DIR__ . '/partials/pontos_iluminacao_map_scripts.php';

@@ -22,6 +22,12 @@ if (!isset($topbarActionsFirst)) {
 if (!isset($topbarCompact)) {
     $topbarCompact = false;
 }
+if (!isset($topbarPlanoBtn)) {
+    $topbarPlanoBtn = false;
+}
+if (!isset($topbarPlanoWarn)) {
+    $topbarPlanoWarn = false;
+}
 
 $painelNotifOk = false;
 $notifUnreadInitial = 0;
@@ -61,6 +67,7 @@ if (function_exists('db_ok') && db_ok()) {
     }
 }
 ?>
+<?php include __DIR__ . '/partials/plano_uso_alerta.php'; ?>
 <header class="topbar<?= $topbarActionsFirst ? ' topbar--actions-first' : '' ?><?= $topbarCompact ? ' topbar--compact' : '' ?>">
   <div class="topbar-start">
     <button class="hamburger" aria-label="Abrir menu"><span></span></button>
@@ -73,9 +80,14 @@ if (function_exists('db_ok') && db_ok()) {
     </div>
     <?php endif; ?>
   </div>
-  <?php if ($topAction || !empty($topActions) || !empty($topbarMinhaContaHref) || $painelNotifOk): ?>
+  <?php if ($topAction || !empty($topActions) || !empty($topbarMinhaContaHref) || $painelNotifOk || $topbarPlanoBtn): ?>
   <div class="top-actions">
     <div class="top-actions-trail">
+      <?php if ($topbarPlanoBtn): ?>
+      <button type="button" class="btn btn-secondary topbar-plano-btn" data-plano-modal-open aria-haspopup="dialog" aria-controls="cliente-plano-modal">
+        Plano<?php if ($topbarPlanoWarn): ?><span class="topbar-plano-btn__dot" aria-hidden="true"></span><?php endif; ?>
+      </button>
+      <?php endif; ?>
       <?php if ($painelNotifOk && $notifApiHref !== ''): ?>
       <div class="topbar-notif-wrap" data-notif-api="<?= htmlspecialchars($notifApiHref, ENT_QUOTES, 'UTF-8') ?>">
         <button type="button" class="topbar-notif-btn" aria-expanded="false" aria-haspopup="true" aria-label="Notificações" id="topbarNotifBtn">
@@ -100,10 +112,6 @@ if (function_exists('db_ok') && db_ok()) {
             <button type="button" data-notif-filter="sistema" role="tab" aria-selected="false">Sistema</button>
           </div>
           <ul class="topbar-notif-list" id="topbarNotifList"></ul>
-          <div class="topbar-notif-empty" id="topbarNotifEmpty" hidden>
-            <strong>Você está em dia</strong>
-            <span>Nenhuma nova notificação no momento.</span>
-          </div>
           <?php if ($notifPaginaHref !== ''): ?>
           <div class="topbar-notif-foot">
             <a href="<?= htmlspecialchars($notifPaginaHref) ?>" class="topbar-notif-ver-todas">Ver todas as notificações</a>
