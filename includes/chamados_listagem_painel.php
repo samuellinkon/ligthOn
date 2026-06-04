@@ -476,7 +476,6 @@ if ($CRM_CHAMADOS_IS_OPERADOR && $exportFmt !== '') {
 }
 $mergeBmExport = $periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f === '' && $bmMergeActive;
 $maxExportRows = 20000;
-$maxPdfChamados = 120;
 
 if ($exportFmt === 'pdf_anexos') {
     $fExportMedicao = $f !== '' ? $f : ($mergeBmExport ? 'resolvido_bm' : '');
@@ -512,16 +511,13 @@ if ($exportFmt === 'pdf_anexos') {
         $escopoLista,
         $periodoDeListagem,
         $periodoAteListagem,
-        $maxPdfChamados + 1,
+        max(0, $totalPeriodo),
         $envolvidoRepo,
         $tecnicoRepo,
         $localQRepo,
         false
     );
-    $listaTruncada = count($rowsEx) > $maxPdfChamados;
-    if ($listaTruncada) {
-        $rowsEx = array_slice($rowsEx, 0, $maxPdfChamados);
-    }
+    $listaTruncada = false;
     $crmRows = array_values(array_filter($rowsEx, static fn ($r) => empty($r['medicao_bm'])));
     $items   = [];
     foreach ($crmRows as $row) {
