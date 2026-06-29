@@ -188,13 +188,14 @@ include __DIR__ . '/../includes/head.php';
               <?php else: ?>
               <tr><td><code>estoque_saldo</code></td><td colspan="2" class="td-mute">Indisponível — execute a migração <code>database/migrations/045_cliente_itens_estoque_saldo.sql</code></td></tr>
               <?php endif; ?>
+              <tr><td><code>Descrição simplificada</code> / <code>descricao_simplificada</code></td><td>Não</td><td>Texto curto para o técnico (até 160 caracteres)</td></tr>
               <tr><td><code>Descrição</code> / <code>descricao</code></td><td>Não</td><td>Texto opcional (até 500 caracteres)</td></tr>
             </tbody>
           </table>
         </div>
-        <pre style="white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:12px;margin-top:14px;font-size:12px;">tipo;nome;codigo;unidade;valor_unitario;estoque;saldo;descricao
-produto;Filtro de água;SKU-001;UN;59,90;100;25;Filtro refil
-servico;Instalação padrão;SERV-001;UN;120,00;0;0;Serviço interno</pre>
+        <pre style="white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:12px;margin-top:14px;font-size:12px;">tipo;nome;codigo;unidade;valor_unitario;estoque;saldo;descricao_simplificada;descricao
+produto;Filtro de água;SKU-001;UN;59,90;100;25;Filtro refil;Filtro refil completo
+servico;Instalação padrão;SERV-001;UN;120,00;0;0;;Serviço interno</pre>
         <p class="muted" style="line-height:1.6;margin-bottom:0;font-size:13px;">
           No modelo XLSX, a capa institucional fica acima do cabeçalho — não altere os títulos das colunas (<code>Tipo</code>, <code>Nome</code>, …). Preencha as linhas abaixo do cabeçalho e envie o arquivo.<?php if ($catalogoTemEstoque && $catalogoTemCapacidade): ?> Se a coluna <strong>Saldo</strong> estiver vazia na linha, o saldo inicial será igual ao <strong>Estoque</strong>.<?php endif; ?>
         </p>

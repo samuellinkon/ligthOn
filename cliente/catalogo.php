@@ -42,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $valRaw = str_replace(',', '.', $valRaw);
         $val   = round((float) $valRaw, 2, PHP_ROUND_HALF_UP);
         $desc  = trim((string) ($_POST['descricao'] ?? ''));
+        $descSimp = trim((string) ($_POST['descricao_simplificada'] ?? ''));
         $ativo = !empty($_POST['ativo']) ? 1 : 0;
         $estCap = (float) str_replace(',', '.', (string) ($_POST['estoque_capacidade'] ?? $_POST['estoque_saldo'] ?? '0'));
         $r = repo_cliente_item_salvar(
@@ -55,7 +56,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $desc !== '' ? $desc : null,
             $ativo,
             $estCap,
-            $id === null ? $estCap : null
+            $id === null ? $estCap : null,
+            $descSimp !== '' ? $descSimp : null
         );
         flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item salvo no catálogo.' : $r['err']);
     } elseif ($acao === 'item_excluir') {

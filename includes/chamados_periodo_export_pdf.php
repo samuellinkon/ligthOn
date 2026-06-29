@@ -81,7 +81,7 @@ function chamados_pdf_photo_fig_html(
     callable $h,
     callable $resolveAnexoImagemSrc,
     callable $anexoUrl,
-    string $imgMaxHeight = '22mm'
+    string $imgMaxHeight = '36mm'
 ): string {
     $aid = (int) ($a['id'] ?? 0);
     $got = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
@@ -127,7 +127,7 @@ function chamados_pdf_photo_quadrants_html(
     }
     $n = count($imgs);
 
-    $fig = static function (array $a, string $maxH = '22mm') use (
+    $fig = static function (array $a, string $maxH = '36mm') use (
         $cid,
         $embedImagesBase64,
         $projectRootFs,
@@ -152,7 +152,7 @@ function chamados_pdf_photo_quadrants_html(
 <table class="photo-quad" width="100%">
     <?php if ($n === 1): ?>
   <tr class="photo-quad__row">
-    <td class="photo-quad__cell" colspan="2"><?= $fig($imgs[0], '38mm') ?></td>
+    <td class="photo-quad__cell" colspan="2"><?= $fig($imgs[0], '58mm') ?></td>
   </tr>
     <?php elseif ($n === 2): ?>
   <tr class="photo-quad__row">
@@ -165,7 +165,7 @@ function chamados_pdf_photo_quadrants_html(
     <td class="photo-quad__cell"><?= $fig($imgs[1]) ?></td>
   </tr>
   <tr class="photo-quad__row">
-    <td class="photo-quad__cell photo-quad__cell--wide" colspan="2"><?= $fig($imgs[2], '26mm') ?></td>
+    <td class="photo-quad__cell photo-quad__cell--wide" colspan="2"><?= $fig($imgs[2], '42mm') ?></td>
   </tr>
     <?php endif; ?>
 </table>
@@ -676,7 +676,7 @@ function chamados_periodo_anexos_export_html(
     }
     .photo-grid__imgwrap {
       text-align: center;
-      min-height: 10mm;
+      min-height: 18mm;
       line-height: 0;
     }
     .photo-grid__imgwrap img {

@@ -604,8 +604,23 @@ function medicao_custo_bm_codigo_exibir(array $custo): string
     return 'CUSTO-' . (int) ($custo['id'] ?? 0);
 }
 
-function medicao_custo_bm_key(int $custoId, string $itemCodigo): string
+function medicao_custo_bm_key(int $custoId, string $itemCodigo, int $itemId = 0): string
 {
+    $cod = trim($itemCodigo);
+    if ($cod !== '' && strtoupper($cod) !== 'CUSTO') {
+        if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
+            return medicao_bm_boletim_v2_key_from_cod($cod, $itemId);
+        }
+
+        return $cod;
+    }
+    if ($itemId > 0) {
+        if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
+            return medicao_bm_boletim_v2_key_from_cod('', $itemId);
+        }
+
+        return 'ID:' . $itemId;
+    }
     if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
         return medicao_bm_boletim_v2_key_from_cod('CUSTO:' . $custoId);
     }
@@ -633,20 +648,49 @@ function medicao_bm_boletim_v2_anexar_custos_aprovados(array $rows, float &$valo
         $dataExcel = \PhpOffice\PhpSpreadsheet\Shared\Date::PHPToExcel($periodoPhp);
     }
 
+    $keyStringFn = function_exists('medicao_bm_boletim_key_string')
+        ? 'medicao_bm_boletim_key_string'
+        : static fn (mixed $k): string => (string) $k;
+
+    /** @var array<string, int> $idxPorKey */
+    $idxPorKey = [];
+    foreach ($rows as $i => $row) {
+        $idxPorKey[$keyStringFn($row['_key'] ?? '')] = $i;
+    }
+
     foreach ($custos as $c) {
-        $id   = (int) ($c['id'] ?? 0);
-        $qtd  = (float) ($c['quantidade'] ?? 0);
-        $vu   = (float) ($c['valor_unitario'] ?? 0);
-        $mv   = (float) ($c['valor_total'] ?? 0);
-        $k    = medicao_custo_bm_key($id, (string) ($c['item_codigo'] ?? ''));
-        $cod  = medicao_custo_bm_codigo_exibir($c);
-        $nome = trim((string) ($c['descricao'] ?? ''));
+        $id      = (int) ($c['id'] ?? 0);
+        $itemId  = (int) ($c['item_id'] ?? 0);
+        $qtd     = (float) ($c['quantidade'] ?? 0);
+        $mv      = (float) ($c['valor_total'] ?? 0);
+        if ($mv <= 0.0 && $qtd <= 0.0) {
+            continue;
+        }
+        $k       = medicao_custo_bm_key($id, (string) ($c['item_codigo'] ?? ''), $itemId);
+        $kStr    = $keyStringFn($k);
+        $cod     = medicao_custo_bm_codigo_exibir($c);
+        $nome    = trim((string) ($c['descricao'] ?? ''));
         if ($nome === '') {
             $nome = 'Custo adicional';
         }
         $unidade = trim((string) ($c['unidade'] ?? 'UN')) ?: 'UN';
 
         $valorMedidoSomaTotal += $mv;
+
+        if (isset($idxPorKey[$kStr])) {
+            $i = $idxPorKey[$kStr];
+            $vqBase = (float) ($rows[$i]['_saldo_exec_v'] ?? 0) + (float) ($rows[$i]['_val_acum'] ?? 0);
+            $rows[$i]['_medido_q']        = (float) ($rows[$i]['_medido_q'] ?? 0) + $qtd;
+            $rows[$i]['_val_med_periodo'] = (float) ($rows[$i]['_val_med_periodo'] ?? 0) + $mv;
+            $rows[$i]['_acum_q']          = (float) ($rows[$i]['_medido_q'] ?? 0) + (float) ($rows[$i]['_soma_bm_q'] ?? 0);
+            $rows[$i]['_val_acum']        = (float) ($rows[$i]['_val_med_periodo'] ?? 0) + (float) ($rows[$i]['_val_acum_ant'] ?? 0);
+            $rows[$i]['_saldo_exec_q']    = (float) ($rows[$i]['_estoque_saldo'] ?? 0) - (float) ($rows[$i]['_acum_q'] ?? 0);
+            $rows[$i]['_saldo_exec_v']    = $vqBase - (float) ($rows[$i]['_val_acum'] ?? 0);
+            if (abs($vqBase) > 1e-12) {
+                $rows[$i]['_dev_fin_ratio'] = (float) ($rows[$i]['_val_acum'] ?? 0) / $vqBase;
+            }
+            continue;
+        }
 
         $rows[] = [
             '_key'              => $k,
@@ -665,6 +709,7 @@ function medicao_bm_boletim_v2_anexar_custos_aprovados(array $rows, float &$valo
             '_saldo_exec_v'     => 0.0,
             '_dev_fin_ratio'    => null,
         ];
+        $idxPorKey[$kStr] = count($rows) - 1;
     }
 
     return $rows;

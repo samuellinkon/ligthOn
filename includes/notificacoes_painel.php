@@ -47,21 +47,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $abrir = (int) ($_GET['abrir'] ?? 0);
 if ($abrir > 0 && db_ok() && repo_notificacoes_table_exists()) {
     $pdo = db();
-    $cid = 0;
+    $notifRow = [];
     if ($pdo) {
         try {
             $st = $pdo->prepare(
-                'SELECT chamado_id FROM notificacoes WHERE id = ? AND usuario_id = ? LIMIT 1'
+                'SELECT chamado_id, tipo, titulo FROM notificacoes WHERE id = ? AND usuario_id = ? LIMIT 1'
             );
             $st->execute([$abrir, $uid]);
-            $cid = (int) ($st->fetchColumn() ?: 0);
+            $notifRow = $st->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            $cid = 0;
+            $notifRow = [];
         }
     }
     repo_notificacao_marcar_lida($abrir, $uid);
-    if ($cid > 0) {
-        header('Location: chamado_detalhe.php?id=' . $cid);
+    $destLink = repo_notificacao_resolve_link($notifRow);
+    if ($destLink !== '' && $destLink !== '#') {
+        header('Location: ' . $destLink);
         exit;
     }
     header('Location: ' . $selfFile);

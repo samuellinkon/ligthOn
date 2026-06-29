@@ -25,6 +25,7 @@ function catalogo_xlsx_table_headers(bool $temEstoque, bool $temCapacidade): arr
     } elseif ($temEstoque) {
         $headers[] = 'Estoque saldo';
     }
+    $headers[] = 'Descrição simplificada';
     $headers[] = 'Descrição';
 
     return $headers;
@@ -133,14 +134,17 @@ function catalogo_xlsx_build_workbook(
     $colValor     = 'E';
     $colEstoque   = null;
     $colSaldo     = null;
-    $colDesc      = 'F';
+    $colDescSimp  = 'F';
+    $colDesc      = 'G';
     if ($temEstoque && $temCapacidade) {
-        $colEstoque = 'F';
-        $colSaldo   = 'G';
-        $colDesc    = 'H';
+        $colEstoque  = 'F';
+        $colSaldo    = 'G';
+        $colDescSimp = 'H';
+        $colDesc     = 'I';
     } elseif ($temEstoque) {
-        $colEstoque = 'F';
-        $colDesc    = 'G';
+        $colEstoque  = 'F';
+        $colDescSimp = 'G';
+        $colDesc     = 'H';
     }
 
     foreach ($linhasDados as $it) {
@@ -164,6 +168,7 @@ function catalogo_xlsx_build_workbook(
         } elseif ($colEstoque !== null) {
             $sheet->setCellValue($colEstoque . $row, $estSaldo);
         }
+        $sheet->setCellValue($colDescSimp . $row, (string) ($it['descricao_simplificada'] ?? ''));
         $sheet->setCellValue($colDesc . $row, (string) ($it['descricao'] ?? ''));
 
         $bg    = (($row - $firstDataRow) % 2 === 0) ? MEDICAO_BM_WHITE : MEDICAO_BM_BG_ALT;
@@ -171,6 +176,7 @@ function catalogo_xlsx_build_workbook(
         $rowSt['fill'] = medicao_bm_boletim_style_fill_solid($bg);
         $sheet->getStyle('A' . $row . ':' . $lastColData . $row)->applyFromArray($rowSt);
         $sheet->getStyle('B' . $row)->applyFromArray($st['body_desc']);
+        $sheet->getStyle($colDescSimp . $row)->applyFromArray($st['body_desc']);
         $sheet->getStyle($colDesc . $row)->applyFromArray($st['body_desc']);
         $sheet->getStyle($colValor . $row)->applyFromArray($st['money']);
         $sheet->getStyle($colValor . $row)->getNumberFormat()->setFormatCode('#,##0.00');
@@ -194,7 +200,7 @@ function catalogo_xlsx_build_workbook(
     }
 
     $ultimaLinha = max($headerRow, (int) $sheet->getHighestRow());
-    catalogo_xlsx_finalize_sheet($sheet, $headerRow, $firstDataRow, $lastDataRow, $lastColData, $colValor, $colEstoque, $colSaldo, $colDesc, $ultimaLinha);
+    catalogo_xlsx_finalize_sheet($sheet, $headerRow, $firstDataRow, $lastDataRow, $lastColData, $colValor, $colEstoque, $colSaldo, $colDescSimp, $colDesc, $ultimaLinha);
 
     return [
         'spreadsheet'    => $spreadsheet,
@@ -204,6 +210,7 @@ function catalogo_xlsx_build_workbook(
         'col_valor'      => $colValor,
         'col_estoque'    => $colEstoque,
         'col_saldo'      => $colSaldo,
+        'col_desc_simp'  => $colDescSimp,
         'col_desc'       => $colDesc,
         'tem_estoque'    => $temEstoque,
     ];
@@ -225,6 +232,7 @@ function catalogo_xlsx_finalize_sheet(
     string $colValor,
     ?string $colEstoque,
     ?string $colSaldo,
+    string $colDescSimp,
     string $colDesc,
     int $ultimaLinha
 ): void {
@@ -236,7 +244,7 @@ function catalogo_xlsx_finalize_sheet(
         'last_data_row'  => $lastDataRow,
         'money_cols'     => [$colValor],
         'qty_cols'       => $qtyCols,
-        'left_cols'      => ['A', 'B', 'C', $colDesc],
+        'left_cols'      => ['A', 'B', 'C', $colDescSimp, $colDesc],
     ]);
     medicao_bm_boletim_aplicar_alturas_linhas_compactas($sheet, $ultimaLinha, $headerRow, $firstDataRow, $lastDataRow);
     $sheet->freezePane('A' . $firstDataRow);
@@ -288,6 +296,7 @@ function catalogo_modelo_xlsx_send(int $clienteId): void
             'valor_unitario'     => 59.90,
             'estoque_capacidade' => 100.0,
             'estoque_saldo'      => 25.0,
+            'descricao_simplificada' => 'Nome curto p/ técnico',
             'descricao'          => 'Substitua pelos seus dados',
         ],
         [
@@ -298,6 +307,7 @@ function catalogo_modelo_xlsx_send(int $clienteId): void
             'valor_unitario'     => 120.00,
             'estoque_capacidade' => 0.0,
             'estoque_saldo'      => 0.0,
+            'descricao_simplificada' => '',
             'descricao'          => '',
         ],
     ];

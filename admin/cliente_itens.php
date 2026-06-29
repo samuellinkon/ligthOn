@@ -77,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $valRaw = str_replace(',', '.', $valRaw);
         $val    = round((float) $valRaw, 2, PHP_ROUND_HALF_UP);
         $desc   = trim((string) ($_POST['descricao'] ?? ''));
+        $descSimp = trim((string) ($_POST['descricao_simplificada'] ?? ''));
         $ativo  = 1;
         $estCap   = (float) str_replace(',', '.', (string) ($_POST['estoque_capacidade'] ?? $_POST['estoque_saldo'] ?? '0'));
         $isAdmin  = (($me['perfil'] ?? '') === 'admin');
@@ -94,7 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $desc !== '' ? $desc : null,
             $ativo,
             $estCap,
-            $estSaldo
+            $estSaldo,
+            $descSimp !== '' ? $descSimp : null
         );
         flash_set($r['ok'] ? 'ok' : 'err', $r['ok'] ? 'Item salvo no catálogo.' : $r['err']);
     } elseif ($acao === 'item_excluir') {

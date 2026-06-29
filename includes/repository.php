@@ -6839,9 +6839,92 @@ function repo_cliente_itens_estoque_capacidade_column_exists(): bool
     return $cache;
 }
 
+function repo_cliente_itens_descricao_simplificada_column_exists(): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        $cache = false;
+
+        return false;
+    }
+    try {
+        $st    = $pdo->query("SHOW COLUMNS FROM cliente_itens LIKE 'descricao_simplificada'");
+        $row   = $st ? $st->fetch(PDO::FETCH_ASSOC) : false;
+        $cache = $row !== false;
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+function repo_cliente_item_descricao_simplificada_normalizada(?string $valor): ?string
+{
+    $s = $valor !== null ? trim($valor) : '';
+    if ($s === '') {
+        return null;
+    }
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($s, 'UTF-8') > 160) {
+            $s = mb_substr($s, 0, 160, 'UTF-8');
+        }
+    } elseif (strlen($s) > 160) {
+        $s = substr($s, 0, 160);
+    }
+
+    return $s;
+}
+
+function repo_cliente_item_gravar_descricao_simplificada(PDO $pdo, int $itemId, int $clienteId, ?string $descricaoSimplificada): void
+{
+    if (!repo_cliente_itens_descricao_simplificada_column_exists() || $itemId <= 0 || $clienteId <= 0) {
+        return;
+    }
+    $descSimp = repo_cliente_item_descricao_simplificada_normalizada($descricaoSimplificada);
+    try {
+        $st = $pdo->prepare(
+            'UPDATE cliente_itens SET descricao_simplificada = ?
+             WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+        );
+        $st->execute([$descSimp, $itemId, $clienteId, $clienteId]);
+    } catch (Throwable $e) {
+        error_log('[crm_prefeitura] repo_cliente_item_gravar_descricao_simplificada: ' . $e->getMessage());
+    }
+}
+
+function catalogo_item_nome_operador(array $item): string
+{
+    $simp = trim((string) ($item['descricao_simplificada'] ?? ''));
+    if ($simp !== '') {
+        return $simp;
+    }
+
+    return trim((string) ($item['nome'] ?? ''));
+}
+
 /**
- * Estoque de referência (estoque_capacidade) para alerta de estoque baixo.
+ * Desvio percentual (consumido / estoque de referência) para exibição no catálogo web.
  */
+function catalogo_item_desvio_percentual(array $it): ?float
+{
+    if (!repo_cliente_itens_estoque_saldo_column_exists()) {
+        return null;
+    }
+    $estoqueRef = catalogo_estoque_referencia($it);
+    if ($estoqueRef <= 0.0) {
+        return null;
+    }
+    $saldo = (float) ($it['estoque_saldo'] ?? 0);
+    $consumido = max(0.0, $estoqueRef - $saldo);
+
+    return $consumido / $estoqueRef;
+}
+
+/** Estoque de referência (estoque_capacidade) para alerta de estoque baixo. */
 function catalogo_estoque_referencia(array $it): float
 {
     if (!repo_cliente_itens_estoque_capacidade_column_exists()) {
@@ -7248,7 +7331,10 @@ function repo_cliente_itens_list(int $clienteId, bool $somenteAtivos = false): a
     $colFluxo   = repo_cliente_itens_catalogo_fluxo_status_column_exists()
         ? 'catalogo_fluxo_status'
         : 'NULL AS catalogo_fluxo_status';
-    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', ' . $colCap . ', descricao, ativo, ' . $colFluxo . ', ordem,
+    $colDescSimp = repo_cliente_itens_descricao_simplificada_column_exists()
+        ? 'descricao_simplificada'
+        : 'NULL AS descricao_simplificada';
+    $sql = 'SELECT id, cliente_id, empresa_id, tipo, nome, codigo, unidade, valor_unitario, ' . $colEstoque . ', ' . $colCap . ', descricao, ' . $colDescSimp . ', ativo, ' . $colFluxo . ', ordem,
             DATE_FORMAT(criado_em, \'%Y-%m-%d %H:%i\') AS criado_em
             FROM cliente_itens WHERE cliente_id = ? OR empresa_id = ? OR cliente_id = ?';
     if ($somenteAtivos) {
@@ -7440,7 +7526,8 @@ function repo_cliente_item_salvar(
     ?string $descricao,
     int $ativo,
     float $estoqueCapacidade = 0.0,
-    ?float $estoqueSaldoInicial = null
+    ?float $estoqueSaldoInicial = null,
+    ?string $descricaoSimplificada = null
 ): array {
     $pdo = db();
     if (!$pdo || $clienteId <= 0) {
@@ -7563,6 +7650,10 @@ function repo_cliente_item_salvar(
                 audit_log_registar('catalogo.item.saldo_alterar', 'cliente_item', $id, $clienteId, $auditSaldo);
             }
 
+            if ($ok) {
+                repo_cliente_item_gravar_descricao_simplificada($pdo, $id, $clienteId, $descricaoSimplificada);
+            }
+
             return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao atualizar.', 'id' => $ok ? $id : null];
         }
         if ($temEstoque) {
@@ -7590,6 +7681,7 @@ function repo_cliente_item_salvar(
                     'estoque'       => $estoqueCapacidade,
                     'saldo_inicial' => $saldoIni,
                 ]);
+                repo_cliente_item_gravar_descricao_simplificada($pdo, $nid, $clienteId, $descricaoSimplificada);
             }
 
             return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao inserir.', 'id' => $ok ? $nid : null];
@@ -7601,6 +7693,9 @@ function repo_cliente_item_salvar(
             $ok = $st->execute([$clienteId, $clienteId, $tipo, $nome, $codigo, $unidade, $valorUnitario, $desc, $ativo]);
         }
         $nid = (int) $pdo->lastInsertId();
+        if ($ok && $nid > 0) {
+            repo_cliente_item_gravar_descricao_simplificada($pdo, $nid, $clienteId, $descricaoSimplificada);
+        }
 
         return ['ok' => (bool) $ok, 'err' => $ok ? '' : 'Falha ao inserir.', 'id' => $ok ? $nid : null];
     } catch (Throwable $e) {
@@ -7760,6 +7855,7 @@ function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): arra
             ? (float) ($lin['estoque_saldo'] ?? 0)
             : $estCap;
         $desc    = trim((string) ($lin['descricao'] ?? ''));
+        $descSimp = trim((string) ($lin['descricao_simplificada'] ?? ''));
 
         $r = repo_cliente_item_salvar(
             $clienteId,
@@ -7772,7 +7868,8 @@ function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): arra
             $desc !== '' ? $desc : null,
             1,
             $estCap,
-            $estSaldo
+            $estSaldo,
+            $descSimp !== '' ? $descSimp : null
         );
         if ($r['ok']) {
             $ret['inseridos']++;
@@ -7962,10 +8059,13 @@ function repo_chamado_itens_list(int $chamadoId): array
     $colFluxo = repo_cliente_itens_catalogo_fluxo_status_column_exists()
         ? 'i.catalogo_fluxo_status'
         : "NULL AS catalogo_fluxo_status";
+    $colDescSimp = repo_cliente_itens_descricao_simplificada_column_exists()
+        ? 'i.descricao_simplificada'
+        : 'NULL AS descricao_simplificada';
     $st = $pdo->prepare("
         SELECT ci.id, ci.chamado_id, ci.item_id, ci.movimento, ci.quantidade, ci.valor_unitario, ci.subtotal, ci.observacao,
                i.nome AS item_nome, i.tipo AS item_tipo, i.codigo AS item_codigo, i.unidade AS catalogo_unidade,
-               i.descricao AS item_descricao, i.valor_unitario AS catalogo_valor_unitario,
+               i.descricao AS item_descricao, {$colDescSimp}, i.valor_unitario AS catalogo_valor_unitario,
                {$colFluxo}
         FROM chamado_itens ci
         INNER JOIN cliente_itens i ON i.id = ci.item_id
@@ -7990,6 +8090,8 @@ function repo_chamado_itens_list(int $chamadoId): array
         );
         $r['valor_unitario'] = $vu;
         $r['subtotal']       = $sub;
+        $simp = trim((string) ($r['descricao_simplificada'] ?? ''));
+        $r['item_nome_exibir'] = $simp !== '' ? $simp : (string) ($r['item_nome'] ?? '');
         unset($r['catalogo_valor_unitario']);
     }
     unset($r);
@@ -8811,6 +8913,24 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
     }
 }
 
+function repo_notificacao_resolve_link(array $row): string
+{
+    $cid     = (int) ($row['chamado_id'] ?? 0);
+    $tipoNot = (string) ($row['tipo'] ?? '');
+    $titulo  = (string) ($row['titulo'] ?? '');
+    if (in_array($tipoNot, ['medicao_custo_pendente', 'medicao_bm_importado'], true)
+        && preg_match('/(\d{4}-\d{2})/', $titulo, $mYm)) {
+        return $tipoNot === 'medicao_bm_importado'
+            ? 'medicao_mes.php?mes=' . $mYm[1]
+            : 'medicao_ver.php?mes=' . $mYm[1];
+    }
+    if ($cid > 0) {
+        return 'chamado_detalhe.php?id=' . $cid;
+    }
+
+    return '#';
+}
+
 function repo_notificacao_insert(
     int $usuarioId,
     int $chamadoId,
@@ -8871,15 +8991,7 @@ function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
             $r['lida']     = (int) ($r['lida'] ?? 0);
             $r['titulo']   = (string) ($r['titulo'] ?? '');
             $r['descricao'] = isset($r['descricao']) ? ($r['descricao'] !== '' ? (string) $r['descricao'] : null) : null;
-            $tipoNot = (string) ($r['tipo'] ?? '');
-            if (in_array($tipoNot, ['medicao_custo_pendente', 'medicao_bm_importado'], true)
-                && preg_match('/(\d{4}-\d{2})/', $r['titulo'], $mYm)) {
-                $r['link'] = $tipoNot === 'medicao_bm_importado'
-                    ? 'medicao_mes.php?mes=' . $mYm[1]
-                    : 'medicao_ver.php?mes=' . $mYm[1];
-            } else {
-                $r['link'] = 'chamado_detalhe.php?id=' . $cid;
-            }
+            $r['link']      = repo_notificacao_resolve_link($r);
         }
         unset($r);
 
@@ -8938,7 +9050,7 @@ function repo_notificacoes_list_paginated(int $usuarioId, int $page, int $perPag
         $total = (int) $stCount->fetchColumn();
 
         $st = $pdo->prepare(
-            'SELECT id, chamado_id, titulo, descricao, lida,
+            'SELECT id, chamado_id, tipo, titulo, descricao, lida,
                     DATE_FORMAT(data_criacao, \'%Y-%m-%d %H:%i:%s\') AS data_criacao
              FROM notificacoes
              WHERE ' . $where . '
@@ -8951,10 +9063,11 @@ function repo_notificacoes_list_paginated(int $usuarioId, int $page, int $perPag
             $cid            = (int) ($r['chamado_id'] ?? 0);
             $r['id']        = (int) ($r['id'] ?? 0);
             $r['chamado_id'] = $cid;
+            $r['tipo']      = (string) ($r['tipo'] ?? '');
             $r['lida']      = (int) ($r['lida'] ?? 0);
             $r['titulo']    = (string) ($r['titulo'] ?? '');
             $r['descricao'] = isset($r['descricao']) ? ($r['descricao'] !== '' ? (string) $r['descricao'] : null) : null;
-            $r['link']      = 'chamado_detalhe.php?id=' . $cid;
+            $r['link']      = repo_notificacao_resolve_link($r);
         }
         unset($r);
 

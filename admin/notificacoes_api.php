@@ -11,6 +11,10 @@ header('Content-Type: application/json; charset=UTF-8');
 $user = require_auth_gestao('../');
 $uid  = (int) ($user['id'] ?? 0);
 
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 if ($uid <= 0) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'err' => 'Sessão inválida.'], JSON_UNESCAPED_UNICODE);

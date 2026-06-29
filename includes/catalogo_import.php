@@ -165,6 +165,7 @@ function catalogo_import_rows_to_linhas(array $rows): array
         $unid   = trim(catalogo_import_cell($cells, $map, 'unidade'));
         $valRaw = str_replace(',', '.', trim(catalogo_import_cell($cells, $map, 'valor_unitario')));
         $desc   = trim(catalogo_import_cell($cells, $map, 'descricao'));
+        $descSimp = trim(catalogo_import_cell($cells, $map, 'descricao_simplificada'));
         $stock  = catalogo_import_row_stock_fields($cells, $map);
 
         $out[] = array_merge([
@@ -174,6 +175,7 @@ function catalogo_import_rows_to_linhas(array $rows): array
             'unidade'        => $unid !== '' ? $unid : 'UN',
             'valor_unitario' => (float) ($valRaw !== '' ? $valRaw : '0'),
             'descricao'      => $desc,
+            'descricao_simplificada' => $descSimp,
             '_linha_plan'    => $i + 1,
         ], $stock);
     }
@@ -244,6 +246,8 @@ function catalogo_import_header_key(string $label): string
         'estoque_capacidade' => 'estoque_capacidade',
         'estoque'            => 'estoque_capacidade',
         'descricao'          => 'descricao',
+        'descricao simplificada' => 'descricao_simplificada',
+        'descricao_simplificada' => 'descricao_simplificada',
     ];
 
     if (isset($aliases[$s])) {

@@ -656,6 +656,56 @@ function bm_med_detalhe_linhas_from_custos_aprovados(int $matrizId, string $refY
 }
 
 /**
+ * Agrega custos aprovados às linhas de detalhe existentes (mesmo item de catálogo).
+ *
+ * @param list<array<string,mixed>> $det
+ * @return list<array<string,mixed>>
+ */
+function bm_med_detalhe_anexar_custos_aprovados(array $det, int $matrizId, string $refYm): array
+{
+    $custosLinhas = bm_med_detalhe_linhas_from_custos_aprovados($matrizId, $refYm);
+    if ($custosLinhas === []) {
+        return $det;
+    }
+
+    /** @var array<int, int> $idxByItemId */
+    $idxByItemId = [];
+    /** @var array<string, int> $idxByCod */
+    $idxByCod = [];
+    foreach ($det as $i => $ln) {
+        $iid = (int) ($ln['item_id_catalogo'] ?? 0);
+        $cod = trim((string) ($ln['item_codigo'] ?? ''));
+        if ($iid > 0 && !isset($idxByItemId[$iid])) {
+            $idxByItemId[$iid] = $i;
+        }
+        if ($cod !== '' && !isset($idxByCod[$cod])) {
+            $idxByCod[$cod] = $i;
+        }
+    }
+
+    foreach ($custosLinhas as $cLinha) {
+        $iid = (int) ($cLinha['item_id_catalogo'] ?? 0);
+        $cod = trim((string) ($cLinha['item_codigo'] ?? ''));
+        $targetIdx = null;
+        if ($iid > 0 && isset($idxByItemId[$iid])) {
+            $targetIdx = $idxByItemId[$iid];
+        } elseif ($cod !== '' && isset($idxByCod[$cod])) {
+            $targetIdx = $idxByCod[$cod];
+        }
+
+        if ($targetIdx !== null) {
+            $det[$targetIdx]['quantidade'] = (float) ($det[$targetIdx]['quantidade'] ?? 0) + (float) ($cLinha['quantidade'] ?? 0);
+            $det[$targetIdx]['subtotal']   = (float) ($det[$targetIdx]['subtotal'] ?? 0) + (float) ($cLinha['subtotal'] ?? 0);
+            continue;
+        }
+
+        $det[] = $cLinha;
+    }
+
+    return $det;
+}
+
+/**
  * Capa institucional: título, subtítulo alinhado ao BM v2 (medição + CRM + fecho), grelha 2x2, faixa de serviço, espaçador.
  *
  * @return int Primeira linha do bloco contrato ($c0).
@@ -1272,7 +1322,7 @@ function bm_med_workbook_build(array $ctx): array
     $refYm = preg_match('/^\d{4}-\d{2}$/', (string) ($ctx['ref_ym'] ?? '')) ? (string) $ctx['ref_ym'] : '';
     $matrizIdCustos = (int) ($ctx['matriz_cliente_id'] ?? 0);
     if ($matrizIdCustos > 0 && $refYm !== '') {
-        $det = array_merge($det, bm_med_detalhe_linhas_from_custos_aprovados($matrizIdCustos, $refYm));
+        $det = bm_med_detalhe_anexar_custos_aprovados($det, $matrizIdCustos, $refYm);
     }
     $det = array_values(array_filter($det, 'bm_med_detalhe_linha_compoe_custo'));
     $nrBol = $refYm !== '' ? str_replace('-', '', $refYm) : date('Ym');

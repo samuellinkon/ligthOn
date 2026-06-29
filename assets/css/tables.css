@@ -649,7 +649,22 @@ table[data-crm-sortable] {
 }
 
 .catalogo-excel-table {
-  min-width: 56rem;
+  min-width: 62rem;
+}
+
+.catalogo-excel-table thead th:has([data-sort-key="codigo"]),
+table[data-crm-sortable] thead th:has([data-sort-key="codigo"]) {
+  min-width: 8rem;
+}
+
+.catalogo-excel-table thead th:has([data-sort-key="unidade"]),
+table[data-crm-sortable] thead th:has([data-sort-key="unidade"]) {
+  min-width: 4rem;
+}
+
+.catalogo-excel-table thead th:has([data-sort-key="desvio"]),
+table[data-crm-sortable] thead th:has([data-sort-key="desvio"]) {
+  min-width: 5.5rem;
 }
 
 .catalogo-excel-table thead th,
@@ -669,14 +684,16 @@ table[data-crm-sortable] thead tr.crm-table-head-sort th {
 .catalogo-excel-table thead th:has([data-sort-key="nome"]),
 table[data-crm-sortable] thead th:has([data-sort-key="nome"]) {
   white-space: normal;
-  min-width: 12rem;
+  min-width: 10rem;
 }
 
 .catalogo-excel-table thead th:has([data-sort-key="valor"]),
 .catalogo-excel-table thead th:has([data-sort-key="estoque"]),
+.catalogo-excel-table thead th:has([data-sort-key="saldo"]),
 table[data-crm-sortable] thead th:has([data-sort-key="valor"]),
-table[data-crm-sortable] thead th:has([data-sort-key="estoque"]) {
-  min-width: 7.5rem;
+table[data-crm-sortable] thead th:has([data-sort-key="estoque"]),
+table[data-crm-sortable] thead th:has([data-sort-key="saldo"]) {
+  min-width: 7rem;
 }
 
 .catalogo-excel-table thead th.catalogo-excel-col-acoes,

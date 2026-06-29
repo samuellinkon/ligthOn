@@ -314,13 +314,14 @@ $metricCardClass = static function (bool $active): string {
             <?php elseif ($catalogoTemEstoque): ?>
             <?php crm_sort_th('Saldo', 'saldo', ['type' => 'number', 'right' => true]); ?>
             <?php endif; ?>
+            <?php crm_sort_th('Desvio %', 'desvio', ['type' => 'number', 'right' => true, 'title' => 'Consumo em relação ao estoque de referência.']); ?>
             <?php crm_sort_th('Status', 'status', ['type' => 'number']); ?>
             <?php crm_sort_th('Ações', null, ['class' => 'catalogo-excel-col-acoes crm-table-col-acoes']); ?>
           </tr>
         </thead>
         <tbody>
           <?php
-            $colspan = 7 + ($catalogoTemEstoque ? ($catalogoTemCapacidade ? 2 : 1) : 0);
+            $colspan = 8 + ($catalogoTemEstoque ? ($catalogoTemCapacidade ? 2 : 1) : 0);
           if (empty($itens)): ?>
           <tr><td colspan="<?= $colspan ?>" class="muted" style="padding:24px;text-align:center;">Nenhum item encontrado.</td></tr>
           <?php else: foreach ($itens as $it):
@@ -335,6 +336,10 @@ $metricCardClass = static function (bool $active): string {
             $rowClass  = trim(($estBaixo ? 'catalogo-row--estoque-baixo ' : '') . 'catalogo-row--aplicado-link');
             $estClasse = $estNeg ? 'catalogo-estoque--negativo' : ($estBaixo ? 'catalogo-estoque--baixo' : '');
             $valorNum = $catalogoValorRound((float) ($it['valor_unitario'] ?? 0));
+            $desvioRatio = catalogo_item_desvio_percentual($it);
+            $desvioTxt = $desvioRatio !== null
+                ? number_format($desvioRatio * 100, 2, ',', '.') . '%'
+                : '—';
             $itemId = (int) ($it['id'] ?? 0);
             $itemAplicadoHref = $catalogoHrefAplicadoItem($catalogoPainelHrefAplicadoChamados, $itemId);
           ?>
@@ -352,6 +357,7 @@ $metricCardClass = static function (bool $active): string {
                 'valor'   => (string) $valorNum,
                 'estoque' => (string) $estCap,
                 'saldo'   => (string) $estSaldo,
+                'desvio'  => $desvioRatio !== null ? (string) $desvioRatio : '',
                 'status'  => !empty($it['ativo']) ? '1' : '0',
             ]) ?>
           >
@@ -388,6 +394,7 @@ $metricCardClass = static function (bool $active): string {
               <span class="muted" style="font-size:12px;"> <?= htmlspecialchars((string) ($it['unidade'] ?? '')) ?></span>
             </td>
             <?php endif; ?>
+            <td class="text-right td-mute"><?= htmlspecialchars($desvioTxt) ?></td>
             <td><?php
               $fluxoSt = trim((string) ($it['catalogo_fluxo_status'] ?? ''));
               if ($fluxoSt === 'Criado') {
@@ -415,6 +422,7 @@ $metricCardClass = static function (bool $active): string {
                 data-estoque-capacidade="<?= htmlspecialchars($catalogoEstoqueFmt($estCap), ENT_QUOTES) ?>"
                 data-estoque-saldo="<?= htmlspecialchars($catalogoEstoqueFmt($estSaldo), ENT_QUOTES) ?>"
                 data-descricao="<?= htmlspecialchars((string) ($it['descricao'] ?? ''), ENT_QUOTES) ?>"
+                data-descricao-simplificada="<?= htmlspecialchars((string) ($it['descricao_simplificada'] ?? ''), ENT_QUOTES) ?>"
                 data-ativo="<?= !empty($it['ativo']) ? '1' : '0' ?>"
               >Editar</button>
               <form method="post" style="display:inline;" data-confirm="Excluir este item do catálogo?" data-confirm-danger>
@@ -518,6 +526,10 @@ $metricCardClass = static function (bool $active): string {
       <?php endif; ?>
       <?php endif; ?>
       <div class="form-group full">
+        <label for="modal_descricao_simplificada">Descrição simplificada</label>
+        <input type="text" id="modal_descricao_simplificada" name="descricao_simplificada" class="input" maxlength="160" placeholder="Texto curto exibido ao técnico no lançamento">
+      </div>
+      <div class="form-group full">
         <label for="modal_descricao">Descrição</label>
         <textarea id="modal_descricao" name="descricao" class="textarea" rows="3" maxlength="500" placeholder="Descrição opcional para o catálogo"></textarea>
       </div>
@@ -544,6 +556,7 @@ $metricCardClass = static function (bool $active): string {
   var saldoDisplay = document.getElementById('modal_saldo_display');
   var estoqueHint = document.getElementById('modal_estoque_hint');
   var desc = document.getElementById('modal_descricao');
+  var descSimp = document.getElementById('modal_descricao_simplificada');
   var adminEditaSaldo = <?= $catalogoPainelAdminEditaSaldo ? 'true' : 'false' ?>;
 
   function open(btn) {
@@ -572,6 +585,9 @@ $metricCardClass = static function (bool $active): string {
     }
     if (desc) {
       desc.value = btn.getAttribute('data-descricao') || '';
+    }
+    if (descSimp) {
+      descSimp.value = btn.getAttribute('data-descricao-simplificada') || '';
     }
     title.textContent = editing ? 'Editar item' : (tipo.value === 'servico' ? 'Novo serviço' : 'Novo produto');
     modal.classList.add('is-open');

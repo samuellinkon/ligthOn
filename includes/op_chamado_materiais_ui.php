@@ -26,7 +26,7 @@ function op_chamado_mat_linha_payload(array $lm): array
     return [
         'id'              => (int) ($lm['id'] ?? 0),
         'item_id'         => (int) ($lm['item_id'] ?? 0),
-        'nome'            => (string) ($lm['item_nome'] ?? ''),
+        'nome'            => (string) ($lm['item_nome_exibir'] ?? $lm['item_nome'] ?? ''),
         'codigo'          => trim((string) ($lm['item_codigo'] ?? '')),
         'descricao'       => trim((string) ($lm['item_descricao'] ?? '')),
         'tipo'            => (string) ($lm['item_tipo'] ?? ''),
@@ -81,7 +81,7 @@ function op_chamado_mat_json_for_chamado(int $chamadoId, bool $ok, string $err =
 function op_chamado_mat_stack_row_html(array $lm, bool $readonly = false): string
 {
     $lid   = (int) ($lm['id'] ?? 0);
-    $nome  = htmlspecialchars((string) ($lm['item_nome'] ?? ''));
+    $nome  = htmlspecialchars((string) ($lm['item_nome_exibir'] ?? $lm['item_nome'] ?? ''));
     $qtd   = htmlspecialchars(op_chamado_mat_qtd_fmt((float) ($lm['quantidade'] ?? 0)));
     $obs   = trim((string) ($lm['observacao'] ?? ''));
     $obsH  = $obs !== '' ? '<span class="op-mat-row__obs">' . htmlspecialchars($obs) . '</span>' : '';

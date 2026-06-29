@@ -199,7 +199,20 @@
     return d ? d.getTime() : 0;
   }
 
+  function isMedicaoNotification(n) {
+    var tipo = String((n && n.tipo) || '').toLowerCase();
+    return tipo === 'medicao_custo_pendente' || tipo === 'medicao_bm_importado';
+  }
+
+  function resolveNotificationHref(n) {
+    var link = n && n.link ? String(n.link).trim() : '';
+    if (link && link !== '#') return link;
+    var cid = extractChamadoId(n);
+    return cid > 0 ? 'chamado_detalhe.php?id=' + cid : '#';
+  }
+
   function isChamadoNotification(n) {
+    if (isMedicaoNotification(n)) return false;
     var tipo = String((n && n.tipo) || '').toLowerCase();
     if (tipo.indexOf('chamado') === 0) return true;
     return extractChamadoId(n) > 0;
@@ -226,6 +239,10 @@
     var singles = [];
 
     notifications.forEach(function (n) {
+      if (isMedicaoNotification(n)) {
+        singles.push({ kind: 'single', item: n });
+        return;
+      }
       var cid = extractChamadoId(n);
       if (cid <= 0) {
         singles.push({ kind: 'single', item: n });
@@ -308,8 +325,9 @@
     var latest = isGroup ? g.items[0] : g.item;
     var type = isGroup ? getNotificationType(latest) : getNotificationType(g.item);
     var unread = anyUnreadInGroup(g);
-    var cid = isGroup ? g.chamado_id : extractChamadoId(g.item);
-    var href = cid > 0 ? 'chamado_detalhe.php?id=' + cid : (latest.link || '#');
+    var href = isGroup
+      ? 'chamado_detalhe.php?id=' + g.chamado_id
+      : resolveNotificationHref(g.item);
     var ids = collectIds(g);
 
     var title = isGroup ? buildGroupedTitle(g) : formatNotificationTitle(g.item);
@@ -423,6 +441,14 @@
       }
       headCount.textContent =
         unread + (unread === 1 ? ' não lida' : ' não lidas');
+    }
+
+    function readInitialUnreadFromBadge() {
+      if (!badge || badge.hidden) return 0;
+      var t = String(badge.textContent || '').trim();
+      if (t === '99+') return 99;
+      var n = parseInt(t, 10);
+      return Number.isNaN(n) ? 0 : n;
     }
 
     function fetchJson(url, optsFetch) {
@@ -597,7 +623,7 @@
 
     setInterval(refreshCount, 60000);
     window.addEventListener('resize', syncNotifDropdownGeom);
-    refreshCount();
+    updateHeadCount(readInitialUnreadFromBadge());
   }
 
   global.CrmTopbarNotifications = {

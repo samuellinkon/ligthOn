@@ -494,14 +494,15 @@ foreach ($servicos as $ci) {
     $iid   = (int) ($ci['id'] ?? 0);
     $tipo  = strtolower(trim((string) ($ci['tipo'] ?? '')));
     $nome  = (string) ($ci['nome'] ?? '');
+    $label = catalogo_item_nome_operador($ci);
     $cod   = trim((string) ($ci['codigo'] ?? ''));
     $un    = trim((string) ($ci['unidade'] ?? 'UN')) ?: 'UN';
     $cat   = $tipo === 'produto' ? 'Produto' : ($tipo === 'servico' ? 'Serviço' : ucfirst($tipo));
-    $hay   = mb_strtolower($nome . ' ' . $cod . ' ' . $cat . ' ' . $tipo . ' ' . $un . ' #' . $iid, 'UTF-8');
+    $hay   = mb_strtolower($nome . ' ' . $label . ' ' . $cod . ' ' . $cat . ' ' . $tipo . ' ' . $un . ' #' . $iid, 'UTF-8');
     $opCatalogoItensJs[] = [
         'id'        => $iid,
         'nome'      => $nome,
-        'label'     => $nome,
+        'label'     => $label,
         'tipo'      => $tipo,
         'categoria' => $cat,
         'codigo'    => $cod,
