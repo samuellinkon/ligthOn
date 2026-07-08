@@ -36,6 +36,15 @@
     });
   }
 
+  function applyDefaultMapCenter(leafletMap) {
+    var c = global.CRM_PONTOS_MAP_CENTER || global.CRM_CHAMADOS_MAP_CENTER;
+    if (c && c.lat != null && c.lng != null) {
+      leafletMap.setView([Number(c.lat), Number(c.lng)], typeof c.zoom === 'number' ? c.zoom : 12);
+      return;
+    }
+    leafletMap.setView([-8.398075, -35.063889], 12);
+  }
+
   function initChamadosMap(opts) {
     opts = opts || {};
     var el = document.getElementById(opts.mapElementId || 'chamados-map');
@@ -46,18 +55,13 @@
     var geocodeApi = opts.geocodeApi || '';
     var persistApi = opts.persistApi || '';
     var loadingBanner = null;
+    var emptyOverlay = null;
 
     if (!el || typeof L === 'undefined') {
       return null;
     }
 
-    if (pins.length === 0) {
-      var emptyMsg = opts.emptyMsg || 'Nenhum chamado com localização no período.';
-      el.innerHTML = '<div class="dashboard-map-empty">' + escapeHtml(emptyMsg) + '</div>';
-      return null;
-    }
-
-    if (opts.loadingMsg) {
+    if (opts.loadingMsg && pins.length > 0) {
       loadingBanner = document.createElement('div');
       loadingBanner.className = 'dashboard-map-loading';
       loadingBanner.setAttribute('role', 'status');
@@ -69,6 +73,16 @@
     el._crmLeafletMap = map;
     if (global.CrmLeafletBasemap) {
       global.CrmLeafletBasemap.addTo(map, { maxZoom: 19 });
+    }
+    applyDefaultMapCenter(map);
+
+    if (pins.length === 0) {
+      var emptyMsg = opts.emptyMsg || 'Nenhum chamado com localização no período.';
+      emptyOverlay = document.createElement('div');
+      emptyOverlay.className = 'dashboard-map-empty dashboard-map-empty--overlay';
+      emptyOverlay.setAttribute('role', 'status');
+      emptyOverlay.textContent = emptyMsg;
+      el.appendChild(emptyOverlay);
     }
 
     var markers = [];
@@ -118,12 +132,14 @@
 
       if (visibleCountEl) {
         visibleCountEl.textContent =
-          filtered.length + ' de ' + markers.length + ' visíveis';
+          filtered.length + ' de ' + markers.length + ' chamado(s) visível(is)';
       }
       if (bounds.length === 1) {
         map.setView(bounds[0], 14);
       } else if (bounds.length > 1) {
         map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+      } else {
+        applyDefaultMapCenter(map);
       }
       if (typeof opts.onMarkersChange === 'function') {
         opts.onMarkersChange(markers.length, filtered.length);

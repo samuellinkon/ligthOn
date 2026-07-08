@@ -260,13 +260,7 @@
 
     if (!el || !GJs || !GJs.mapsReady()) return null;
 
-    if (pins.length === 0) {
-      var emptyMsg = opts.emptyMsg || 'Nenhum chamado com localização no período.';
-      el.innerHTML = '<div class="dashboard-map-empty">' + escapeHtml(emptyMsg) + '</div>';
-      return null;
-    }
-
-    if (opts.loadingMsg) {
+    if (opts.loadingMsg && pins.length > 0) {
       loadingBanner = document.createElement('div');
       loadingBanner.className = 'dashboard-map-loading';
       loadingBanner.setAttribute('role', 'status');
@@ -274,7 +268,18 @@
       el.parentNode.insertBefore(loadingBanner, el);
     }
 
-    var map = GJs.createMap(el);
+    var map = GJs.createMap(el, resolvePontosMapCreateOpts(opts));
+    applyPontosMapDefaultCenter(map);
+
+    if (pins.length === 0) {
+      var emptyMsg = opts.emptyMsg || 'Nenhum chamado com localização no período.';
+      var emptyOverlay = document.createElement('div');
+      emptyOverlay.className = 'dashboard-map-empty dashboard-map-empty--overlay';
+      emptyOverlay.setAttribute('role', 'status');
+      emptyOverlay.textContent = emptyMsg;
+      el.appendChild(emptyOverlay);
+    }
+
     var infoWindow = new global.google.maps.InfoWindow({ maxWidth: 360 });
     var items = [];
     var clusterer = null;
@@ -325,6 +330,8 @@
       }
       if (positions.length) {
         GJs.fitToPositions(map, positions, { maxZoom: 15, singleZoom: 14 });
+      } else {
+        applyPontosMapDefaultCenter(map);
       }
       if (typeof opts.onMarkersChange === 'function') {
         opts.onMarkersChange(items.length, filtered.length);
