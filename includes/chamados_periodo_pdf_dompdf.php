@@ -67,6 +67,8 @@ function chamados_periodo_anexos_stream_pdf(string $html, ?string $downloadUtf8 
     $options = new \Dompdf\Options();
     $options->set('isHtml5ParserEnabled', true);
     $options->set('defaultFont', 'DejaVu Sans');
+    $options->set('dpi', 96);
+    $options->set('isPhpEnabled', false);
     chamados_dompdf_apply_writable_options($options);
 
     $dompdf = new \Dompdf\Dompdf($options);

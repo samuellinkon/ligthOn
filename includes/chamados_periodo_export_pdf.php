@@ -68,9 +68,187 @@ function chamados_pdf_legenda_curta(string $nome, int $max = 72): string
 }
 
 /**
- * Célula HTML de uma foto no relatório (Dompdf).
+ * Conta anexos de imagem de um pack do relatório fotográfico.
  *
- * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool} $resolveAnexoImagemSrc
+ * @param array{chamado?: array<string,mixed>, anexos?: list<array<string,mixed>>} $pack
+ * @param callable(array<string,mixed>): bool $anexoEhImagem
+ */
+function chamados_pdf_pack_image_count(array $pack, callable $anexoEhImagem): int
+{
+    $n = 0;
+    foreach ($pack['anexos'] ?? [] as $a) {
+        if ($anexoEhImagem($a)) {
+            $n++;
+        }
+    }
+
+    return $n;
+}
+
+/**
+ * Empacota chamados em páginas: ≤2 fotos → até 2 por folha; >2 fotos → 1 por folha.
+ *
+ * @param list<array{chamado: array<string,mixed>, anexos: list<array<string,mixed>>}> $items
+ * @param callable(array<string,mixed>): bool $anexoEhImagem
+ * @return list<list<array{chamado: array<string,mixed>, anexos: list<array<string,mixed>>}>>
+ */
+function chamados_pdf_pack_pages(array $items, callable $anexoEhImagem): array
+{
+    $pages = [];
+    $i = 0;
+    $n = count($items);
+    while ($i < $n) {
+        $cur = $items[$i];
+        $curImgs = chamados_pdf_pack_image_count($cur, $anexoEhImagem);
+        if ($curImgs <= 2 && ($i + 1) < $n) {
+            $nextImgs = chamados_pdf_pack_image_count($items[$i + 1], $anexoEhImagem);
+            if ($nextImgs <= 2) {
+                $pages[] = [$cur, $items[$i + 1]];
+                $i += 2;
+                continue;
+            }
+        }
+        $pages[] = [$cur];
+        $i++;
+    }
+
+    return $pages;
+}
+
+/**
+ * Caminho legível do ficheiro de anexo (para getimagesize / Dompdf).
+ *
+ * @param array<string,mixed> $a
+ */
+function chamados_pdf_anexo_fs_path(array $a, int $cid): string
+{
+    if ($cid <= 0) {
+        return '';
+    }
+    $fn = basename(trim((string) ($a['nome_arquivo'] ?? '')));
+    if ($fn === '') {
+        return '';
+    }
+    $path = upload_dir_chamado($cid) . DIRECTORY_SEPARATOR . $fn;
+    $real = is_file($path) ? realpath($path) : false;
+
+    return $real !== false ? $real : (is_file($path) ? $path : '');
+}
+
+/**
+ * Redimensiona imagem para o PDF (proporção intacta) e grava JPEG temporário.
+ * Dompdf calcula mal a altura com fotos de vários MB e parte a grelha entre linhas.
+ *
+ * @return array{path: string, width: int, height: int}|null
+ */
+function chamados_pdf_image_fit_for_dompdf(string $srcPath, int $maxEdge = 960): ?array
+{
+    if ($srcPath === '' || !is_file($srcPath) || !is_readable($srcPath)) {
+        return null;
+    }
+    $dim = @getimagesize($srcPath);
+    if (!is_array($dim) || (int) ($dim[0] ?? 0) <= 0 || (int) ($dim[1] ?? 0) <= 0) {
+        return null;
+    }
+    $ow = (int) $dim[0];
+    $oh = (int) $dim[1];
+    $mime = (string) ($dim['mime'] ?? '');
+
+    $scale = 1.0;
+    $long = max($ow, $oh);
+    if ($long > $maxEdge) {
+        $scale = $maxEdge / $long;
+    }
+    $nw = max(1, (int) round($ow * $scale));
+    $nh = max(1, (int) round($oh * $scale));
+
+    $projectRoot = realpath(dirname(__DIR__)) ?: dirname(__DIR__);
+    $tmpDir = $projectRoot . DIRECTORY_SEPARATOR . 'writable' . DIRECTORY_SEPARATOR . 'dompdf_tmp';
+    if (!is_dir($tmpDir) && !@mkdir($tmpDir, 0775, true)) {
+        return ['path' => $srcPath, 'width' => $ow, 'height' => $oh];
+    }
+
+    // Sem GD ou já no tamanho: devolve original.
+    if ($scale >= 0.999 || !extension_loaded('gd')) {
+        return ['path' => $srcPath, 'width' => $ow, 'height' => $oh];
+    }
+
+    $hash = substr(sha1($srcPath . '|' . filemtime($srcPath) . '|' . $nw . 'x' . $nh), 0, 20);
+    $outPath = $tmpDir . DIRECTORY_SEPARATOR . 'rf_' . $hash . '.jpg';
+    if (is_file($outPath) && filesize($outPath) > 0) {
+        return ['path' => $outPath, 'width' => $nw, 'height' => $nh];
+    }
+
+    $src = null;
+    if ($mime === 'image/jpeg' || preg_match('/\.(jpe?g)$/i', $srcPath)) {
+        $src = @imagecreatefromjpeg($srcPath);
+    } elseif ($mime === 'image/png' || preg_match('/\.png$/i', $srcPath)) {
+        $src = @imagecreatefrompng($srcPath);
+    } elseif ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) {
+        $src = @imagecreatefromwebp($srcPath);
+    } elseif ($mime === 'image/gif' || preg_match('/\.gif$/i', $srcPath)) {
+        $src = @imagecreatefromgif($srcPath);
+    }
+    if ($src === false || $src === null) {
+        return ['path' => $srcPath, 'width' => $ow, 'height' => $oh];
+    }
+
+    $dst = imagecreatetruecolor($nw, $nh);
+    if ($dst === false) {
+        imagedestroy($src);
+
+        return ['path' => $srcPath, 'width' => $ow, 'height' => $oh];
+    }
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    if ($white !== false) {
+        imagefill($dst, 0, 0, $white);
+    }
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $ow, $oh);
+    imagedestroy($src);
+    $ok = @imagejpeg($dst, $outPath, 82);
+    imagedestroy($dst);
+    if (!$ok || !is_file($outPath)) {
+        return ['path' => $srcPath, 'width' => $ow, 'height' => $oh];
+    }
+
+    return ['path' => $outPath, 'width' => $nw, 'height' => $nh];
+}
+
+/**
+ * Escala (sem distorcer) para caber numa caixa maxW × maxH.
+ *
+ * @return array{0: int, 1: int} width, height em px
+ */
+function chamados_pdf_fit_box(int $iw, int $ih, int $maxW, int $maxH): array
+{
+    $iw = max(1, $iw);
+    $ih = max(1, $ih);
+    $maxW = max(1, $maxW);
+    $maxH = max(1, $maxH);
+    $scale = min($maxW / $iw, $maxH / $ih, 1.0);
+
+    return [
+        max(1, (int) round($iw * $scale)),
+        max(1, (int) round($ih * $scale)),
+    ];
+}
+
+/**
+ * Caixa fixa de exibição (todas as fotos iguais, independente da quantidade).
+ * A proporção da imagem é preservada dentro da caixa.
+ *
+ * @return array{w: int, h: int}
+ */
+function chamados_pdf_photo_slot_size(): array
+{
+    // px @96dpi — meia largura A4; 2×2 cabe numa folha com cabeçalho.
+    return ['w' => 340, 'h' => 400];
+}
+
+/**
+ * Célula HTML de uma foto no relatório (Dompdf) — caixa fixa, proporção original.
+ *
+ * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool, width?: int, height?: int} $resolveAnexoImagemSrc
  * @param callable(int): string $anexoUrl
  */
 function chamados_pdf_photo_fig_html(
@@ -81,33 +259,60 @@ function chamados_pdf_photo_fig_html(
     callable $h,
     callable $resolveAnexoImagemSrc,
     callable $anexoUrl,
-    string $imgMaxHeight = '36mm'
+    int $cellWidthPx = 340,
+    int $maxHeightPx = 400
 ): string {
-    $aid = (int) ($a['id'] ?? 0);
     $got = $resolveAnexoImagemSrc($a, $cid, $embedImagesBase64, $projectRootFs);
     $leg = 'Foto';
+    $slot = chamados_pdf_photo_slot_size();
+    $cellWidthPx = (int) $slot['w'];
+    $maxHeightPx = (int) $slot['h'];
+    $wAttr = '';
+    $hAttr = '';
+    $styleExtra = 'max-width:100%;max-height:100%;height:auto;margin:0;display:block;';
+    $iw = (int) ($got['width'] ?? 0);
+    $ih = (int) ($got['height'] ?? 0);
+    if ($iw <= 0 || $ih <= 0) {
+        $fs = chamados_pdf_anexo_fs_path($a, $cid);
+        if ($fs !== '' && function_exists('getimagesize')) {
+            $dim = @getimagesize($fs);
+            if (is_array($dim) && ($dim[0] ?? 0) > 0 && ($dim[1] ?? 0) > 0) {
+                $iw = (int) $dim[0];
+                $ih = (int) $dim[1];
+            }
+        }
+    }
+    if ($iw > 0 && $ih > 0) {
+        [$tw, $th] = chamados_pdf_fit_box($iw, $ih, $cellWidthPx, $maxHeightPx);
+        $wAttr = ' width="' . $tw . '"';
+        $hAttr = ' height="' . $th . '"';
+        $styleExtra = 'width:' . $tw . 'px;height:' . $th . 'px;margin:0;display:block;';
+        $slotStyle = 'width:' . $tw . 'px;height:' . $th . 'px;';
+    } else {
+        $slotStyle = 'width:' . $cellWidthPx . 'px;height:auto;';
+    }
 
     ob_start();
     ?>
-<figure class="photo-grid__fig">
+<div class="photo-grid__fig" style="<?= $h($slotStyle) ?>">
   <div class="photo-grid__imgwrap">
-    <?php if ($got['ok'] && $got['src'] !== ''): ?>
-    <img src="<?= $h($got['src']) ?>" alt="<?= $h($leg) ?>" style="max-height:<?= $h($imgMaxHeight) ?>;" />
+    <?php if (!empty($got['ok']) && ($got['src'] ?? '') !== ''): ?>
+    <img src="<?= $h((string) $got['src']) ?>" alt="<?= $h($leg) ?>"<?= $wAttr . $hAttr ?> style="<?= $h($styleExtra) ?>" />
     <?php else: ?>
-    <span class="muted" style="font-size:8px;">Imagem não incorporada.</span>
+    <span class="muted" style="font-size:8px;line-height:1.2;">Imagem não incorporada.</span>
     <?php endif; ?>
   </div>
-</figure>
+</div>
     <?php
 
     return (string) ob_get_clean();
 }
 
 /**
- * Até 3 fotos em 2 linhas (2 quadrantes + 1 largo), ou 2x2 se houver 4 imagens.
+ * Fotos em grelha 2 por linha — todas com a mesma caixa (proporção preservada dentro).
  *
  * @param list<array<string,mixed>> $imgs
- * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool} $resolveAnexoImagemSrc
+ * @param callable(array<string,mixed>, int, bool, string): array{src: string, ok: bool, width?: int, height?: int} $resolveAnexoImagemSrc
  * @param callable(int): string $anexoUrl
  */
 function chamados_pdf_photo_quadrants_html(
@@ -117,23 +322,27 @@ function chamados_pdf_photo_quadrants_html(
     string $projectRootFs,
     callable $h,
     callable $resolveAnexoImagemSrc,
-    callable $anexoUrl
+    callable $anexoUrl,
+    bool $compact = false
 ): string {
     if ($imgs === []) {
         return '';
     }
-    if (count($imgs) > 3) {
-        $imgs = array_slice($imgs, 0, 3);
-    }
     $n = count($imgs);
+    unset($compact); // tamanho da foto é sempre o mesmo (slot fixo)
+    $slot = chamados_pdf_photo_slot_size();
+    $cellW = (int) $slot['w'];
+    $maxH = (int) $slot['h'];
 
-    $fig = static function (array $a, string $maxH = '36mm') use (
+    $fig = static function (array $a) use (
         $cid,
         $embedImagesBase64,
         $projectRootFs,
         $h,
         $resolveAnexoImagemSrc,
-        $anexoUrl
+        $anexoUrl,
+        $cellW,
+        $maxH
     ): string {
         return chamados_pdf_photo_fig_html(
             $a,
@@ -143,31 +352,33 @@ function chamados_pdf_photo_quadrants_html(
             $h,
             $resolveAnexoImagemSrc,
             $anexoUrl,
+            $cellW,
             $maxH
         );
     };
 
+    $rows = array_chunk($imgs, 2);
+    $keep = $n <= 4;
+
     ob_start();
     ?>
-<table class="photo-quad" width="100%">
-    <?php if ($n === 1): ?>
-  <tr class="photo-quad__row">
-    <td class="photo-quad__cell" colspan="2"><?= $fig($imgs[0], '58mm') ?></td>
+<table class="photo-quad-shell<?= $keep ? ' photo-quad-shell--keep' : '' ?>" width="100%" cellspacing="0" cellpadding="0">
+  <tr>
+    <td class="photo-quad-shell__cell">
+    <?php foreach ($rows as $row): ?>
+      <div class="photo-quad-line">
+        <?php if (count($row) === 1): ?>
+        <div class="photo-quad-item"><?= $fig($row[0]) ?></div>
+        <div class="photo-quad-item photo-quad-item--empty"></div>
+        <?php else: ?>
+        <div class="photo-quad-item"><?= $fig($row[0]) ?></div>
+        <div class="photo-quad-item"><?= $fig($row[1]) ?></div>
+        <?php endif; ?>
+        <div class="photo-quad-clear"></div>
+      </div>
+    <?php endforeach; ?>
+    </td>
   </tr>
-    <?php elseif ($n === 2): ?>
-  <tr class="photo-quad__row">
-    <td class="photo-quad__cell"><?= $fig($imgs[0]) ?></td>
-    <td class="photo-quad__cell"><?= $fig($imgs[1]) ?></td>
-  </tr>
-    <?php elseif ($n === 3): ?>
-  <tr class="photo-quad__row">
-    <td class="photo-quad__cell"><?= $fig($imgs[0]) ?></td>
-    <td class="photo-quad__cell"><?= $fig($imgs[1]) ?></td>
-  </tr>
-  <tr class="photo-quad__row">
-    <td class="photo-quad__cell photo-quad__cell--wide" colspan="2"><?= $fig($imgs[2], '42mm') ?></td>
-  </tr>
-    <?php endif; ?>
 </table>
     <?php
 
@@ -318,8 +529,9 @@ function chamados_periodo_anexos_export_html(
 
     /**
      * Resolve src para pré-visualização de imagem no PDF (caminho sob chroot ou data URI).
+     * Redimensiona para o Dompdf não partir a grelha (proporção mantida).
      *
-     * @return array{src: string, ok: bool}
+     * @return array{src: string, ok: bool, width?: int, height?: int}
      */
     $resolveAnexoImagemSrc = static function (
         array $a,
@@ -343,16 +555,29 @@ function chamados_periodo_anexos_export_html(
 
             return ['src' => '', 'ok' => false];
         }
-        $rootNorm = str_replace('\\', '/', $projectRootFs);
-        $readNorm = str_replace('\\', '/', $readPath);
-        if ($rootNorm !== '' && str_starts_with($readNorm, $rootNorm)) {
-            return ['src' => $readNorm, 'ok' => true];
-        }
-        $rawImg = @file_get_contents($readPath);
-        if ($rawImg !== false && $rawImg !== '') {
-            $dataMime = $mimeImagemParaDataUri($readPath, $mime, $nome, $fn);
 
-            return ['src' => 'data:' . $dataMime . ';base64,' . base64_encode((string) $rawImg), 'ok' => true];
+        $fitted = chamados_pdf_image_fit_for_dompdf($readPath, 960);
+        $usePath = $fitted['path'] ?? $readPath;
+        $useW = (int) ($fitted['width'] ?? 0);
+        $useH = (int) ($fitted['height'] ?? 0);
+
+        $rootNorm = str_replace('\\', '/', $projectRootFs);
+        $readNorm = str_replace('\\', '/', $usePath);
+        if ($rootNorm !== '' && str_starts_with($readNorm, $rootNorm)) {
+            return ['src' => $readNorm, 'ok' => true, 'width' => $useW, 'height' => $useH];
+        }
+        $rawImg = @file_get_contents($usePath);
+        if ($rawImg !== false && $rawImg !== '') {
+            $dataMime = str_ends_with(strtolower($usePath), '.jpg') || str_ends_with(strtolower($usePath), '.jpeg')
+                ? 'image/jpeg'
+                : $mimeImagemParaDataUri($usePath, $mime, $nome, $fn);
+
+            return [
+                'src' => 'data:' . $dataMime . ';base64,' . base64_encode((string) $rawImg),
+                'ok' => true,
+                'width' => $useW,
+                'height' => $useH,
+            ];
         }
         error_log('[crm_prefeitura] PDF chamado ' . $cid . ' anexo: leitura vazia — ' . $readPath);
 
@@ -572,7 +797,7 @@ function chamados_periodo_anexos_export_html(
       border-bottom: 1px solid var(--bm-line);
     }
 
-    /* Dois chamados por folha (após a capa). */
+    /* Folhas de fotos (após a capa): ≤2 fotos → 2 chamados; >2 → 1 chamado. */
     .chamado-page {
       page-break-after: always;
     }
@@ -584,9 +809,13 @@ function chamados_periodo_anexos_export_html(
       page-break-before: auto;
       page-break-inside: avoid;
     }
+    /* >4 fotos: permite continuar noutra folha entre linhas. */
+    .chamado-doc--solo {
+      page-break-inside: auto;
+    }
     .chamado-doc + .chamado-doc {
-      margin-top: 8px;
-      padding-top: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
       border-top: 1px dashed var(--bm-line);
     }
 
@@ -658,33 +887,66 @@ function chamados_periodo_anexos_export_html(
       color: var(--bm-text);
       vertical-align: top;
     }
-    .photo-quad { width: 100%; margin: 3px 0 0; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
-    .photo-quad__row { page-break-inside: avoid; }
-    .photo-quad__cell {
-      width: 50%;
-      vertical-align: top;
-      padding: 0;
+    .photo-quad-shell {
+      width: 100%;
+      margin: 4px 0 0;
+      border-collapse: collapse;
     }
-    .photo-quad__cell--wide { width: 100%; }
-    .photo-grid__fig {
-      margin: 0;
-      border: 1px solid var(--bm-line-strong);
-      border-radius: 5px;
-      padding: 3px;
-      background: var(--bm-white);
+    .photo-quad-shell--keep {
       page-break-inside: avoid;
     }
-    .photo-grid__imgwrap {
-      text-align: center;
-      min-height: 18mm;
+    .photo-quad-shell__cell {
+      padding: 0;
+      vertical-align: top;
+    }
+    .photo-quad-line {
+      width: 100%;
+      margin: 0 0 4px;
+    }
+    .photo-quad-item {
+      float: left;
+      width: 49.5%;
+      padding: 0 0.25%;
+      box-sizing: border-box;
+      text-align: left;
+    }
+    .photo-quad-item--full {
+      float: none;
+      width: 100%;
+      padding: 0;
+      text-align: left;
+    }
+    .photo-quad-item--empty {
+      height: 1px;
+    }
+    .photo-quad-clear {
+      clear: both;
+      height: 0;
       line-height: 0;
+      font-size: 0;
+    }
+    .photo-grid__fig {
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+      display: block;
+      box-sizing: border-box;
+      text-align: left;
+      vertical-align: top;
+    }
+    .photo-grid__imgwrap {
+      width: 100%;
+      height: 100%;
+      text-align: left;
+      line-height: 0;
+      background: transparent;
     }
     .photo-grid__imgwrap img {
-      max-width: 100%;
-      height: auto;
-      width: auto;
       display: block;
-      margin: 0 auto;
+      margin: 0;
     }
     .chamado-doc__outros {
       font-size: 8px;
@@ -794,9 +1056,9 @@ function chamados_periodo_anexos_export_html(
     <?php endif; ?>
 
     <?php
-    $chamadosPorPagina = 2;
-    $paginasChamados   = $items !== [] ? array_chunk($items, $chamadosPorPagina) : [];
+    $paginasChamados = $items !== [] ? chamados_pdf_pack_pages($items, $anexoEhImagem) : [];
     foreach ($paginasChamados as $packPagina):
+        $compactPage = count($packPagina) > 1;
         ?>
     <div class="chamado-page">
         <?php
@@ -807,8 +1069,18 @@ function chamados_periodo_anexos_export_html(
         $dataCh   = trim((string) ($ch['data'] ?? ''));
         $endereco = trim((string) ($ch['endereco_completo'] ?? ''));
         $tecnico  = trim((string) ($ch['tecnico_nome'] ?? ''));
+        $imgs = [];
+        $outros = [];
+        foreach ($anexos as $a) {
+            if ($anexoEhImagem($a)) {
+                $imgs[] = $a;
+            } else {
+                $outros[] = $a;
+            }
+        }
+        $soloClass = count($imgs) > 4 ? ' chamado-doc--solo' : '';
         ?>
-    <section class="chamado-doc">
+    <section class="chamado-doc<?= $soloClass ?>">
       <div class="ch-card">
         <div class="ch-card__head">
           <div class="ch-card__id">Chamado #<?= $h((string) $cid) ?></div>
@@ -829,15 +1101,6 @@ function chamados_periodo_anexos_export_html(
       <p class="muted" style="font-size:8px;font-style:italic;margin:2px 0 0;">Sem fotos.</p>
       <?php else: ?>
         <?php
-        $imgs = [];
-        $outros = [];
-        foreach ($anexos as $a) {
-            if ($anexoEhImagem($a)) {
-                $imgs[] = $a;
-            } else {
-                $outros[] = $a;
-            }
-        }
         echo chamados_pdf_photo_quadrants_html(
             $imgs,
             $cid,
@@ -845,7 +1108,8 @@ function chamados_periodo_anexos_export_html(
             $projectRootFs,
             $h,
             $resolveAnexoImagemSrc,
-            $anexoUrl
+            $anexoUrl,
+            $compactPage
         );
         if ($outros !== []) {
             $nOut = count($outros);
