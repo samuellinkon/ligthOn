@@ -7,6 +7,11 @@ require_once __DIR__ . '/../includes/flash.php';
 require_once __DIR__ . '/../includes/audit_log.php';
 
 $me = require_auth_gestao();
+if (($me['perfil'] ?? '') !== 'admin') {
+    flash_set('err', 'A auditoria é apenas para administradores da plataforma.');
+    header('Location: index.php');
+    exit;
+}
 require_once __DIR__ . '/../includes/modules.php';
 require_modulo_admin('auditoria');
 
@@ -102,7 +107,7 @@ include __DIR__ . '/../includes/head.php';
     <div class="panel-head">
       <div>
         <h4>Registos de auditoria</h4>
-        <span class="panel-sub">Até <?= (int) AUDIT_LOG_EXPORT_MAX_ROWS ?> linhas no CSV. O perfil gestor vê apenas eventos da sua empresa.</span>
+        <span class="panel-sub">Até <?= (int) AUDIT_LOG_EXPORT_MAX_ROWS ?> linhas no CSV. Disponível apenas para administradores.</span>
       </div>
       <a class="btn btn-secondary btn-sm audit-export-btn" href="<?= htmlspecialchars('auditoria.php?' . http_build_query(array_merge($filtros, ['export' => 'csv']))) ?>">Exportar CSV</a>
     </div>

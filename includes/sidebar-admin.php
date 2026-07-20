@@ -46,7 +46,7 @@ $items = [
     ['key' => 'medicao',   'label' => 'Medição',   'href' => 'admin/medicao.php'],
     ['key' => 'catalogo',  'label' => 'Catálogo', 'href' => $hrefCatalogo],
     ['key' => 'relatorio_financeiro', 'label' => 'Relatório financeiro', 'href' => 'admin/relatorio_financeiro.php'],
-    ['key' => 'auditoria', 'label' => 'Auditoria', 'href' => 'admin/auditoria.php'],
+    ['key' => 'auditoria', 'label' => 'Auditoria', 'href' => 'admin/auditoria.php', 'admin_only' => true],
     ['key' => 'configuracoes','label' => 'Avançado','href' => 'admin/configuracoes.php', 'admin_only' => true],
     ['key' => 'suporte',   'label' => 'Suporte',   'href' => 'admin/suporte.php'],
 ];

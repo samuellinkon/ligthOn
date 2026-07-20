@@ -19,7 +19,6 @@ $items = [
     ['key' => 'chamados',  'label' => 'Meus Chamados',  'href' => 'cliente/chamados.php'],
     ['key' => 'medicao',   'label' => 'Medição',        'href' => 'cliente/medicao.php'],
     ['key' => 'catalogo',  'label' => 'Catálogo',       'href' => 'cliente/catalogo.php'],
-    ['key' => 'auditoria', 'label' => 'Auditoria',      'href' => 'cliente/auditoria.php'],
     ['key' => 'documentos', 'label' => 'Documentos',    'href' => 'cliente/documentos.php'],
     ['key' => 'meus_dados', 'label' => 'Meus dados',   'href' => 'cliente/meus_dados.php'],
     ['key' => 'suporte',   'label' => 'Suporte',        'href' => 'cliente/suporte.php'],
