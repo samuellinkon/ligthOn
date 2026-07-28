@@ -83,8 +83,10 @@
     var fd = new FormData();
     fd.append('acao', 'os_dados');
     fd.append('ajax', '1');
+    // Inclui campos disabled: o valor ainda existe no DOM e o save não pode
+    // omiti-los (senão o backend grava NULL e apaga a ficha).
     panel.querySelectorAll('input, select, textarea').forEach(function (el) {
-      if (!el.name || el.disabled) return;
+      if (!el.name) return;
       if (el.type === 'checkbox' || el.type === 'radio') {
         if (el.checked) fd.append(el.name, el.value);
         return;
@@ -137,17 +139,21 @@
         return;
       }
 
+      // Montar o payload ANTES de setBusy: inputs disabled são ignorados
+      // em buildOsFormData e acabavam gravando ficha vazia (apagando endereço).
+      var fd = buildOsFormData(panel);
+
       saving = true;
       pending = false;
       setBusy(true);
 
-      postForm(buildOsFormData(panel))
+      postForm(fd)
         .then(function (data) {
           if (!data || !data.ok) {
             alertMsg((data && data.err) || 'Não foi possível salvar a ficha.', 'Ordem de serviço');
             return;
           }
-          lastSnap = panelSnapshot(panel);
+          lastSnap = snap;
           if (data.msg) toastOk(data.msg);
         })
         .catch(function (err) {
