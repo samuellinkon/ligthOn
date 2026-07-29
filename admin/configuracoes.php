@@ -98,9 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $para = trim((string) ($_POST['email_teste'] ?? ''));
         if ($para === '' || !filter_var($para, FILTER_VALIDATE_EMAIL)) {
             flash_set('err', 'Informe um e-mail válido para o teste.');
+            $_SESSION['__mail_teste_resultado'] = [
+                'ok'  => false,
+                'msg' => 'Informe um e-mail válido para o teste.',
+                'para'=> $para,
+            ];
             header('Location: configuracoes.php?tab=geral&secao=teste');
             exit;
         }
+        @set_time_limit(90);
         $quando = date('d/m/Y') . ' às ' . date('H:i:s');
         $nomeMarca = defined('APP_BRAND_NAME') ? (string) APP_BRAND_NAME : 'OnLight';
         $html = '<p style="font-family:system-ui,sans-serif;font-size:15px;">Este é um <strong>e-mail de teste</strong> enviado pelo '
@@ -109,10 +115,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             . htmlspecialchars($quando, ENT_QUOTES, 'UTF-8')
             . '.</p><p style="font-size:13px;color:#64748b;">Se recebeu esta mensagem, o envio (SMTP ou servidor) está funcionando.</p>';
         $res = mail_send($para, $nomeMarca . ' — teste de envio', $html);
-        flash_set(
-            $res['ok'] ? 'ok' : 'err',
-            $res['ok'] ? 'E-mail de teste enviado para ' . htmlspecialchars($para) . '.' : ('Falha no envio: ' . htmlspecialchars($res['motivo'] ?: 'erro desconhecido'))
-        );
+        $msgOk  = 'E-mail de teste enviado para ' . $para . '. Verifique a caixa de entrada e o spam.';
+        $msgErr = 'Falha no envio: ' . ($res['motivo'] !== '' ? $res['motivo'] : 'erro desconhecido');
+        flash_set($res['ok'] ? 'ok' : 'err', $res['ok'] ? $msgOk : $msgErr);
+        $_SESSION['__mail_teste_resultado'] = [
+            'ok'   => (bool) $res['ok'],
+            'msg'  => $res['ok'] ? $msgOk : $msgErr,
+            'para' => $para,
+            'via'  => $res['via'] ?? '',
+        ];
         header('Location: configuracoes.php?tab=geral&secao=teste');
         exit;
     }
@@ -208,6 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $cfg = repo_config_all();
+$mailSettingsPreview = app_mail_settings();
+$mailTesteResultado = null;
+if (!empty($_SESSION['__mail_teste_resultado']) && is_array($_SESSION['__mail_teste_resultado'])) {
+    $mailTesteResultado = $_SESSION['__mail_teste_resultado'];
+    unset($_SESSION['__mail_teste_resultado']);
+}
 
 $apiSecretPlainOnce = null;
 if (!empty($_SESSION['_api_secret_plain_once'])) {
@@ -552,20 +569,53 @@ include __DIR__ . '/../includes/head.php';
   <div class="card mt-24 config-section-panel<?= $configSecao === 'teste' ? ' active' : '' ?>" data-config-panel="teste">
     <div class="panel-head">
       <h4>Testar envio</h4>
-      <span class="panel-sub">Usa as configurações já salvas (salve antes se alterou algo acima)</span>
+      <span class="panel-sub">Usa as configurações já salvas (salve antes se alterou algo acima). MX/SPF no DNS não enviam e-mail — só o SMTP gravado aqui.</span>
     </div>
     <div class="panel-body">
-      <form method="post" action="configuracoes.php?tab=geral&secao=teste" class="form flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:14px;">
+      <?php
+        $smtpHostOk = trim((string) ($mailSettingsPreview['smtp_host'] ?? '')) !== '';
+        $smtpUserOk = trim((string) ($mailSettingsPreview['smtp_user'] ?? '')) !== '';
+        $smtpPassOk = trim((string) ($mailSettingsPreview['smtp_password'] ?? '')) !== '';
+        $smtpReady  = $smtpHostOk && $smtpUserOk && $smtpPassOk;
+      ?>
+      <div style="margin:0 0 18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border-soft);background:var(--bg-soft, #f8fafc);font-size:13px;line-height:1.55;">
+        <strong style="display:block;margin-bottom:6px;">Estado SMTP gravado</strong>
+        <div>Servidor: <?= $smtpHostOk ? htmlspecialchars((string) $mailSettingsPreview['smtp_host'] . ':' . (int) $mailSettingsPreview['smtp_port'] . ' (' . (string) $mailSettingsPreview['smtp_encryption'] . ')') : '<span style="color:#dc2626;">não configurado</span>' ?></div>
+        <div>Utilizador: <?= $smtpUserOk ? htmlspecialchars((string) $mailSettingsPreview['smtp_user']) : '<span style="color:#dc2626;">não configurado</span>' ?></div>
+        <div>Senha: <?= $smtpPassOk ? 'gravada' : '<span style="color:#dc2626;">não gravada — abra E-mail e SMTP, preencha a senha e clique em Salvar</span>' ?></div>
+        <div>Remetente: <?= htmlspecialchars((string) ($mailSettingsPreview['from_name'] ?? '') . ' <' . (string) ($mailSettingsPreview['from'] ?? '') . '>') ?></div>
+        <div style="margin-top:8px;"><?= $smtpReady
+          ? '<span style="color:#15803d;">Pronto para enviar via SMTP autenticado.</span>'
+          : '<span style="color:#b45309;">Incompleto — o teste pode falhar ou usar mail() do servidor.</span>' ?></div>
+      </div>
+
+      <?php if ($mailTesteResultado !== null): ?>
+      <div class="toast <?= !empty($mailTesteResultado['ok']) ? 'toast-ok' : 'toast-err' ?>" style="position:static;margin:0 0 18px;animation:none;opacity:1;transform:none;">
+        <div class="toast-icon"><?= !empty($mailTesteResultado['ok']) ? '✓' : '!' ?></div>
+        <div>
+          <strong style="display:block;margin-bottom:4px;"><?= !empty($mailTesteResultado['ok']) ? 'Envio aceito pelo servidor' : 'Envio falhou' ?></strong>
+          <?= htmlspecialchars((string) ($mailTesteResultado['msg'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+          <?php if (!empty($mailTesteResultado['via'])): ?>
+            <div class="muted" style="margin-top:6px;font-size:12px;">Canal: <?= htmlspecialchars((string) $mailTesteResultado['via'], ENT_QUOTES, 'UTF-8') ?></div>
+          <?php endif; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <form method="post" action="configuracoes.php?tab=geral&secao=teste" class="form flex-gap" style="align-items:flex-end;flex-wrap:wrap;gap:14px;" id="form_teste_email">
         <input type="hidden" name="acao" value="teste_email">
         <input type="hidden" name="_secao" value="teste">
         <div class="form-group" style="flex:1;min-width:220px;margin:0;">
           <label for="email_teste">Enviar teste para</label>
           <input type="email" id="email_teste" name="email_teste" class="input" required
-                 value="<?= htmlspecialchars((string) ($me['email'] ?? '')) ?>"
+                 value="<?= htmlspecialchars((string) (($mailTesteResultado['para'] ?? null) ?: ($me['email'] ?? ''))) ?>"
                  placeholder="seu@email.com">
         </div>
-        <button type="submit" class="btn btn-secondary" <?= !db_ok() ? 'disabled' : '' ?>>Enviar e-mail de teste</button>
+        <button type="submit" class="btn btn-secondary" id="btn_teste_email" <?= !db_ok() ? 'disabled' : '' ?>>Enviar e-mail de teste</button>
       </form>
+      <p class="muted" style="margin:12px 0 0;font-size:13px;line-height:1.5;">
+        O envio pode demorar até ~30s se a porta SMTP estiver bloqueada. Aguarde a página recarregar — o resultado fica nesta aba (não some como o aviso do canto).
+      </p>
     </div>
   </div>
 
@@ -625,6 +675,15 @@ document.addEventListener('DOMContentLoaded', function () {
       var prev = copyBtn.textContent;
       copyBtn.textContent = 'Copiado!';
       setTimeout(function () { copyBtn.textContent = prev; }, 2000);
+    });
+  }
+
+  var formTeste = document.getElementById('form_teste_email');
+  var btnTeste = document.getElementById('btn_teste_email');
+  if (formTeste && btnTeste) {
+    formTeste.addEventListener('submit', function () {
+      btnTeste.disabled = true;
+      btnTeste.textContent = 'Enviando… aguarde';
     });
   }
 });

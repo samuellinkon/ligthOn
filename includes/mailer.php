@@ -43,6 +43,7 @@ function mail_send(string $to, string $subject, string $htmlBody): array
             'to'      => $to,
             'subject' => $subject,
             'motivo'  => $msg,
+            'via'     => 'smtp-incompleto',
         ];
     }
 
@@ -52,11 +53,12 @@ function mail_send(string $to, string $subject, string $htmlBody): array
             'to'      => $to,
             'subject' => $subject,
             'motivo'  => 'Há servidor ou utilizador SMTP guardados, mas falta a senha (ou não foi gravada). Em Admin → Configurações → E-mail e SMTP, preencha a senha da conta e clique em Salvar — na Hostinger não use mail()/sendmail.',
+            'via'     => 'smtp-sem-senha',
         ];
     }
 
     if ($smtpCredOk) {
-        return smtp_mail_send(
+        $r = smtp_mail_send(
             $s['smtp_host'],
             $s['smtp_port'],
             $s['smtp_encryption'],
@@ -68,6 +70,8 @@ function mail_send(string $to, string $subject, string $htmlBody): array
             $subjectEncoded,
             $htmlBody
         );
+        $r['via'] = 'smtp';
+        return $r;
     }
 
     $boundary = 'crm-' . bin2hex(random_bytes(8));
@@ -86,6 +90,7 @@ function mail_send(string $to, string $subject, string $htmlBody): array
         'to'      => $to,
         'subject' => $subject,
         'motivo'  => $ok ? '' : (error_get_last()['message'] ?? 'mail() retornou false'),
+        'via'     => 'mail()',
     ];
 }
 
