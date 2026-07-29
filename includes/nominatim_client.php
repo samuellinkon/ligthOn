@@ -137,7 +137,8 @@ function nominatim_search_structured(string $street, string $city, string $state
 
     $params = [
         'format' => 'json',
-        'limit' => '5',
+        'limit' => '8',
+        'addressdetails' => '1',
         'countrycodes' => 'br',
         'street' => $street,
         'city' => $city,
@@ -163,7 +164,8 @@ function nominatim_search_free_text(string $q): array
 
     $params = [
         'format' => 'json',
-        'limit' => '5',
+        'limit' => '8',
+        'addressdetails' => '1',
         'countrycodes' => 'br',
         'q' => $q,
     ];

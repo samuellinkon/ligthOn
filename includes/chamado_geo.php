@@ -61,6 +61,107 @@ function chamado_geo_texto_contem(string $haystack, string $needle): bool
 }
 
 /**
+ * Remove prefixo de tipo de logradouro (Av., Rua, etc.) para variantes OSM.
+ */
+function chamado_geo_strip_tipo_logradouro(string $logradouro): string
+{
+    $logradouro = trim($logradouro);
+    if ($logradouro === '') {
+        return '';
+    }
+    $stripped = preg_replace(
+        '/^(r(ua)?|av(enida)?|trav(essa)?|al(ameda)?|rod(ovia)?|est(rada)?|tv)\.?\s+/iu',
+        '',
+        $logradouro
+    );
+
+    return is_string($stripped) ? trim($stripped) : $logradouro;
+}
+
+/**
+ * Tokens significativos do logradouro (sem tipo / preposições).
+ *
+ * @return list<string>
+ */
+function chamado_geo_logradouro_tokens_significativos(string $logradouro): array
+{
+    $logradouro = chamado_geo_strip_tipo_logradouro($logradouro);
+    if ($logradouro === '') {
+        return [];
+    }
+    $tokens = preg_split('/\s+/u', mb_strtolower($logradouro, 'UTF-8')) ?: [];
+    static $stop = [
+        'rua', 'r', 'av', 'avenida', 'travessa', 'alameda', 'rodovia', 'estrada',
+        'da', 'de', 'do', 'dos', 'das', 'e',
+    ];
+    $significant = [];
+    foreach ($tokens as $tok) {
+        $tok = trim($tok);
+        if ($tok === '' || mb_strlen($tok, 'UTF-8') < 3 || in_array($tok, $stop, true)) {
+            continue;
+        }
+        $significant[] = $tok;
+    }
+
+    return $significant;
+}
+
+/**
+ * Variantes de nome de rua para Nominatim (tipo OSM ≠ ViaCEP: Rua vs Avenida).
+ *
+ * @return list<string>
+ */
+function chamado_geo_logradouro_variants(string $logradouro): array
+{
+    $logradouro = trim($logradouro);
+    if ($logradouro === '') {
+        return [];
+    }
+    $core = chamado_geo_strip_tipo_logradouro($logradouro);
+    $out = [];
+    $push = static function (string $s) use (&$out): void {
+        $s = trim($s);
+        if ($s === '') {
+            return;
+        }
+        $key = chamado_geo_texto_comparavel($s);
+        if ($key === '' || isset($out[$key])) {
+            return;
+        }
+        $out[$key] = $s;
+    };
+    $push($logradouro);
+    if ($core !== '' && $core !== $logradouro) {
+        $push($core);
+        $push('Rua ' . $core);
+        $push('Avenida ' . $core);
+    }
+
+    return array_values($out);
+}
+
+/** Extrai CEP 8 dígitos do hit Nominatim (address ou display_name). */
+function chamado_geocode_hit_cep_digits(array $hit): string
+{
+    $addr = $hit['address'] ?? null;
+    if (is_array($addr)) {
+        $pc = preg_replace('/\D/', '', (string) ($addr['postcode'] ?? ''));
+        if (strlen($pc) >= 8) {
+            return substr($pc, 0, 8);
+        }
+        if (strlen($pc) === 5) {
+            return $pc;
+        }
+    }
+    $dn = (string) ($hit['display_name'] ?? '');
+    if (preg_match('/\b(\d{5})-?(\d{3})\b/', $dn, $m)) {
+        return $m[1] . $m[2];
+    }
+
+    return '';
+}
+
+/**
  * Rejeita resultado de geocode fora da cidade/UF esperada (ex.: CEP "020" → Lavras do Sul/RS).
  */
 function chamado_geocode_hit_matches_context(array $hit, string $cidade, string $uf): bool
@@ -107,8 +208,61 @@ function chamado_geocode_hit_matches_context(array $hit, string $cidade, string 
     return true;
 }
 
-function chamado_geocode_hit_score(array $hit): int
+/**
+ * Bairro esperado no display_name / address (suburb, neighbourhood, …).
+ */
+function chamado_geocode_hit_matches_bairro(array $hit, string $bairro): bool
 {
+    $bairro = trim($bairro);
+    if ($bairro === '') {
+        return true;
+    }
+
+    $hay = (string) ($hit['display_name'] ?? '');
+    $addr = $hit['address'] ?? null;
+    if (is_array($addr)) {
+        foreach (['suburb', 'neighbourhood', 'quarter', 'city_district', 'district', 'hamlet'] as $k) {
+            $v = trim((string) ($addr[$k] ?? ''));
+            if ($v !== '') {
+                $hay .= ' ' . $v;
+            }
+        }
+    }
+
+    return chamado_geo_texto_contem($hay, $bairro);
+}
+
+/**
+ * CEP do hit compatível com o informado (mesmo prefixo de 5 dígitos quando ambos existem).
+ * Evita aceitar 54350-220 quando o usuário pediu 54430-350.
+ */
+function chamado_geocode_hit_matches_cep(array $hit, string $postalcode, bool $strict = false): bool
+{
+    $want = preg_replace('/\D/', '', trim($postalcode));
+    if (strlen($want) < 5) {
+        return true;
+    }
+    $got = chamado_geocode_hit_cep_digits($hit);
+    if ($got === '') {
+        return !$strict;
+    }
+    $wantPrefix = substr($want, 0, 5);
+    $gotPrefix  = substr($got, 0, 5);
+    if ($strict && strlen($want) === 8 && strlen($got) === 8) {
+        return $want === $got;
+    }
+
+    return $wantPrefix === $gotPrefix;
+}
+
+function chamado_geocode_hit_score(
+    array $hit,
+    string $logradouro = '',
+    string $bairro = '',
+    string $postalcode = '',
+    ?float $anchorLat = null,
+    ?float $anchorLon = null
+): int {
     $score = 0;
     $cls = (string) ($hit['class'] ?? '');
     $typ = (string) ($hit['type'] ?? '');
@@ -120,11 +274,130 @@ function chamado_geocode_hit_score(array $hit): int
     if (is_array($addr) && !empty($addr['house_number'])) {
         $score += 10;
     }
-    if ($cls === 'place' || $adt === 'place') {
+    if ($cls === 'place' || $adt === 'place' || $adt === 'postcode') {
         $score += 6;
     }
     if ($cls === 'highway' || $adt === 'road') {
         $score += 2;
+    }
+    if ($logradouro !== '' && chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
+        $score += 20;
+        $tokens = chamado_geo_logradouro_tokens_significativos($logradouro);
+        $hay = chamado_geo_texto_comparavel((string) ($hit['display_name'] ?? ''));
+        $matched = 0;
+        foreach ($tokens as $tok) {
+            if (str_contains($hay, chamado_geo_texto_comparavel($tok))) {
+                $matched++;
+            }
+        }
+        if ($tokens !== [] && $matched === count($tokens)) {
+            $score += 10;
+        }
+    }
+    if ($bairro !== '' && chamado_geocode_hit_matches_bairro($hit, $bairro)) {
+        $score += 14;
+    }
+    $wantCep = preg_replace('/\D/', '', $postalcode);
+    if (strlen($wantCep) >= 5) {
+        if (chamado_geocode_hit_matches_cep($hit, $postalcode, true)) {
+            $score += 18;
+        } elseif (chamado_geocode_hit_matches_cep($hit, $postalcode, false)) {
+            $score += 8;
+        } elseif (chamado_geocode_hit_cep_digits($hit) !== '') {
+            $score -= 25;
+        }
+    }
+
+    // Preferir trecho OSM próximo ao ponto do CEP (evita outro segmento da mesma rua).
+    if ($anchorLat !== null && $anchorLon !== null
+        && isset($hit['lat'], $hit['lon'])
+        && is_numeric($hit['lat']) && is_numeric($hit['lon'])) {
+        require_once __DIR__ . '/awesomeapi_cep_client.php';
+        $dist = chamado_geo_haversine_m(
+            $anchorLat,
+            $anchorLon,
+            (float) $hit['lat'],
+            (float) $hit['lon']
+        );
+        if ($dist <= 80) {
+            $score += 40;
+        } elseif ($dist <= 200) {
+            $score += 28;
+        } elseif ($dist <= 400) {
+            $score += 12;
+        } elseif ($dist <= 800) {
+            $score -= 5;
+        } else {
+            $score -= 30;
+        }
+    }
+
+    return $score;
+}
+
+/** Número de porta do hit compatível com o solicitado. */
+function chamado_geocode_hit_matches_numero(array $hit, string $numero): bool
+{
+    if (!chamado_geo_numero_valido($numero)) {
+        return true;
+    }
+    $want = preg_replace('/\D/', '', $numero);
+    if ($want === '') {
+        return true;
+    }
+
+    $addr = $hit['address'] ?? null;
+    if (is_array($addr)) {
+        $got = preg_replace('/\D/', '', (string) ($addr['house_number'] ?? ''));
+        if ($got !== '' && ($got === $want || str_starts_with($got, $want) || str_starts_with($want, $got))) {
+            return true;
+        }
+    }
+
+    $dn = (string) ($hit['display_name'] ?? '');
+
+    return $dn !== '' && (bool) preg_match('/\b' . preg_quote($want, '/') . '\b/', $dn);
+}
+
+/**
+ * Nível de precisão do hit: housenumber | street | cep.
+ */
+function chamado_geocode_hit_precision(array $hit, string $numero = ''): string
+{
+    if (($hit['_source'] ?? '') === 'awesomeapi_cep') {
+        return 'cep';
+    }
+    $addr = $hit['address'] ?? null;
+    $house = is_array($addr) ? trim((string) ($addr['house_number'] ?? '')) : '';
+    if ($house !== '') {
+        if ($numero === '' || !chamado_geo_numero_valido($numero) || chamado_geocode_hit_matches_numero($hit, $numero)) {
+            return 'housenumber';
+        }
+    }
+    $cls = (string) ($hit['class'] ?? '');
+    $adt = (string) ($hit['addresstype'] ?? '');
+    if ($cls === 'place' || $adt === 'postcode' || $adt === 'place') {
+        return 'cep';
+    }
+
+    return 'street';
+}
+
+/**
+ * Ajusta score com bônus de número de porta (chamado à parte para não exigir $numero em todos os callers).
+ */
+function chamado_geocode_hit_score_with_numero(
+    array $hit,
+    string $logradouro = '',
+    string $bairro = '',
+    string $postalcode = '',
+    ?float $anchorLat = null,
+    ?float $anchorLon = null,
+    string $numero = ''
+): int {
+    $score = chamado_geocode_hit_score($hit, $logradouro, $bairro, $postalcode, $anchorLat, $anchorLon);
+    if (chamado_geo_numero_valido($numero) && chamado_geocode_hit_matches_numero($hit, $numero)) {
+        $score += 50;
     }
 
     return $score;
@@ -135,24 +408,7 @@ function chamado_geocode_hit_score(array $hit): int
  */
 function chamado_geocode_hit_matches_logradouro(array $hit, string $logradouro): bool
 {
-    $logradouro = trim($logradouro);
-    if ($logradouro === '') {
-        return true;
-    }
-
-    $tokens = preg_split('/\s+/u', mb_strtolower($logradouro, 'UTF-8')) ?: [];
-    static $stop = [
-        'rua', 'r', 'av', 'avenida', 'travessa', 'alameda', 'rodovia', 'estrada',
-        'da', 'de', 'do', 'dos', 'das', 'e',
-    ];
-    $significant = [];
-    foreach ($tokens as $tok) {
-        $tok = trim($tok);
-        if ($tok === '' || strlen($tok) < 3 || in_array($tok, $stop, true)) {
-            continue;
-        }
-        $significant[] = $tok;
-    }
+    $significant = chamado_geo_logradouro_tokens_significativos($logradouro);
     if ($significant === []) {
         return true;
     }
@@ -184,18 +440,37 @@ function chamado_geocode_pick_best_hit(
     string $cidade,
     string $uf,
     string $logradouro = '',
-    bool $requireLogradouro = true
+    bool $requireLogradouro = true,
+    string $bairro = '',
+    string $postalcode = '',
+    bool $requireBairro = false,
+    bool $requireCepPrefix = false,
+    ?float $anchorLat = null,
+    ?float $anchorLon = null
 ): ?array {
     $best = null;
     $bestScore = -1;
+    $hasStreetTokens = chamado_geo_logradouro_tokens_significativos($logradouro) !== [];
     foreach ($hits as $hit) {
         if (!is_array($hit) || !chamado_geocode_hit_matches_context($hit, $cidade, $uf)) {
             continue;
         }
-        if ($requireLogradouro && !chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
+        // Com rua informada, nunca aceitar outra rua só porque a cidade bate.
+        if ($hasStreetTokens && !chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
             continue;
         }
-        $sc = chamado_geocode_hit_score($hit);
+        if ($requireLogradouro && $logradouro !== '' && !chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
+            continue;
+        }
+        if ($requireBairro && $bairro !== '' && !chamado_geocode_hit_matches_bairro($hit, $bairro)) {
+            continue;
+        }
+        if ($requireCepPrefix && $postalcode !== '' && !chamado_geocode_hit_matches_cep($hit, $postalcode, false)) {
+            if (!$hasStreetTokens || !chamado_geocode_hit_matches_logradouro($hit, $logradouro)) {
+                continue;
+            }
+        }
+        $sc = chamado_geocode_hit_score($hit, $logradouro, $bairro, $postalcode, $anchorLat, $anchorLon);
         if ($sc > $bestScore) {
             $bestScore = $sc;
             $best = $hit;
@@ -206,16 +481,61 @@ function chamado_geocode_pick_best_hit(
 }
 
 /**
+ * Escolhe o melhor hit: logradouro obrigatório quando há tokens; bairro/CEP como desempate.
+ *
  * @param array<int, array<string, mixed>> $hits
  */
-function chamado_geocode_pick_best_hit_relaxed(array $hits, string $cidade, string $uf, string $logradouro = ''): ?array
-{
-    $strict = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true);
-    if ($strict !== null) {
-        return $strict;
+function chamado_geocode_pick_best_hit_relaxed(
+    array $hits,
+    string $cidade,
+    string $uf,
+    string $logradouro = '',
+    string $bairro = '',
+    string $postalcode = '',
+    ?float $anchorLat = null,
+    ?float $anchorLon = null
+): ?array {
+    $hasStreet = chamado_geo_logradouro_tokens_significativos($logradouro) !== [];
+    $anchor = [$anchorLat, $anchorLon];
+
+    // 1) Rua + bairro (mais preciso)
+    if ($hasStreet && $bairro !== '') {
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, true, false, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
     }
 
-    return chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, false);
+    // 2) Rua (obrigatória se informada) + preferência de CEP
+    if ($hasStreet) {
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, false, true, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
+
+        return chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, false, false, ...$anchor);
+    }
+
+    // 3) Sem rua: bairro + CEP, depois só contexto cidade/UF (nunca inventar outra rua)
+    if ($bairro !== '') {
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, '', false, $bairro, $postalcode, true, true, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, '', false, $bairro, $postalcode, true, false, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
+    }
+
+    if ($postalcode !== '') {
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, '', false, $bairro, $postalcode, false, true, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -314,7 +634,7 @@ function chamado_geocode_run_attempt(array $attempt): array
 /**
  * Resolve endereço OS via Nominatim (várias tentativas estruturadas + texto livre).
  *
- * @return array{hit:?array<string,mixed>,rate_limited:bool}
+ * @return array{hit:?array<string,mixed>,rate_limited:bool,precision:?string}
  */
 function chamado_geocode_resolve_os(
     string $street,
@@ -327,12 +647,38 @@ function chamado_geocode_resolve_os(
     string $numero = ''
 ): array {
     require_once __DIR__ . '/nominatim_client.php';
+    require_once __DIR__ . '/awesomeapi_cep_client.php';
 
     $city       = trim($city);
     $uf         = strtoupper(preg_replace('/\./', '', trim($uf)));
     $postalcode = trim($postalcode);
     $street     = trim($street);
     $fallbackQ  = trim($fallbackQ);
+    $bairro     = trim($bairro);
+    $logradouro = trim($logradouro);
+    $numero     = trim($numero);
+    $logForPick = $logradouro !== '' ? $logradouro : $street;
+
+    // Âncora do CEP (Correios) — escolhe o trecho OSM certo e serve de fallback.
+    $cepHit = null;
+    $anchorLat = null;
+    $anchorLon = null;
+    $cepDigits = preg_replace('/\D/', '', $postalcode);
+    if (strlen($cepDigits) === 8) {
+        $cepData = awesomeapi_cep_lookup($cepDigits);
+        if ($cepData !== null) {
+            $anchorLat = $cepData['lat'];
+            $anchorLon = $cepData['lng'];
+            $cepHit = awesomeapi_cep_to_geocode_hit(
+                $cepData,
+                $city,
+                $uf,
+                $bairro,
+                $logForPick,
+                $numero
+            );
+        }
+    }
 
     $attempts = chamado_geocode_attempts_from_api_params(
         $street,
@@ -345,23 +691,121 @@ function chamado_geocode_resolve_os(
         $numero
     );
 
-    $logForPick = $logradouro !== '' ? $logradouro : $street;
+    $bestOverall = null;
+    $bestOverallScore = -1;
+    $bestWithNumero = null;
+    $bestWithNumeroScore = -1;
+    $sawRateLimit = false;
 
     foreach ($attempts as $attempt) {
         $r = chamado_geocode_run_attempt($attempt);
         if (($r['err'] ?? '') === 'rate_limited') {
-            return ['hit' => null, 'rate_limited' => true];
+            $sawRateLimit = true;
+            break;
         }
-        if (!$r['ok']) {
+        if (!$r['ok'] || $r['hits'] === []) {
             continue;
         }
-        $hit = chamado_geocode_pick_best_hit_relaxed($r['hits'], $city, $uf, $logForPick);
-        if ($hit !== null) {
-            return ['hit' => $hit, 'rate_limited' => false];
+        $hit = chamado_geocode_pick_best_hit_relaxed(
+            $r['hits'],
+            $city,
+            $uf,
+            $logForPick,
+            $bairro,
+            $postalcode,
+            $anchorLat,
+            $anchorLon
+        );
+        if ($hit === null) {
+            continue;
+        }
+        $sc = chamado_geocode_hit_score_with_numero(
+            $hit,
+            $logForPick,
+            $bairro,
+            $postalcode,
+            $anchorLat,
+            $anchorLon,
+            $numero
+        );
+        if ($sc > $bestOverallScore) {
+            $bestOverallScore = $sc;
+            $bestOverall = $hit;
+        }
+        if (chamado_geo_numero_valido($numero) && chamado_geocode_hit_matches_numero($hit, $numero)) {
+            if ($sc > $bestWithNumeroScore) {
+                $bestWithNumeroScore = $sc;
+                $bestWithNumero = $hit;
+            }
+        }
+        $addr = $hit['address'] ?? null;
+        $hasHouse = is_array($addr) && trim((string) ($addr['house_number'] ?? '')) !== '';
+        $nearCep = false;
+        if ($anchorLat !== null && $anchorLon !== null && isset($hit['lat'], $hit['lon'])) {
+            $nearCep = chamado_geo_haversine_m(
+                $anchorLat,
+                $anchorLon,
+                (float) $hit['lat'],
+                (float) $hit['lon']
+            ) <= 150;
+        }
+        if (($hasHouse && chamado_geocode_hit_matches_numero($hit, $numero)) || $nearCep) {
+            break;
         }
     }
 
-    return ['hit' => null, 'rate_limited' => false];
+    if ($bestWithNumero !== null) {
+        return [
+            'hit' => $bestWithNumero,
+            'rate_limited' => false,
+            'precision' => 'housenumber',
+        ];
+    }
+
+    if ($bestOverall !== null) {
+        $addr = $bestOverall['address'] ?? null;
+        $hasHouse = is_array($addr) && trim((string) ($addr['house_number'] ?? '')) !== '';
+        // Sem número de porta no OSM: preferir ponto do CEP (Correios) ao centróide de trecho aleatório.
+        if ($cepHit !== null && (!$hasHouse || (chamado_geo_numero_valido($numero) && !chamado_geocode_hit_matches_numero($bestOverall, $numero)))) {
+            if ($hasHouse && $anchorLat !== null && $anchorLon !== null) {
+                $dist = chamado_geo_haversine_m(
+                    $anchorLat,
+                    $anchorLon,
+                    (float) $bestOverall['lat'],
+                    (float) $bestOverall['lon']
+                );
+                if ($dist <= 600 && chamado_geocode_hit_matches_numero($bestOverall, $numero)) {
+                    return [
+                        'hit' => $bestOverall,
+                        'rate_limited' => false,
+                        'precision' => chamado_geocode_hit_precision($bestOverall, $numero),
+                    ];
+                }
+            }
+
+            return [
+                'hit' => $cepHit,
+                'rate_limited' => false,
+                'precision' => 'cep',
+            ];
+        }
+
+        return [
+            'hit' => $bestOverall,
+            'rate_limited' => false,
+            'precision' => chamado_geocode_hit_precision($bestOverall, $numero),
+        ];
+    }
+
+    if ($cepHit !== null) {
+        return [
+            'hit' => $cepHit,
+            'rate_limited' => false,
+            'precision' => 'cep',
+        ];
+    }
+
+    return ['hit' => null, 'rate_limited' => $sawRateLimit, 'precision' => null];
 }
 
 function chamado_geo_numero_valido(string $num): bool
@@ -470,15 +914,27 @@ function chamado_geocode_attempts(array $ch): array
 
     $log    = trim((string) ($ch['os_logradouro'] ?? ''));
     $num    = trim((string) ($ch['os_numero'] ?? ''));
+    $bairro = trim((string) ($ch['os_bairro'] ?? ''));
     $cidade = trim((string) ($ch['os_cidade'] ?? ''));
     $uf     = strtoupper(preg_replace('/\./', '', trim((string) ($ch['os_uf'] ?? ''))));
 
     if ($log !== '' && $cidade !== '' && $uf !== '') {
-        $street = chamado_geo_numero_valido($num) ? trim($num . ' ' . $log) : $log;
-        $key    = 's:' . mb_strtolower($street . '|' . $cidade . '|' . $uf, 'UTF-8');
-        if (!isset($seen[$key])) {
-            $seen[$key] = true;
-            $out[]      = ['type' => 'structured', 'street' => $street, 'city' => $cidade, 'state' => chamado_geo_uf_nome($uf)];
+        foreach (chamado_geo_logradouro_variants($log) as $logVar) {
+            $street = chamado_geo_numero_valido($num) ? trim($num . ' ' . $logVar) : $logVar;
+            $key    = 's:' . mb_strtolower($street . '|' . $cidade . '|' . $uf, 'UTF-8');
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $out[]      = ['type' => 'structured', 'street' => $street, 'city' => $cidade, 'state' => chamado_geo_uf_nome($uf)];
+            }
+            if ($bairro !== '') {
+                $parts = [$logVar];
+                if (chamado_geo_numero_valido($num)) {
+                    $parts[] = $num;
+                }
+                $parts[] = $bairro;
+                $parts[] = $cidade . ' - ' . $uf;
+                $pushQ(implode(', ', $parts));
+            }
         }
     }
 
@@ -564,13 +1020,34 @@ function chamado_geocode_attempts_com_cep(array $ch): array
         }
         $out[] = ['type' => 'q', 'q' => $q];
     };
+    $pushStructured = static function (string $street, string $cidade, string $ufNom, string $cepFmt = '') use (&$seen, &$out): void {
+        $street = trim($street);
+        $cidade = trim($cidade);
+        if ($street === '' || $cidade === '' || $ufNom === '') {
+            return;
+        }
+        $key = 's:' . mb_strtolower($street . '|' . $cidade . '|' . $ufNom . '|' . $cepFmt, 'UTF-8');
+        if (isset($seen[$key])) {
+            return;
+        }
+        $seen[$key] = true;
+        $row = [
+            'type'   => 'structured',
+            'street' => $street,
+            'city'   => $cidade,
+            'state'  => $ufNom,
+        ];
+        if ($cepFmt !== '') {
+            $row['postalcode'] = $cepFmt;
+        }
+        $out[] = $row;
+    };
 
     $cepRaw = preg_replace('/\D/', '', (string) ($ch['os_cep'] ?? ''));
     if (strlen($cepRaw) !== 8) {
         return chamado_geocode_attempts($ch);
     }
     $cepFmt = substr($cepRaw, 0, 5) . '-' . substr($cepRaw, 5);
-    $pushQ($cepFmt . ', Brasil');
 
     $log    = trim((string) ($ch['os_logradouro'] ?? ''));
     $num    = trim((string) ($ch['os_numero'] ?? ''));
@@ -578,53 +1055,59 @@ function chamado_geocode_attempts_com_cep(array $ch): array
     $cidade = trim((string) ($ch['os_cidade'] ?? ''));
     $uf     = strtoupper(preg_replace('/\./', '', trim((string) ($ch['os_uf'] ?? ''))));
     $ufNom  = $uf !== '' ? chamado_geo_uf_nome($uf) : '';
+    $logVariants = chamado_geo_logradouro_variants($log);
+    $tailCity = '';
+    if ($cidade !== '' && $uf !== '') {
+        $tailCity = $cidade . ' - ' . $uf;
+    } elseif ($cidade !== '') {
+        $tailCity = $cidade;
+    }
+
+    // Prioridade: logradouro (variantes Rua/Av) + bairro + cidade — OSM costuma
+    // cadastrar "Rua X" mesmo quando o ViaCEP diz "Avenida X".
+    foreach ($logVariants as $logVar) {
+        if ($bairro !== '' && $cidade !== '') {
+            $parts = [$logVar];
+            if (chamado_geo_numero_valido($num)) {
+                $parts[] = $num;
+            }
+            $parts[] = $bairro;
+            if ($tailCity !== '') {
+                $parts[] = $tailCity;
+            }
+            $pushQ(implode(', ', $parts));
+        }
+        if ($cidade !== '') {
+            $parts = [$logVar];
+            if ($bairro !== '') {
+                $parts[] = $bairro;
+            }
+            if ($tailCity !== '') {
+                $parts[] = $tailCity;
+            }
+            $pushQ(implode(', ', $parts));
+        }
+    }
 
     if ($log !== '' && chamado_geo_numero_valido($num)) {
         $partsCepNum = [$cepFmt, $num, $log];
         if ($bairro !== '') {
             $partsCepNum[] = $bairro;
         }
-        if ($cidade !== '' && $uf !== '') {
-            $partsCepNum[] = $cidade . ' - ' . $uf;
-        } elseif ($cidade !== '') {
-            $partsCepNum[] = $cidade;
+        if ($tailCity !== '') {
+            $partsCepNum[] = $tailCity;
         }
         $pushQ(implode(', ', $partsCepNum));
     }
 
-    if ($log !== '' && $cidade !== '' && $uf !== '') {
-        $street = chamado_geo_numero_valido($num) ? trim($num . ' ' . $log) : $log;
-        $key    = 's:' . mb_strtolower($street . '|' . $cidade . '|' . $uf . '|' . $cepFmt, 'UTF-8');
-        if (!isset($seen[$key])) {
-            $seen[$key] = true;
-            $row        = [
-                'type'   => 'structured',
-                'street' => $street,
-                'city'   => $cidade,
-                'state'  => $ufNom,
-            ];
-            if ($cepFmt !== '') {
-                $row['postalcode'] = $cepFmt;
+    if ($cidade !== '' && $ufNom !== '') {
+        foreach ($logVariants as $logVar) {
+            if (chamado_geo_numero_valido($num)) {
+                $pushStructured(trim($num . ' ' . $logVar), $cidade, $ufNom, $cepFmt);
+                $pushStructured(trim($num . ' ' . $logVar), $cidade, $ufNom, '');
             }
-            $out[] = $row;
-        }
-
-        if (chamado_geo_numero_valido($num)) {
-            $streetSemNum = $log;
-            $keySemNum    = 's:' . mb_strtolower($streetSemNum . '|' . $cidade . '|' . $uf . '|' . $cepFmt . '|semnum', 'UTF-8');
-            if (!isset($seen[$keySemNum])) {
-                $seen[$keySemNum] = true;
-                $rowSemNum        = [
-                    'type'   => 'structured',
-                    'street' => $streetSemNum,
-                    'city'   => $cidade,
-                    'state'  => $ufNom,
-                ];
-                if ($cepFmt !== '') {
-                    $rowSemNum['postalcode'] = $cepFmt;
-                }
-                $out[] = $rowSemNum;
-            }
+            $pushStructured($logVar, $cidade, $ufNom, $cepFmt);
+            $pushStructured($logVar, $cidade, $ufNom, '');
         }
     }
 
@@ -633,10 +1116,8 @@ function chamado_geocode_attempts_com_cep(array $ch): array
         if ($bairro !== '') {
             $partsSemNum[] = $bairro;
         }
-        if ($cidade !== '' && $uf !== '') {
-            $partsSemNum[] = $cidade . ' - ' . $uf;
-        } elseif ($cidade !== '') {
-            $partsSemNum[] = $cidade;
+        if ($tailCity !== '') {
+            $partsSemNum[] = $tailCity;
         }
         $pushQ(implode(', ', $partsSemNum));
     }
@@ -650,32 +1131,34 @@ function chamado_geocode_attempts_com_cep(array $ch): array
         if ($bairro !== '') {
             $parts[] = $bairro;
         }
-        if ($cidade !== '' && $uf !== '') {
-            $parts[] = $cidade . ' - ' . $uf;
-        } elseif ($cidade !== '') {
-            $parts[] = $cidade;
+        if ($tailCity !== '') {
+            $parts[] = $tailCity;
         }
         $pushQ(implode(', ', $parts));
+    }
+
+    // CEP + bairro (melhor que CEP + cidade sozinho — evita hits em outro bairro).
+    if ($bairro !== '' && $cidade !== '' && $uf !== '') {
+        $pushQ($cepFmt . ', ' . $bairro . ', ' . $cidade . ' - ' . $uf);
     }
 
     if ($cidade !== '' && $uf !== '') {
         $pushQ($cepFmt . ', ' . $cidade . ' - ' . $uf);
     }
 
-    if ($bairro !== '' && $cidade !== '' && $uf !== '') {
-        $pushQ($cepFmt . ', ' . $bairro . ', ' . $cidade . ' - ' . $uf);
+    // CEP isolado por último: Nominatim interpreta mal (ex.: "54430-350" → "350").
+    if ($log === '') {
+        $pushQ($cepFmt . ', Brasil');
     }
 
     foreach (chamado_geocode_attempts($ch) as $attempt) {
         if ($attempt['type'] === 'structured') {
-            $key = 's:' . mb_strtolower(
-                ($attempt['street'] ?? '') . '|' . ($attempt['city'] ?? '') . '|' . ($attempt['state'] ?? ''),
-                'UTF-8'
+            $pushStructured(
+                (string) ($attempt['street'] ?? ''),
+                (string) ($attempt['city'] ?? ''),
+                (string) ($attempt['state'] ?? ''),
+                (string) ($attempt['postalcode'] ?? '')
             );
-            if (!isset($seen[$key])) {
-                $seen[$key] = true;
-                $out[] = $attempt;
-            }
         } else {
             $q = trim((string) ($attempt['q'] ?? ''));
             if ($q !== '') {

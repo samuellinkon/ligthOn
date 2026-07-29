@@ -382,7 +382,7 @@ include __DIR__ . '/../includes/head.php';
                 <p style="color:var(--muted);line-height:1.65;margin:0 0 12px;"><?= nl2br(htmlspecialchars((string) $os['endereco_completo'])) ?></p>
               <?php endif; ?>
               <?php if ($osUseGoogleEmbed && $osMapEmbedSrc !== ''): ?>
-                <iframe id="os-map-mini" class="os-map-mini chamado-map-embed-frame" title="Mapa da OS" src="<?= htmlspecialchars($osMapEmbedSrc, ENT_QUOTES, 'UTF-8') ?>" allowfullscreen loading="lazy"></iframe>
+                <iframe id="os-map-mini" class="os-map-mini chamado-map-embed-frame" title="Mapa da OS" src="<?= htmlspecialchars($osMapEmbedSrc, ENT_QUOTES, 'UTF-8') ?>" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade"></iframe>
               <?php elseif ($loadLeaflet): ?>
                 <div id="os-map-mini" class="os-map-mini" aria-label="Mapa"></div>
               <?php endif; ?>

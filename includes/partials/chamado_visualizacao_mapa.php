@@ -82,13 +82,13 @@ $chVizRootId = $chVizId('loc');
         </div>
       </div>
       <div class="chamado-ponto-streetview__frame-wrap">
-        <iframe id="<?= htmlspecialchars($chVizId('sv-frame'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="fullscreen" hidden></iframe>
+        <iframe id="<?= htmlspecialchars($chVizId('sv-frame'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade" hidden></iframe>
         <div id="<?= htmlspecialchars($chVizId('sv-fallback'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-sv-embed-fallback" hidden>
           <p class="chamado-sv-embed-fallback__text muted">A visualização embutida do Street View não está disponível neste navegador. Abra o panorama no Google Maps.</p>
           <a class="btn btn-primary btn-sm chamado-sv-embed-fallback__btn" href="#" target="_blank" rel="noopener noreferrer">Abrir Street View no Google Maps</a>
         </div>
         <?php if ($chVizUseGoogle): ?>
-        <iframe id="<?= htmlspecialchars($chVizId('map-embed'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-map-embed-frame chamado-ponto-streetview__frame" title="Mapa do chamado" allowfullscreen loading="lazy" hidden<?= $chVizMapEmbedSrc !== '' ? ' data-embed-src="' . htmlspecialchars($chVizMapEmbedSrc, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
+        <iframe id="<?= htmlspecialchars($chVizId('map-embed'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-map-embed-frame chamado-ponto-streetview__frame" title="Mapa do chamado" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade" hidden<?= $chVizMapEmbedSrc !== '' ? ' data-embed-src="' . htmlspecialchars($chVizMapEmbedSrc, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
         <div id="<?= htmlspecialchars($chVizId('map-fallback'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-sv-embed-fallback chamado-map-embed-fallback" hidden>
           <p class="chamado-sv-embed-fallback__text muted">O mapa embutido não carregou (verifique a chave e o referrer no Google Cloud).</p>
           <a class="btn btn-primary btn-sm chamado-sv-embed-fallback__btn" href="#" target="_blank" rel="noopener noreferrer">Abrir no Google Maps</a>

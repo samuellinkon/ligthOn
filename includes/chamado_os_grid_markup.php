@@ -416,13 +416,25 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
   var lastMapGeocodeKey = '';
   var refreshPreviewTimer = null;
   var coordsManualLock = false;
+  /** Só exibe o mapa após clique em «Atualizar mapa com endereço». */
+  var osMapRevealRequested = false;
+  var osGeocodeInFlight = false;
 
   function resetCoordsForAddressChange() {
     coordsManualLock = false;
+    osMapRevealRequested = false;
+    osGeocodeInFlight = false;
+    if (mapGeocodeTimer) {
+      clearTimeout(mapGeocodeTimer);
+      mapGeocodeTimer = null;
+    }
     clearChamadoCoordsFromPonto();
     osLastCoords.lat = null;
     osLastCoords.lng = null;
     lastMapGeocodeKey = '';
+    mapGeocodeGeneration++;
+    osHideMapPreviewFrames();
+    osSyncGeocodeAddressButton();
   }
 
   function wireAddressFieldsClearCoords() {
@@ -476,11 +488,131 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       tier,
       addrSnap,
       buildNominatimStreetLine(),
+      osFieldVal('os_logradouro'),
+      osFieldVal('os_bairro'),
       osFieldVal('os_cidade'),
       osFieldVal('os_uf'),
       osFieldVal('os_cep').replace(/\D/g, ''),
       osFieldVal('os_numero')
     ].join('\u0001');
+  }
+
+  /** Placeholder de UI (ex.: value "Bairro" / "Cidade") conta como vazio. */
+  function osFieldIsPlaceholderLabel(val, labels) {
+    var s = String(val || '').trim().toLowerCase();
+    if (s === '') return true;
+    var i;
+    for (i = 0; i < labels.length; i++) {
+      if (s === String(labels[i]).toLowerCase()) return true;
+    }
+    return false;
+  }
+
+  function osCidadeEfetiva() {
+    var c = osFieldVal('os_cidade');
+    return osFieldIsPlaceholderLabel(c, ['Cidade', 'City']) ? '' : c;
+  }
+
+  function osBairroEfetivo() {
+    var b = osFieldVal('os_bairro');
+    return osFieldIsPlaceholderLabel(b, ['Bairro', 'Neighborhood', 'Bairro…']) ? '' : b;
+  }
+
+  function osUfEfetiva() {
+    var uf = osFieldVal('os_uf').replace(/\./g, '').toUpperCase();
+    return uf.length === 2 ? uf : '';
+  }
+
+  function osCepDigits() {
+    var d = osFieldVal('os_cep').replace(/\D/g, '');
+    if (d.length !== 8) return '';
+    if (/^0+$/.test(d)) return '';
+    return d;
+  }
+
+  /**
+   * Logradouro colado como endereço completo
+   * (ex.: "R. Esperança, 240 - Porto de Galinhas, Ipojuca - PE").
+   */
+  function osLogradouroIsFreeTextAddress(log) {
+    log = String(log || '').trim();
+    if (log.length < 12) return false;
+    return /,/.test(log) || /\s[-–—]\s/.test(log);
+  }
+
+  /**
+   * 3 cenários para habilitar o botão / geocode:
+   * 1) CEP (8) + logradouro
+   * 2) Apenas endereço (logradouro+cidade+UF, ou texto livre completo no logradouro)
+   * 3) Lat/lng — tratado em resolveOsMapTier (tier 1), não precisa deste gate
+   */
+  function osAddressReadyForGeocode() {
+    return osMapGeocodeMode() !== null;
+  }
+
+  /** @returns {'cep_endereco'|'endereco'|null} */
+  function osMapGeocodeMode() {
+    var log = osFieldVal('os_logradouro');
+    if (!log) return null;
+    if (osCepDigits().length === 8) return 'cep_endereco';
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
+    if (cidade && uf) return 'endereco';
+    if (osLogradouroIsFreeTextAddress(log)) return 'endereco';
+    return null;
+  }
+
+  function osAddressCompleteForMap() {
+    return osMapGeocodeMode() !== null;
+  }
+
+  function osHideMapPreviewFrames() {
+    var svBlock = document.getElementById('os_ponto_streetview_block');
+    var iframe = document.getElementById('os_ponto_streetview_frame');
+    var mapIframe = document.getElementById('os_ponto_map_embed');
+    var mapMini = document.getElementById('os_ponto_map_mini');
+    var fallback = document.getElementById('os_ponto_sv_fallback');
+    var mapFallback = document.getElementById('os_ponto_map_fallback');
+    if (svBlock) svBlock.hidden = true;
+    if (iframe) {
+      iframe.hidden = true;
+      iframe.removeAttribute('src');
+    }
+    if (mapIframe) {
+      mapIframe.hidden = true;
+      mapIframe.removeAttribute('src');
+      mapIframe.setAttribute('data-map-needs-reload', '1');
+    }
+    if (mapMini) mapMini.hidden = true;
+    if (fallback) fallback.hidden = true;
+    if (mapFallback) mapFallback.hidden = true;
+    var mapBtn = document.getElementById('os_ponto_map_btn');
+    var svBtn = document.getElementById('os_ponto_sv_btn');
+    if (mapBtn) mapBtn.hidden = true;
+    if (svBtn) svBtn.hidden = true;
+  }
+
+  function osSyncGeocodeAddressButton() {
+    var btn = document.getElementById('os_ponto_geocode_btn');
+    if (!btn) return;
+    var mode = osMapGeocodeMode();
+    var hasCoords = getChamadoFormLatLng().lat !== null;
+    var complete = mode !== null || hasCoords;
+    btn.disabled = !complete;
+    if (hasCoords && mode === null) {
+      btn.title = 'Há latitude/longitude — use «Atualizar mapa» no preview ou altere o endereço';
+      btn.textContent = 'Atualizar mapa com endereço';
+    } else if (mode === 'cep_endereco') {
+      btn.title = 'Localizar com CEP + endereço';
+      btn.textContent = 'Atualizar mapa com endereço';
+    } else if (mode === 'endereco') {
+      btn.title = 'Localizar só com o endereço informado';
+      btn.textContent = 'Atualizar mapa com endereço';
+    } else {
+      btn.title =
+        'Informe CEP+endereço, ou endereço (com cidade/UF ou texto completo), ou latitude/longitude';
+      btn.textContent = 'Atualizar mapa com endereço';
+    }
   }
 
   function scheduleRefreshChamadoLocPreview() {
@@ -647,12 +779,15 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
   function buildChamadoEnderecoParaGeocode() {
     var log = osFieldVal('os_logradouro');
     if (!log) return '';
+    if (osLogradouroIsFreeTextAddress(log)) {
+      return buildOsFreeTextAddressQuery();
+    }
     var num = osFieldVal('os_numero');
     var comp = osFieldVal('os_complemento');
-    var bairro = osFieldVal('os_bairro');
-    var cidade = osFieldVal('os_cidade');
-    var uf = osFieldVal('os_uf').replace(/\./g, '').toUpperCase();
-    var cepRaw = osFieldVal('os_cep').replace(/\D/g, '');
+    var bairro = osBairroEfetivo();
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
+    var cepRaw = osCepDigits();
 
     var omitComp = complementoEhFaixaNumeracao(comp);
 
@@ -689,11 +824,16 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
   function buildChamadoEnderecoSemCep() {
     var log = osFieldVal('os_logradouro');
     if (!log) return '';
+    if (osLogradouroIsFreeTextAddress(log)) {
+      var q = log;
+      if (q.indexOf('Brasil') === -1 && q.indexOf('Brazil') === -1) q += ', Brasil';
+      return q;
+    }
     var num = osFieldVal('os_numero');
     var comp = osFieldVal('os_complemento');
-    var bairro = osFieldVal('os_bairro');
-    var cidade = osFieldVal('os_cidade');
-    var uf = osFieldVal('os_uf').replace(/\./g, '').toUpperCase();
+    var bairro = osBairroEfetivo();
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
     var omitComp = complementoEhFaixaNumeracao(comp);
     var headParts = [log];
     if (!isPlaceholderNumero(num)) {
@@ -783,10 +923,20 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
           lat: pc.lat,
           lng: pc.lng,
           addrGeocode: '',
-          pontoChosen: true
+          pontoChosen: true,
+          needCityUf: false,
+          mode: 'coords'
         };
       }
-      return { tier: -1, lat: null, lng: null, addrGeocode: '', pontoChosen: true };
+      return {
+        tier: -1,
+        lat: null,
+        lng: null,
+        addrGeocode: '',
+        pontoChosen: true,
+        needCityUf: false,
+        mode: null
+      };
     }
 
     var fc = getChamadoFormLatLng();
@@ -796,42 +946,106 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
         lat: fc.lat,
         lng: fc.lng,
         addrGeocode: '',
-        pontoChosen: false
+        pontoChosen: false,
+        needCityUf: false,
+        mode: 'coords'
       };
     }
 
-    if (!osFieldVal('os_logradouro')) {
-      return { tier: -1, lat: null, lng: null, addrGeocode: '', pontoChosen: false };
+    var log = osFieldVal('os_logradouro');
+    if (!log) {
+      return {
+        tier: -1,
+        lat: null,
+        lng: null,
+        addrGeocode: '',
+        pontoChosen: false,
+        needCityUf: false,
+        mode: null
+      };
     }
 
-    if (osFieldVal('os_cep').replace(/\D/g, '').length === 8) {
+    var mode = osMapGeocodeMode();
+    if (!mode) {
+      return {
+        tier: -1,
+        lat: null,
+        lng: null,
+        addrGeocode: '',
+        pontoChosen: false,
+        needCityUf: true,
+        mode: null
+      };
+    }
+
+    if (mode === 'cep_endereco') {
       return {
         tier: 2,
         lat: null,
         lng: null,
-        addrGeocode: buildChamadoEnderecoCepNumeroPrioritario() || buildChamadoEnderecoParaGeocode(),
-        pontoChosen: false
+        addrGeocode:
+          buildChamadoEnderecoCepNumeroPrioritario() ||
+          buildChamadoEnderecoParaGeocode() ||
+          buildOsFreeTextAddressQuery(),
+        pontoChosen: false,
+        needCityUf: false,
+        mode: mode
       };
     }
 
-    var addrSemCep = buildChamadoEnderecoSemCep();
+    // mode === 'endereco'
+    var addrSemCep = buildChamadoEnderecoSemCep() || buildOsFreeTextAddressQuery();
     if (addrSemCep) {
       return {
         tier: 3,
         lat: null,
         lng: null,
         addrGeocode: addrSemCep,
-        pontoChosen: false
+        pontoChosen: false,
+        needCityUf: false,
+        mode: mode
       };
     }
 
-    return { tier: -1, lat: null, lng: null, addrGeocode: '', pontoChosen: false };
+    return {
+      tier: -1,
+      lat: null,
+      lng: null,
+      addrGeocode: '',
+      pontoChosen: false,
+      needCityUf: false,
+      mode: null
+    };
+  }
+
+  /** Query quando o logradouro já traz o endereço quase completo (texto livre). */
+  function buildOsFreeTextAddressQuery() {
+    var log = osFieldVal('os_logradouro');
+    if (!log) return '';
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
+    var num = osFieldVal('os_numero');
+    var bairro = osBairroEfetivo();
+    var q = log;
+    if (!osLogradouroIsFreeTextAddress(log)) {
+      var parts = [log];
+      if (!isPlaceholderNumero(num)) parts.push(String(num).trim());
+      if (bairro) parts.push(bairro);
+      if (cidade && uf) parts.push(cidade + ' - ' + uf);
+      else if (cidade) parts.push(cidade);
+      q = parts.join(', ');
+    }
+    if (q.indexOf('Brasil') === -1 && q.indexOf('Brazil') === -1) {
+      q += ', Brasil';
+    }
+    return q;
   }
 
   /** Linha "street" para Nominatim: número + logradouro (ex.: "100 Avenida Paulista"). */
   function buildNominatimStreetLine() {
     var log = osFieldVal('os_logradouro');
     if (!log) return '';
+    if (osLogradouroIsFreeTextAddress(log)) return '';
     var num = osFieldVal('os_numero');
     if (!isPlaceholderNumero(num)) {
       return String(num).trim() + ' ' + log;
@@ -915,6 +1129,36 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
     }
   }
 
+  function setOsGeocodeHint(text) {
+    var hintGeo = document.getElementById('os_ponto_geocode_hint');
+    if (!hintGeo) return;
+    if (!text) {
+      hintGeo.hidden = true;
+      hintGeo.textContent = '';
+      return;
+    }
+    hintGeo.hidden = false;
+    hintGeo.textContent = text;
+  }
+
+  function setOsGeocodePrecisionHint(precision, source) {
+    if (precision === 'cep') {
+      setOsGeocodeHint(
+        'Posição aproximada do logradouro (CEP). O número não foi encontrado na base de mapas.'
+      );
+      return;
+    }
+    if (precision === 'street') {
+      setOsGeocodeHint('Posição aproximada da rua (número não localizado com precisão).');
+      return;
+    }
+    if (source === 'google') {
+      setOsGeocodeHint('Localização via Google Maps.');
+      return;
+    }
+    setOsGeocodeHint('');
+  }
+
   var CRM_UF_NOME = {
     AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará',
     DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso',
@@ -983,17 +1227,30 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
 
   function resolveOsGeocodeApi(streetLine, cidade, uf, cepFmt, fallbackQ) {
     var params = new URLSearchParams();
-    if (streetLine) params.set('street', streetLine);
-    if (cidade) params.set('city', cidade);
-    if (uf) params.set('state', uf);
-    if (cepFmt) params.set('postalcode', cepFmt);
-    if (fallbackQ) params.set('q', fallbackQ);
-    var bairro = osFieldVal('os_bairro');
     var log = osFieldVal('os_logradouro');
-    var num = osFieldVal('os_numero');
-    if (bairro) params.set('bairro', bairro);
-    if (log) params.set('logradouro', log);
-    if (num && !isPlaceholderNumero(num)) params.set('numero', num);
+    var freeText = osLogradouroIsFreeTextAddress(log);
+    // Texto livre no logradouro: manda só q (evita street truncado e cidade/UF errados).
+    if (freeText) {
+      var qFree = fallbackQ || buildOsFreeTextAddressQuery();
+      if (qFree) params.set('q', qFree);
+      if (cepFmt) params.set('postalcode', cepFmt);
+      if (log) params.set('logradouro', log);
+      var numFree = osFieldVal('os_numero');
+      if (numFree && !isPlaceholderNumero(numFree)) params.set('numero', numFree);
+    } else {
+      if (streetLine) params.set('street', streetLine);
+      cidade = cidade || osCidadeEfetiva();
+      uf = uf || osUfEfetiva();
+      if (cidade) params.set('city', cidade);
+      if (uf) params.set('state', uf);
+      if (cepFmt) params.set('postalcode', cepFmt);
+      if (fallbackQ) params.set('q', fallbackQ);
+      var bairro = osBairroEfetivo();
+      var num = osFieldVal('os_numero');
+      if (bairro) params.set('bairro', bairro);
+      if (log) params.set('logradouro', log);
+      if (num && !isPlaceholderNumero(num)) params.set('numero', num);
+    }
     return fetch(getGeocodeApiUrl() + '?' + params.toString(), {
       method: 'GET',
       credentials: 'same-origin',
@@ -1008,6 +1265,229 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       .catch(function () {
         return { ok: false, err: 'network' };
       });
+  }
+
+  /** Monta endereço completo para Google Geocoding (browser). */
+  function buildGoogleGeocodeAddress() {
+    var log = osFieldVal('os_logradouro');
+    if (!log) return '';
+    if (osLogradouroIsFreeTextAddress(log)) {
+      return buildOsFreeTextAddressQuery();
+    }
+    var num = osFieldVal('os_numero');
+    var bairro = osBairroEfetivo();
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
+    var cepRaw = osCepDigits();
+    var parts = [log];
+    if (!isPlaceholderNumero(num)) {
+      parts[0] = log + ', ' + String(num).trim();
+    }
+    if (bairro) parts.push(bairro);
+    if (cidade && uf) {
+      parts.push(cidade + ' - ' + uf);
+    } else if (cidade) {
+      parts.push(cidade);
+    }
+    if (cepRaw.length === 8) {
+      parts.push(cepRaw.replace(/^(\d{5})(\d{3})$/, '$1-$2'));
+    }
+    parts.push('Brasil');
+    return parts.join(', ');
+  }
+
+  function googleGeocodeResultMatchesContext(result, cidade, uf, bairro) {
+    if (!result) return false;
+    cidade = String(cidade || '').trim();
+    uf = String(uf || '').replace(/\./g, '').toUpperCase();
+    bairro = String(bairro || '').trim();
+    var formatted = String(result.formatted_address || '');
+    var comps = Array.isArray(result.address_components) ? result.address_components : [];
+    var stateName = '';
+    var cityName = '';
+    var suburb = '';
+    var i;
+    for (i = 0; i < comps.length; i++) {
+      var c = comps[i];
+      if (!c || !Array.isArray(c.types)) continue;
+      var longName = String(c.long_name || '');
+      var shortName = String(c.short_name || '');
+      if (c.types.indexOf('administrative_area_level_1') >= 0) {
+        stateName = longName || shortName;
+      }
+      if (
+        c.types.indexOf('locality') >= 0 ||
+        c.types.indexOf('administrative_area_level_2') >= 0
+      ) {
+        cityName = longName;
+      }
+      if (
+        c.types.indexOf('sublocality') >= 0 ||
+        c.types.indexOf('sublocality_level_1') >= 0 ||
+        c.types.indexOf('neighborhood') >= 0
+      ) {
+        suburb = longName;
+      }
+    }
+    if (uf) {
+      var ufNome = osUfNome(uf);
+      var okUf =
+        osTextoContem(stateName, ufNome) ||
+        osTextoContem(stateName, uf) ||
+        osTextoContem(formatted, ufNome) ||
+        osTextoContem(formatted, uf);
+      if (!okUf) return false;
+    }
+    if (cidade) {
+      var okCity =
+        (cityName && osTextoContem(cityName, cidade)) ||
+        osTextoContem(formatted, cidade);
+      if (!okCity) return false;
+    }
+    if (bairro && suburb && !osTextoContem(suburb, bairro) && !osTextoContem(formatted, bairro)) {
+      // Bairro divergente: ainda aceita se cidade/UF ok (Google às vezes omite bairro).
+    }
+    return true;
+  }
+
+  function googleLocTypePrecision(locType) {
+    locType = String(locType || '').toUpperCase();
+    if (locType === 'ROOFTOP') return 'housenumber';
+    if (locType === 'RANGE_INTERPOLATED') return 'housenumber';
+    if (locType === 'GEOMETRIC_CENTER') return 'street';
+    if (locType === 'APPROXIMATE') return 'street';
+    return 'street';
+  }
+
+  /**
+   * Geocode via Google Maps JavaScript API (Geocoder) no browser.
+   * A Geocoding REST no servidor falha com chave restrita por referer; o JS API aceita.
+   * @returns {Promise<{ok:boolean,source?:string,precision?:string,hit?:object,err?:string}>}
+   */
+  function loadOsGoogleMapsJsApi() {
+    if (root.google && root.google.maps && root.google.maps.Geocoder) {
+      return Promise.resolve(root.google.maps);
+    }
+    var apiKey = osGetGoogleMapsApiKey();
+    if (!apiKey) {
+      return Promise.reject(new Error('no_api_key'));
+    }
+    if (root.__crmOsGmapsJsPromise) {
+      return root.__crmOsGmapsJsPromise;
+    }
+    root.__crmOsGmapsJsPromise = new Promise(function (resolve, reject) {
+      var cbName = 'crmOsGeocodeMapsReady';
+      var prev = root[cbName];
+      root[cbName] = function () {
+        if (typeof prev === 'function') {
+          try {
+            prev();
+          } catch (e) {}
+        }
+        if (root.google && root.google.maps) {
+          resolve(root.google.maps);
+        } else {
+          reject(new Error('maps_unavailable'));
+        }
+      };
+      var existing = document.querySelector('script[data-crm-os-gmaps="1"]');
+      if (existing) {
+        var waited = 0;
+        var t = root.setInterval(function () {
+          waited += 50;
+          if (root.google && root.google.maps && root.google.maps.Geocoder) {
+            root.clearInterval(t);
+            resolve(root.google.maps);
+          } else if (waited >= 20000) {
+            root.clearInterval(t);
+            reject(new Error('maps_timeout'));
+          }
+        }, 50);
+        return;
+      }
+      var s = document.createElement('script');
+      s.async = true;
+      s.defer = true;
+      s.setAttribute('data-crm-os-gmaps', '1');
+      s.src =
+        'https://maps.googleapis.com/maps/api/js?key=' +
+        encodeURIComponent(apiKey) +
+        '&language=pt-BR&callback=' +
+        encodeURIComponent(cbName);
+      s.onerror = function () {
+        reject(new Error('maps_script_error'));
+      };
+      document.head.appendChild(s);
+    });
+    return root.__crmOsGmapsJsPromise;
+  }
+
+  function resolveOsGoogleGeocodeBrowser() {
+    var address = buildGoogleGeocodeAddress();
+    if (!osGetGoogleMapsApiKey() || !address || !osAddressReadyForGeocode()) {
+      return Promise.resolve({ ok: false, err: 'skip' });
+    }
+    var freeText = osLogradouroIsFreeTextAddress(osFieldVal('os_logradouro'));
+    var cidade = freeText ? '' : osCidadeEfetiva();
+    var uf = freeText ? '' : osUfEfetiva();
+    var bairro = freeText ? '' : osBairroEfetivo();
+
+    return loadOsGoogleMapsJsApi()
+      .then(function (maps) {
+        return new Promise(function (resolve) {
+          var geocoder = new maps.Geocoder();
+          geocoder.geocode(
+            {
+              address: address,
+              componentRestrictions: { country: 'BR' },
+              language: 'pt-BR',
+              region: 'br'
+            },
+            function (results, status) {
+              if (String(status).toUpperCase() !== 'OK' || !results || !results.length) {
+                resolve({ ok: false, err: String(status || 'zero_results').toLowerCase() });
+                return;
+              }
+              var i;
+              for (i = 0; i < results.length; i++) {
+                var result = results[i];
+                if (!googleGeocodeResultMatchesContext(result, cidade, uf, bairro)) continue;
+                var loc = result.geometry && result.geometry.location;
+                if (!loc) continue;
+                var lat = typeof loc.lat === 'function' ? loc.lat() : parseFloat(loc.lat);
+                var lon = typeof loc.lng === 'function' ? loc.lng() : parseFloat(loc.lng);
+                if (!isFinite(lat) || !isFinite(lon)) continue;
+                var locType = result.geometry.location_type || '';
+                resolve({
+                  ok: true,
+                  source: 'google',
+                  precision: googleLocTypePrecision(locType),
+                  hit: {
+                    lat: lat,
+                    lon: lon,
+                    display_name: String(result.formatted_address || address)
+                  }
+                });
+                return;
+              }
+              resolve({ ok: false, err: 'context_mismatch' });
+            }
+          );
+        });
+      })
+      .catch(function () {
+        return { ok: false, err: 'maps_unavailable' };
+      });
+  }
+
+  /** Google no browser primeiro; fallback servidor (Nominatim / AwesomeAPI CEP). */
+  function resolveOsGeocodeWithFallback(streetLine, cidade, uf, cepFmt, fallbackQ) {
+    return resolveOsGoogleGeocodeBrowser().then(function (gRes) {
+      if (gRes && gRes.ok && gRes.hit) {
+        return gRes;
+      }
+      return resolveOsGeocodeApi(streetLine, cidade, uf, cepFmt, fallbackQ);
+    });
   }
 
   function geocodeHitScore(hit) {
@@ -1520,7 +2000,7 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       hintGeo.hidden = false;
       hintGeo.textContent = 'A localizar endereço no mapa…';
     }
-    resolveOsGeocodeApi(buildNominatimStreetLine(), cidade, uf, cepFmt, addrQuery).then(function (res) {
+    resolveOsGeocodeWithFallback(buildNominatimStreetLine(), cidade, uf, cepFmt, addrQuery).then(function (res) {
       if (res && res.err === 'rate_limited') {
         if (hintGeo) {
           hintGeo.hidden = false;
@@ -1536,8 +2016,7 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
         setChamadoFormCoords(la, lo);
         osLastCoords.lat = la;
         osLastCoords.lng = lo;
-        if (hintGeo) hintGeo.hidden = true;
-        setOsGeocodeFallbackHint(false);
+        setOsGeocodePrecisionHint(res.precision || '', res.source || '');
         resolveOsStreetViewAvailable(la, lo).then(function (available) {
           if (available) {
             showOsStreetView(la, lo);
@@ -1554,99 +2033,132 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
     });
   }
 
-  function runMapGeocode(tier, addrSnap, iframe, svBlock, mapMini) {
+  function runMapGeocode(tier, addrSnap, iframe, svBlock, mapMini, opts) {
     if (!addrSnap) return;
+    opts = opts || {};
+    var force = !!opts.force;
+    var immediate = opts.immediate !== false; // botão: imediato (evita 2º clique)
 
     var geocodeKey = buildMapGeocodeKey(tier, addrSnap);
-    if (geocodeKey === lastMapGeocodeKey) return;
+    if (!force && geocodeKey === lastMapGeocodeKey) return;
     lastMapGeocodeKey = geocodeKey;
+
+    if (mapGeocodeTimer) {
+      clearTimeout(mapGeocodeTimer);
+      mapGeocodeTimer = null;
+    }
 
     mapGeocodeGeneration++;
     var gen = mapGeocodeGeneration;
+    osGeocodeInFlight = true;
     var streetLine = buildNominatimStreetLine();
-    var cidade = osFieldVal('os_cidade');
-    var bairro = osFieldVal('os_bairro');
-    var uf = osFieldVal('os_uf').replace(/\./g, '').toUpperCase();
-    var cepRaw = osFieldVal('os_cep').replace(/\D/g, '');
+    var cidade = osCidadeEfetiva();
+    var uf = osUfEfetiva();
+    var cepRaw = osCepDigits();
     var cepFmt = cepRaw.length === 8 ? cepRaw.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
     var addrFull = tier === 2 ? buildChamadoEnderecoParaGeocode() : addrSnap;
     var addrCepNumero = tier === 2 ? buildChamadoEnderecoCepNumeroPrioritario() : '';
-    var addrCepCtx =
-      cepFmt && cidade && uf ? cepFmt + ', ' + cidade + ' - ' + uf + ', Brasil' : '';
 
     var addrPending = addrSnap || addrFull;
 
-    if (iframe && svBlock) {
-      var hintGeoPending = document.getElementById('os_ponto_geocode_hint');
-      if (addrPending && hintGeoPending) {
-        hintGeoPending.hidden = false;
-        hintGeoPending.textContent = 'A localizar endereço no mapa…';
-      }
+    if (svBlock) {
+      setOsGeocodeHint('A localizar endereço no mapa…');
       osPreviewView = 'map';
       if (mapMini) mapMini.hidden = true;
       if (iframe) {
         iframe.hidden = true;
         iframe.removeAttribute('src');
       }
-      svBlock.hidden = false;
-      var frameWrapGeocode = osStreetViewFrameWrap();
-      if (frameWrapGeocode) frameWrapGeocode.hidden = false;
+      // Mantém o frame oculto até ter coordenadas (só hint de loading).
+      svBlock.hidden = true;
     }
 
-    function applyNominatimHit(hit) {
+    function applyNominatimHit(hit, meta) {
       if (gen !== mapGeocodeGeneration || !hit) return;
+      osGeocodeInFlight = false;
       var la = parseFloat(hit.lat);
-      var lo = parseFloat(hit.lon);
+      var lo = parseFloat(hit.lon != null ? hit.lon : hit.lng);
       if (!isFinite(la) || !isFinite(lo)) return;
+      osMapRevealRequested = true;
       setChamadoFormCoords(la, lo);
       osLastCoords.lat = la;
       osLastCoords.lng = lo;
-      var hintGeo = document.getElementById('os_ponto_geocode_hint');
       var mapBtnHit = document.getElementById('os_ponto_map_btn');
       var svBtnHit = document.getElementById('os_ponto_sv_btn');
       if (mapBtnHit) mapBtnHit.hidden = false;
       if (svBtnHit) svBtnHit.hidden = false;
-      if (hintGeo) hintGeo.hidden = true;
-      setOsGeocodeFallbackHint(false);
+      if (svBlock) svBlock.hidden = false;
+      meta = meta || {};
+      setOsGeocodePrecisionHint(meta.precision || '', meta.source || '');
       osApplyCoordsPreview(la, lo);
     }
 
     function applyGeocodeFallback() {
       if (gen !== mapGeocodeGeneration) return;
-      var hintGeoFail = document.getElementById('os_ponto_geocode_hint');
-      if (hintGeoFail) {
-        hintGeoFail.hidden = false;
-        hintGeoFail.textContent = 'Endereço não localizado no mapa. Confira CEP, número e cidade.';
-      }
+      osGeocodeInFlight = false;
+      setOsGeocodeHint('Endereço não localizado no mapa. Confira CEP, número e cidade.');
       setOsGeocodeFallbackHint(false);
+      if (svBlock) svBlock.hidden = true;
+      var mapBtnFail = document.getElementById('os_ponto_map_btn');
+      var svBtnFail = document.getElementById('os_ponto_sv_btn');
+      if (mapBtnFail) mapBtnFail.hidden = true;
+      if (svBtnFail) svBtnFail.hidden = true;
     }
 
-    mapGeocodeTimer = window.setTimeout(function () {
-      mapGeocodeTimer = null;
+    function doFetch() {
+      if (gen !== mapGeocodeGeneration) return;
+      if (!osAddressCompleteForMap()) {
+        osGeocodeInFlight = false;
+        setOsGeocodeHint(
+          'Informe CEP+endereço, ou endereço (cidade/UF ou texto completo no campo Endereço).'
+        );
+        if (svBlock) svBlock.hidden = true;
+        return;
+      }
+      var freeText = osLogradouroIsFreeTextAddress(osFieldVal('os_logradouro'));
+      var streetLineUse = freeText ? '' : streetLine;
+      var cidadeUse = freeText ? '' : cidade;
+      var ufUse = freeText ? '' : uf;
       var fallbackQ = '';
-      if (addrCepNumero && addrCepNumero !== streetLine) {
+      if (freeText) {
+        fallbackQ = addrSnap || buildOsFreeTextAddressQuery();
+      } else if (addrCepNumero && addrCepNumero !== streetLine) {
         fallbackQ = addrCepNumero;
       } else if (!streetLine && (addrSnap || addrFull)) {
         fallbackQ = addrSnap || addrFull;
+      } else if (addrFull) {
+        fallbackQ = addrFull;
+      } else if (addrPending) {
+        fallbackQ = addrPending;
       }
-      resolveOsGeocodeApi(streetLine, cidade, uf, cepFmt, fallbackQ).then(function (res) {
+      resolveOsGeocodeWithFallback(streetLineUse, cidadeUse, ufUse, cepFmt, fallbackQ).then(function (res) {
         if (gen !== mapGeocodeGeneration) return;
         if (res && res.err === 'rate_limited') {
-          var hintRate = document.getElementById('os_ponto_geocode_hint');
-          if (hintRate) {
-            hintRate.hidden = false;
-            hintRate.textContent =
-              'Limite temporário do serviço de mapas. Aguarde ~1 minuto e altere um campo do endereço.';
-          }
+          osGeocodeInFlight = false;
+          setOsGeocodeHint(
+            'Limite temporário do serviço de mapas. Aguarde ~1 minuto e altere um campo do endereço.'
+          );
           return;
         }
         if (res && res.ok && res.hit) {
-          applyNominatimHit({ lat: res.hit.lat, lon: res.hit.lon });
+          applyNominatimHit(
+            { lat: res.hit.lat, lon: res.hit.lon },
+            { precision: res.precision || '', source: res.source || '' }
+          );
           return;
         }
         applyGeocodeFallback();
       });
-    }, 700);
+    }
+
+    if (immediate) {
+      doFetch();
+    } else {
+      mapGeocodeTimer = window.setTimeout(function () {
+        mapGeocodeTimer = null;
+        doFetch();
+      }, 900);
+    }
   }
 
   function refreshChamadoLocPreview() {
@@ -1658,13 +2170,14 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
     var hintNoCoord = document.getElementById('os_ponto_sem_coord');
     if (!wrap || !iframe || !svBlock) return;
 
-    if (mapGeocodeTimer) {
-      clearTimeout(mapGeocodeTimer);
-      mapGeocodeTimer = null;
-    }
+    // Não cancela geocode em andamento (era a causa do «clicar duas vezes»).
     if (refreshPreviewTimer) {
       clearTimeout(refreshPreviewTimer);
       refreshPreviewTimer = null;
+    }
+    if (osGeocodeInFlight) {
+      osSyncGeocodeAddressButton();
+      return;
     }
 
     var sel = getPontoSelect();
@@ -1680,6 +2193,7 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
     var hasEnd = end !== '';
     var hasSv = lat !== null && lng !== null;
     var hasMapaEndereco = (tier === 2 || tier === 3) && addrGeocode !== '';
+    var needCityUf = !!resolved.needCityUf;
 
     if (endText && endBlock) {
       if (pontoChosen && hasEnd) {
@@ -1691,96 +2205,71 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       }
     }
 
+    var showChrome = hasSv || hasMapaEndereco || (pontoChosen && tier === 0) || needCityUf;
+    wrap.hidden = !showChrome;
+
     if (hintNoCoord) {
-      hintNoCoord.hidden = hasSv || hasMapaEndereco || (pontoChosen && tier === 0);
+      hintNoCoord.hidden = !(!osMapRevealRequested && (hasMapaEndereco || hasSv));
     }
 
-    var mapBtn = document.getElementById('os_ponto_map_btn');
-    var svBtn = document.getElementById('os_ponto_sv_btn');
-    var mapMini = document.getElementById('os_ponto_map_mini');
-    var canLocate = tier !== -1;
-    if (mapBtn) mapBtn.hidden = !canLocate;
-    if (svBtn) svBtn.hidden = !canLocate;
-
-    var showPreview = canLocate || (pontoChosen && tier === 0);
-    wrap.hidden = !showPreview;
-    if (svBlock) {
-      if (showPreview && (hasSv || hasMapaEndereco)) {
-        svBlock.hidden = false;
-      } else if (!showPreview) {
-        svBlock.hidden = true;
+    // Mapa SEMPRE oculto até o clique no botão.
+    if (!osMapRevealRequested) {
+      osHideMapPreviewFrames();
+      if (needCityUf && osFieldVal('os_logradouro')) {
+        setOsGeocodeHint(
+          'Informe CEP+endereço, ou endereço com cidade/UF (ou cole o endereço completo), depois clique no botão.'
+        );
+      } else if (hasMapaEndereco || hasSv) {
+        setOsGeocodeHint('Clique em «Atualizar mapa com endereço» para exibir o mapa.');
       }
+      osSyncGeocodeAddressButton();
+      osSyncMapRefreshButton();
+      return;
     }
 
+    // Após o clique: só mostra se já tiver coordenadas.
     if (hasSv) {
       var prevLat = osLastCoords.lat;
       var prevLng = osLastCoords.lng;
       var coordsUnchanged = prevLat === lat && prevLng === lng;
       osLastCoords.lat = lat;
       osLastCoords.lng = lng;
-      mapGeocodeGeneration++;
-      osStreetViewCheckGen++;
-      if (showPreview) {
-        var mapIframeRefresh = document.getElementById('os_ponto_map_embed');
-        var skipMapUnchanged =
-          (osPreviewUserChoice === 'map' || (osPreviewUserChoice === null && osGetPreviewDefaultView() === 'map')) &&
-          osPreviewView === 'map' &&
-          coordsUnchanged &&
-          osUseGoogleMapsEmbed() &&
-          !osMapEmbedNeedsReload(mapIframeRefresh, lat, lng);
-        if (
-          osPreviewUserChoice === 'street' &&
-          osPreviewView === 'street' &&
-          coordsUnchanged
-        ) {
-          osLocPreviewDbg('refresh skip: SV ativo, coords iguais', {
-            tier: tier,
-            lat: lat,
-            lng: lng
-          });
-          setOsViewButtons('street');
-        } else if (skipMapUnchanged) {
-          osLocPreviewDbg('refresh skip: mapa ativo, coords iguais', {
-            tier: tier,
-            lat: lat,
-            lng: lng
-          });
-          setOsViewButtons('map');
-        } else {
-          osLocPreviewDbg('refresh re-apply preview', {
-            tier: tier,
-            hasSv: hasSv,
-            userChoice: osPreviewUserChoice,
-            previewView: osPreviewView,
-            coordsUnchanged: coordsUnchanged
-          });
-          if (osPreviewUserChoice === 'street' && coordsUnchanged === false) {
-            osResetStreetViewEmbedForReload();
-          } else if (osPreviewUserChoice === 'street' && osPreviewView !== 'street') {
-            osResetStreetViewEmbedForReload();
-          }
-          osApplyCoordsPreview(lat, lng);
+      svBlock.hidden = false;
+      var mapBtn = document.getElementById('os_ponto_map_btn');
+      var svBtn = document.getElementById('os_ponto_sv_btn');
+      if (mapBtn) mapBtn.hidden = false;
+      if (svBtn) svBtn.hidden = false;
+      var mapIframeRefresh = document.getElementById('os_ponto_map_embed');
+      var skipMapUnchanged =
+        (osPreviewUserChoice === 'map' || (osPreviewUserChoice === null && osGetPreviewDefaultView() === 'map')) &&
+        osPreviewView === 'map' &&
+        coordsUnchanged &&
+        osUseGoogleMapsEmbed() &&
+        !osMapEmbedNeedsReload(mapIframeRefresh, lat, lng);
+      if (
+        osPreviewUserChoice === 'street' &&
+        osPreviewView === 'street' &&
+        coordsUnchanged
+      ) {
+        setOsViewButtons('street');
+      } else if (skipMapUnchanged) {
+        setOsViewButtons('map');
+      } else {
+        if (osPreviewUserChoice === 'street' && coordsUnchanged === false) {
+          osResetStreetViewEmbedForReload();
+        } else if (osPreviewUserChoice === 'street' && osPreviewView !== 'street') {
+          osResetStreetViewEmbedForReload();
         }
+        osApplyCoordsPreview(lat, lng);
       }
-    } else if (hasMapaEndereco) {
-      osPreviewView = 'map';
-      if (showPreview) {
-        runMapGeocode(tier, addrGeocode, iframe, svBlock, mapMini);
+      if (osPreviewView === 'map') {
+        osInvalidateLeafletMap();
       }
     } else {
-      mapGeocodeGeneration++;
-      osPreviewView = 'map';
-      if (iframe) iframe.removeAttribute('src');
-      if (svBlock) svBlock.hidden = true;
-      if (mapMini) mapMini.hidden = true;
+      osHideMapPreviewFrames();
     }
 
-    if (showPreview && hasSv && osPreviewView === 'map') {
-      osInvalidateLeafletMap();
-    }
-    if (mapMini && !showPreview) {
-      mapMini.hidden = true;
-    }
+    osSyncGeocodeAddressButton();
     osSyncMapRefreshButton();
   }
 
@@ -1980,7 +2469,7 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
             osFieldVal('os_cep').replace(/\D/g, '').length === 8
               ? osFieldVal('os_cep').replace(/\D/g, '').replace(/^(\d{5})(\d{3})$/, '$1-$2')
               : '';
-          resolveOsGeocodeApi(
+          resolveOsGeocodeWithFallback(
             buildNominatimStreetLine(),
             osFieldVal('os_cidade'),
             osFieldVal('os_uf').replace(/\./g, '').toUpperCase(),
@@ -2008,8 +2497,7 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
             setChamadoFormCoords(la, lo);
             osLastCoords.lat = la;
             osLastCoords.lng = lo;
-            setOsGeocodeFallbackHint(false);
-            if (hintGeoBtn) hintGeoBtn.hidden = true;
+            setOsGeocodePrecisionHint(res.precision || '', res.source || '');
             showOsLeafletMap(la, lo);
           });
         }
@@ -2041,24 +2529,18 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       });
     }
     wirePontoSelectFill(getPontoSelect());
-    var coordsBootMap = getChamadoLatLng();
-    if (coordsBootMap.lat !== null && coordsBootMap.lng !== null) {
-      osPreviewView = 'map';
-      var wrapBoot = document.getElementById('os_ponto_preview');
-      if (wrapBoot) wrapBoot.hidden = false;
-      var svBlockBoot = document.getElementById('os_ponto_streetview_block');
-      if (svBlockBoot) svBlockBoot.hidden = false;
-    }
+    // Nunca exibe o mapa no boot — só após o botão.
+    osMapRevealRequested = false;
+    osHideMapPreviewFrames();
     if (root.CrmChamadoLocDual) {
       root.CrmChamadoLocDual.wireLocationFieldObserver({
         debounceMs: 400,
-        onBeforeTrigger: function () {
-          lastMapGeocodeKey = '';
-        },
+        onBeforeTrigger: function () {},
         shouldTrigger: function () {
-          return resolveOsMapTier().tier !== -1;
+          return true;
         },
         onTrigger: function () {
+          osSyncGeocodeAddressButton();
           scheduleRefreshChamadoLocPreview();
         }
       });
@@ -2069,27 +2551,108 @@ $ch_os_dual_js = dirname(__DIR__) . '/assets/js/chamado-loc-dual-core.js';
       el.addEventListener('input', function () {
         coordsManualLock = true;
         osPreviewUserChoice = null;
+        // Não revela o mapa sozinho — espera o botão.
         clearTimeout(reverseGeocodeTimer);
         reverseGeocodeTimer = root.setTimeout(reverseGeocodeFromLatLng, 1500);
+        osSyncGeocodeAddressButton();
       });
     });
     wireAddressFieldsClearCoords();
     var mapRefreshBtn = document.getElementById('os_ponto_map_refresh_btn');
     if (mapRefreshBtn) {
       mapRefreshBtn.addEventListener('click', function () {
+        if (!osMapRevealRequested) return;
         osForceRefreshMapEmbed();
       });
     }
+    var geocodeAddrBtn = document.getElementById('os_ponto_geocode_btn');
+    if (geocodeAddrBtn) {
+      geocodeAddrBtn.addEventListener('click', function () {
+        if (osGeocodeInFlight) return;
+
+        var coords = getChamadoFormLatLng();
+        if (coords.lat !== null && coords.lng !== null && !osAddressCompleteForMap()) {
+          osMapRevealRequested = true;
+          var wrapCoords = document.getElementById('os_ponto_preview');
+          if (wrapCoords) wrapCoords.hidden = false;
+          var svShow = document.getElementById('os_ponto_streetview_block');
+          if (svShow) svShow.hidden = false;
+          var mapBtnShow = document.getElementById('os_ponto_map_btn');
+          var svBtnShow = document.getElementById('os_ponto_sv_btn');
+          if (mapBtnShow) mapBtnShow.hidden = false;
+          if (svBtnShow) svBtnShow.hidden = false;
+          showOsLeafletMap(coords.lat, coords.lng);
+          setOsGeocodeHint('');
+          return;
+        }
+
+        // Com endereço: se já tem coords do mesmo endereço, só revela; senão geocodifica.
+        if (coords.lat !== null && coords.lng !== null && osAddressCompleteForMap()) {
+          osMapRevealRequested = true;
+          var wrapExist = document.getElementById('os_ponto_preview');
+          if (wrapExist) wrapExist.hidden = false;
+          var svExist = document.getElementById('os_ponto_streetview_block');
+          if (svExist) svExist.hidden = false;
+          var mapBtnE = document.getElementById('os_ponto_map_btn');
+          var svBtnE = document.getElementById('os_ponto_sv_btn');
+          if (mapBtnE) mapBtnE.hidden = false;
+          if (svBtnE) svBtnE.hidden = false;
+          showOsLeafletMap(coords.lat, coords.lng);
+          setOsGeocodeHint('');
+          return;
+        }
+
+        if (!osAddressCompleteForMap()) {
+          setOsGeocodeHint(
+            'Informe CEP+endereço, ou endereço (com cidade/UF ou texto completo), ou latitude/longitude.'
+          );
+          osSyncGeocodeAddressButton();
+          return;
+        }
+
+        osMapRevealRequested = true;
+        coordsManualLock = false;
+        clearChamadoCoordsFromPonto();
+        osLastCoords.lat = null;
+        osLastCoords.lng = null;
+        lastMapGeocodeKey = '';
+        setOsGeocodeHint('A localizar endereço no mapa…');
+
+        var resolved = resolveOsMapTier();
+        var iframe = document.getElementById('os_ponto_streetview_frame');
+        var svBlock = document.getElementById('os_ponto_streetview_block');
+        var mapMini = document.getElementById('os_ponto_map_mini');
+        var addr =
+          resolved.addrGeocode ||
+          resolveOsAddressQuery() ||
+          buildChamadoEnderecoParaGeocode() ||
+          buildChamadoEnderecoSemCep() ||
+          buildOsFreeTextAddressQuery();
+        if (!addr) {
+          setOsGeocodeHint('Endereço insuficiente para localizar no mapa.');
+          return;
+        }
+        var wrap = document.getElementById('os_ponto_preview');
+        if (wrap) wrap.hidden = false;
+        var tierRun =
+          resolved.tier === 2 || resolved.tier === 3
+            ? resolved.tier
+            : osCepDigits().length === 8
+              ? 2
+              : 3;
+        runMapGeocode(tierRun, addr, iframe, svBlock, mapMini, { force: true, immediate: true });
+      });
+    }
+    osSyncGeocodeAddressButton();
     osSyncMapRefreshButton();
     refreshChamadoLocPreview();
     window.setTimeout(function () {
-      refreshChamadoLocPreview();
+      if (!osGeocodeInFlight) {
+        refreshChamadoLocPreview();
+      }
+      osSyncGeocodeAddressButton();
       osSyncMapRefreshButton();
     }, 120);
-    root.setTimeout(function () {
-      osBootMapEmbedOnce();
-      osSyncMapRefreshButton();
-    }, 350);
   }
 
   if (document.readyState === 'loading') {

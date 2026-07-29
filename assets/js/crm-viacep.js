@@ -1,6 +1,9 @@
 /**
  * Preenche logradouro, bairro, cidade e UF a partir do CEP (ViaCEP).
  * Espera #os_cep e campos opcionais #os_logradouro, #os_bairro, #os_cidade, #os_uf, #os_complemento.
+ *
+ * CEPs genéricos (ex.: 55590-000 em Porto de Galinhas) podem não existir no ViaCEP
+ * ou voltar sem logradouro — não exibimos alerta; o usuário preenche o endereço manualmente.
  */
 (function () {
   var cepEl = document.getElementById('os_cep');
@@ -15,6 +18,8 @@
   var debounceTimer = null;
   var fetchAbort = null;
   var reqSeq = 0;
+  /** Evita consultar de novo o mesmo CEP que já falhou nesta sessão. */
+  var failedCepCache = {};
 
   function digitsOnly(s) {
     if (typeof window.crmMaskCepDigits === 'function') {
@@ -56,6 +61,8 @@
 
   function runLookup(digits) {
     if (digits.length !== 8) return;
+    if (/^0+$/.test(digits)) return;
+    if (failedCepCache[digits]) return;
 
     var token = ++reqSeq;
     if (fetchAbort) fetchAbort.abort();
@@ -76,19 +83,17 @@
       .then(function (data) {
         if (token !== reqSeq) return;
         if (data.erro) {
-          if (typeof window.appAlert === 'function') {
-            window.appAlert('CEP não encontrado. Confira os números.', 'CEP');
-          }
+          // CEP genérico / inexistente no ViaCEP: silencioso (não spammar alert).
+          failedCepCache[digits] = true;
           return;
         }
+        delete failedCepCache[digits];
         applyViaCep(data);
       })
       .catch(function (err) {
         if (err && err.name === 'AbortError') return;
         if (token !== reqSeq) return;
-        if (typeof window.appAlert === 'function') {
-          window.appAlert('Não foi possível consultar o CEP. Verifique a conexão e tente de novo.', 'CEP');
-        }
+        // Falha de rede: silencioso — o endereço pode ser preenchido à mão.
       })
       .finally(function () {
         clearLoading(token);

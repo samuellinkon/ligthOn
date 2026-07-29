@@ -204,6 +204,24 @@ function google_geocode_resolve_os(
     if ($fallbackQ !== '') {
         $queries[] = $fallbackQ;
     }
+    foreach (chamado_geo_logradouro_variants($logradouro) as $logVar) {
+        $parts = [$logVar];
+        if (chamado_geo_numero_valido($numero)) {
+            $parts[] = $numero;
+        }
+        if ($bairro !== '') {
+            $parts[] = $bairro;
+        }
+        if ($city !== '' && $uf !== '') {
+            $parts[] = $city . ' - ' . $uf;
+        } elseif ($city !== '') {
+            $parts[] = $city;
+        }
+        if ($postalcode !== '') {
+            $parts[] = $postalcode;
+        }
+        $queries[] = implode(', ', $parts) . ', Brasil';
+    }
     if ($street !== '' && $street !== $full) {
         $queries[] = $street . ($city !== '' && $uf !== '' ? ', ' . $city . ' - ' . $uf : '') . ', Brasil';
     }

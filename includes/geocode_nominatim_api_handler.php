@@ -128,12 +128,18 @@ if ($resolved['rate_limited']) {
 
 $source = 'nominatim';
 $hit = $resolved['hit'];
+$precision = $resolved['precision'] ?? null;
+if (is_array($hit) && ($hit['_source'] ?? '') === 'awesomeapi_cep') {
+    $source = 'awesomeapi_cep';
+    $precision = 'cep';
+}
 if ($hit === null) {
     require_once __DIR__ . '/google_geocode_client.php';
     $googleHit = google_geocode_resolve_os($street, $city, $uf, $postal, $q, $bairro, $logradouro, $numero);
     if ($googleHit !== null) {
         $hit = $googleHit;
         $source = 'google';
+        $precision = 'housenumber';
     }
 }
 
@@ -142,9 +148,14 @@ if ($hit === null) {
     exit;
 }
 
+if ($precision === null || $precision === '') {
+    $precision = chamado_geocode_hit_precision($hit, $numero);
+}
+
 echo json_encode([
     'ok' => true,
     'source' => $source,
+    'precision' => $precision,
     'hit' => [
         'lat' => (float) ($hit['lat'] ?? 0),
         'lon' => (float) ($hit['lon'] ?? 0),

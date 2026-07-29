@@ -62,12 +62,12 @@ $chLocMapEmbedId = trim((string) ($chLoc['map_embed_id'] ?? ($chLoc['map_id'] . 
   <?php if ($chLocUseGoogleEmbed): ?>
   <div id="<?= htmlspecialchars((string) $chLoc['sv_wrap_id'], ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars((string) $chLoc['sv_wrap_class'], ENT_QUOTES, 'UTF-8') ?>" hidden>
     <div class="chamado-ponto-streetview__frame-wrap">
-      <iframe id="<?= htmlspecialchars($chLocMapEmbedId, ENT_QUOTES, 'UTF-8') ?>" class="chamado-map-embed-frame chamado-ponto-streetview__frame" title="Mapa do chamado" allowfullscreen loading="lazy" hidden<?= $chLocMapEmbedSrc !== '' ? ' data-embed-src="' . htmlspecialchars($chLocMapEmbedSrc, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
+      <iframe id="<?= htmlspecialchars($chLocMapEmbedId, ENT_QUOTES, 'UTF-8') ?>" class="chamado-map-embed-frame chamado-ponto-streetview__frame" title="Mapa do chamado" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade" hidden<?= $chLocMapEmbedSrc !== '' ? ' data-embed-src="' . htmlspecialchars($chLocMapEmbedSrc, ENT_QUOTES, 'UTF-8') . '"' : '' ?>></iframe>
       <div id="<?= htmlspecialchars((string) ($chLoc['map_fallback_id'] ?? 'chamado-loc-map-fallback'), ENT_QUOTES, 'UTF-8') ?>" class="chamado-sv-embed-fallback chamado-map-embed-fallback" hidden>
         <p class="chamado-sv-embed-fallback__text muted">O mapa embutido não carregou. Abra no Google Maps.</p>
         <a class="btn btn-primary btn-sm chamado-sv-embed-fallback__btn" href="#" target="_blank" rel="noopener noreferrer">Abrir no Google Maps</a>
       </div>
-      <iframe id="<?= htmlspecialchars((string) $chLoc['sv_frame_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="fullscreen" hidden></iframe>
+      <iframe id="<?= htmlspecialchars((string) $chLoc['sv_frame_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade" hidden></iframe>
       <div id="<?= htmlspecialchars((string) $chLoc['sv_fallback_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-sv-embed-fallback" hidden>
         <p class="chamado-sv-embed-fallback__text muted">A visualização embutida do Street View não está disponível neste navegador. Abra o panorama no Google Maps.</p>
         <a class="btn btn-primary btn-sm chamado-sv-embed-fallback__btn" href="#" target="_blank" rel="noopener noreferrer">Abrir Street View no Google Maps</a>
@@ -87,7 +87,7 @@ $chLocMapEmbedId = trim((string) ($chLoc['map_embed_id'] ?? ($chLoc['map_id'] . 
     </div>
     <?php endif; ?>
     <div class="chamado-ponto-streetview__frame-wrap">
-      <iframe id="<?= htmlspecialchars((string) $chLoc['sv_frame_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="fullscreen" hidden></iframe>
+      <iframe id="<?= htmlspecialchars((string) $chLoc['sv_frame_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-ponto-streetview__frame" title="Street View do chamado" allowfullscreen loading="lazy" allow="accelerometer; gyroscope; magnetometer; fullscreen; geolocation; clipboard-write" referrerpolicy="no-referrer-when-downgrade" hidden></iframe>
       <div id="<?= htmlspecialchars((string) $chLoc['sv_fallback_id'], ENT_QUOTES, 'UTF-8') ?>" class="chamado-sv-embed-fallback" hidden>
         <p class="chamado-sv-embed-fallback__text muted">A visualização embutida do Street View não está disponível neste navegador. Abra o panorama no Google Maps.</p>
         <a class="btn btn-primary btn-sm chamado-sv-embed-fallback__btn" href="#" target="_blank" rel="noopener noreferrer">Abrir Street View no Google Maps</a>
