@@ -70,7 +70,7 @@ $chExcluirTodosRotulo    = 'todo o sistema';
 if (
     !$CRM_CHAMADOS_IS_CLIENTE
     && !$CRM_CHAMADOS_IS_OPERADOR
-    && in_array((string) ($me['perfil'] ?? ''), ['admin', 'gestor'], true)
+    && (string) ($me['perfil'] ?? '') === 'admin'
 ) {
     $chAdminPodeExcluirTodos = true;
     $chExcluirTodosEscopo    = $escopoCh;
@@ -147,8 +147,8 @@ if ($medicaoMes !== '') {
 }
 
 if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'excluir_todos') {
-    if (!in_array((string) ($me['perfil'] ?? ''), ['admin', 'gestor'], true)) {
-        flash_set('err', 'Apenas administradores e gestores podem excluir todos os chamados.');
+    if ((string) ($me['perfil'] ?? '') !== 'admin') {
+        flash_set('err', 'Apenas administradores podem excluir todos os chamados.');
         header('Location: chamados.php');
         exit;
     }
@@ -242,7 +242,11 @@ if ($q !== '') {
     $periodoAteListagem = null;
 }
 $page = max(1, (int) ($_GET['page'] ?? 1));
-$perPage = 15;
+$perPageOpts = [15, 25, 50, 100];
+$perPage = (int) ($_GET['per_page'] ?? 15);
+if (!in_array($perPage, $perPageOpts, true)) {
+    $perPage = 15;
+}
 $medicaoMatrizId = 0;
 $medicaoMatrizNome = '';
 if (db_ok()) {
@@ -359,6 +363,7 @@ if (db_ok()) {
             return mb_strpos($hay, $ql) !== false;
         }));
     }
+    usort($lista, static fn ($a, $b) => ((int) ($b['id'] ?? 0)) <=> ((int) ($a['id'] ?? 0)));
     $totalRows = count($lista);
     $totalPages = max(1, (int) ceil($totalRows / $perPage));
     $page       = min($page, $totalPages);
@@ -431,6 +436,42 @@ function adm_chamados_collect_export_rows(
     return $out;
 }
 
+/**
+ * Recolhe linhas com todos os campos do chamado (exportação XLSX completa).
+ *
+ * @return list<array<string,mixed>>
+ */
+function adm_chamados_collect_export_rows_full(
+    string $f,
+    string $q,
+    ?int $escopoLista,
+    ?string $periodoDe,
+    ?string $periodoAte,
+    int $maxRows,
+    ?int $envolvidoRepo = null,
+    ?int $tecnicoUserId = null,
+    ?string $localQ = null,
+    bool $excluirCancelados = false
+): array {
+    $out = [];
+    $tot = repo_chamados_admin_list_export($f, $q, 1, 1, $escopoLista, $periodoDe, $periodoAte, null, $envolvidoRepo, $tecnicoUserId, $localQ, $excluirCancelados)['total'];
+    $off = 0;
+    $batch = 2000;
+    while ($off < $tot && count($out) < $maxRows) {
+        $take = min($batch, $tot - $off, $maxRows - count($out));
+        if ($take <= 0) {
+            break;
+        }
+        $chunk = repo_chamados_admin_list_export($f, $q, 1, $take, $escopoLista, $periodoDe, $periodoAte, $off, $envolvidoRepo, $tecnicoUserId, $localQ, $excluirCancelados)['rows'];
+        foreach ($chunk as $r) {
+            $out[] = $r;
+        }
+        $off += $take;
+    }
+
+    return $out;
+}
+
 $admChPeriodoCtx = [
     'medicao_mes'       => $medicaoMes,
     'periodo_de'        => (!$periodoLimpar && $periodoDe !== null) ? $periodoDe : '',
@@ -440,6 +481,7 @@ $admChPeriodoCtx = [
     'envolvido_user'    => $envolvidoUser > 0 ? $envolvidoUser : null,
     'tecnico_user_id'   => $tecnicoUserId > 0 ? $tecnicoUserId : null,
     'local_q'           => $localQ !== '' ? $localQ : null,
+    'per_page'          => $perPage,
 ];
 $chamadosPeriodoPresetAtivo = (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR)
     ? chamados_periodo_preset_ativo($periodoDe, $periodoAte, $periodoLimpar, $medicaoMes)
@@ -454,9 +496,9 @@ $chMetricsPeriodoCtx = array_merge($admChPeriodoCtx, [
 $chMockTotal = count($MOCK_CHAMADOS);
 $chMockAtivos = count(array_filter($MOCK_CHAMADOS, static fn ($c) => !in_array($c['status'] ?? '', ['Validado', 'Cancelado'], true)));
 
-$chamadosListagemHref = static function (int $p, string $filtro, string $busca, ?array $periodoCtxOverride = null) use ($CRM_CHAMADOS_IS_OPERADOR, $admChPeriodoCtx): string {
+$chamadosListagemHref = static function (int $p, string $filtro, string $busca, ?array $periodoCtxOverride = null) use ($CRM_CHAMADOS_IS_OPERADOR, $admChPeriodoCtx, $perPage): string {
     if ($CRM_CHAMADOS_IS_OPERADOR) {
-        return oper_chamados_url($p, $filtro, $busca);
+        return oper_chamados_url($p, $filtro, $busca, $perPage);
     }
 
     return adm_chamados_url($p, $filtro, $busca, $periodoCtxOverride ?? $admChPeriodoCtx);
@@ -471,7 +513,7 @@ $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
 if ($CRM_CHAMADOS_IS_OPERADOR && $exportFmt !== '') {
     require_once __DIR__ . '/flash.php';
     flash_set('err', 'Exportações não estão disponíveis na área do operador.');
-    header('Location: ' . oper_chamados_url(1, $f, $q));
+    header('Location: ' . oper_chamados_url(1, $f, $q, $perPage));
     exit;
 }
 $mergeBmExport = $periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f === '' && $bmMergeActive;
@@ -876,6 +918,50 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
             'arquivo_suffix'               => $exportFmt === 'xlsx_detalhes' ? 'com_detalhes_chamados' : '',
         ]
     );
+    exit;
+}
+
+if ($exportFmt === 'xlsx_lista') {
+    if (!db_ok()) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Exportação disponível com base de dados ativa.';
+        exit;
+    }
+    require_once __DIR__ . '/chamados_listagem_export_xlsx.php';
+    $rowsEx = adm_chamados_collect_export_rows_full(
+        $f,
+        $q,
+        $escopoLista,
+        $periodoDeListagem,
+        $periodoAteListagem,
+        $maxExportRows,
+        $envolvidoRepo,
+        $tecnicoRepo,
+        $localQRepo,
+        false
+    );
+    $periodoLabelXlsx = '';
+    if ($periodoLimpar) {
+        $periodoLabelXlsx = 'Todo o período';
+    } elseif ($periodoDe !== null && $periodoAte !== null) {
+        $periodoLabelXlsx = medicao_periodo_export_label($periodoDe, $periodoAte, $medicaoMes);
+    }
+    audit_log_chamados_listagem_export('xlsx_lista', [
+        'cliente_id'     => $clienteIdListagem,
+        'filtro'         => $f,
+        'busca'          => $q,
+        'medicao_mes'    => $medicaoMes !== '' ? $medicaoMes : null,
+        'periodo_de'     => $periodoDe,
+        'periodo_ate'    => $periodoAte,
+        'periodo_limpar' => $periodoLimpar,
+        'n_linhas'       => count($rowsEx),
+    ]);
+    chamados_listagem_export_xlsx_send($rowsEx, [
+        'periodo_label' => $periodoLabelXlsx,
+        'filtro'        => $f,
+        'busca'         => $q,
+    ]);
     exit;
 }
 
@@ -1423,6 +1509,11 @@ include __DIR__ . '/head.php';
         <h4 style="margin:0;"><?= $CRM_CHAMADOS_IS_OPERADOR ? 'Os meus chamados' : 'Todos os chamados' ?></h4>
         <span class="panel-sub"><?= (int) $totalRows ?> registro(s)<?= $chAdminPodeExcluirTodos && $chExcluirTodosTotal > 0 ? ' · ' . (int) $chExcluirTodosTotal . ' ativo(s) no escopo' : '' ?></span>
       </div>
+      <?php if (!$CRM_CHAMADOS_IS_OPERADOR && db_ok()): ?>
+      <a class="btn btn-secondary btn-sm js-crm-export-link"
+         href="<?= htmlspecialchars(adm_chamados_export_url('xlsx_lista', $f, $q, $admChPeriodoCtx)) ?>"
+         title="Exporta a listagem filtrada com todos os campos do chamado">Exportar XLS</a>
+      <?php endif; ?>
       <?php if ($chAdminPodeExcluirTodos && db_ok() && $chExcluirTodosTotal > 0): ?>
       <?php
         $chExcluirTodosMsg = 'Excluir TODOS os ' . (int) $chExcluirTodosTotal . ' chamado(s) ativos de '
@@ -1448,9 +1539,10 @@ include __DIR__ . '/head.php';
           <label for="q_op" style="font-size:12px;">Buscar</label>
           <input type="search" id="q_op" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID ou palavra no assunto">
         </div>
+        <?php if ($perPage !== 15): ?><input type="hidden" name="per_page" value="<?= (int) $perPage ?>"><?php endif; ?>
         <button type="submit" class="btn btn-primary">Buscar</button>
         <?php if ($q !== ''): ?>
-        <a href="<?= htmlspecialchars(oper_chamados_url(1, '', '')) ?>" class="btn btn-secondary">Limpar</a>
+        <a href="<?= htmlspecialchars(oper_chamados_url(1, '', '', $perPage)) ?>" class="btn btn-secondary">Limpar</a>
         <?php endif; ?>
       </form>
     </div>
@@ -1517,6 +1609,7 @@ include __DIR__ . '/head.php';
           </select>
         </div>
         <?php endif; ?>
+        <?php if ($perPage !== 15): ?><input type="hidden" name="per_page" value="<?= (int) $perPage ?>"><?php endif; ?>
         <button type="submit" class="btn btn-primary" style="justify-content:center;flex:0 0 auto;flex-shrink:0;">Aplicar filtros</button>
         <?php if ($q !== '' || (!$CRM_CHAMADOS_IS_CLIENTE && ($localQ !== '' || $tecnicoUserId > 0))): ?>
         <a href="<?= htmlspecialchars($chamadosListagemHref(1, $f, '', $admChClearBuscaCtx)) ?>" class="btn" style="flex-shrink:0;">Limpar busca</a>
@@ -1786,10 +1879,31 @@ include __DIR__ . '/head.php';
     </div>
     <?php endif; ?>
 
-    <?php if ($totalPages > 1): ?>
-    <div class="pagination">
-      <span class="pag-info">Mostrando <?= (int) $fromN ?>–<?= (int) $toN ?> de <?= (int) $totalRows ?></span>
-      <div class="pag-controls">
+    <?php if ($totalRows > 0): ?>
+    <div class="pagination" style="display:flex;flex-wrap:nowrap;gap:12px;align-items:center;white-space:nowrap;">
+      <form method="get" action="chamados.php" style="display:inline-flex;align-items:center;gap:6px;margin:0;flex:0 0 auto;">
+        <?php if ($f !== ''): ?><input type="hidden" name="f" value="<?= htmlspecialchars($f) ?>"><?php endif; ?>
+        <?php if ($q !== ''): ?><input type="hidden" name="q" value="<?= htmlspecialchars($q) ?>"><?php endif; ?>
+        <?php if ($clienteIdListagem > 0): ?><input type="hidden" name="cliente_id" value="<?= (int) $clienteIdListagem ?>"><?php endif; ?>
+        <?php if ($envolvidoUser > 0): ?><input type="hidden" name="envolvido_user" value="<?= (int) $envolvidoUser ?>"><?php endif; ?>
+        <?php if (!$CRM_CHAMADOS_IS_OPERADOR): ?>
+          <?php if ($periodoLimpar): ?><input type="hidden" name="periodo_limpar" value="1"><?php elseif ($medicaoMes !== ''): ?><input type="hidden" name="medicao_mes" value="<?= htmlspecialchars($medicaoMes) ?>"><?php else: ?>
+          <?php if ($periodoDe !== null): ?><input type="hidden" name="periodo_de" value="<?= htmlspecialchars((string) $periodoDe) ?>"><?php endif; ?>
+          <?php if ($periodoAte !== null): ?><input type="hidden" name="periodo_ate" value="<?= htmlspecialchars((string) $periodoAte) ?>"><?php endif; ?>
+          <?php endif; ?>
+          <?php if ($localQ !== ''): ?><input type="hidden" name="local_q" value="<?= htmlspecialchars($localQ) ?>"><?php endif; ?>
+          <?php if ($tecnicoUserId > 0): ?><input type="hidden" name="tecnico_user_id" value="<?= (int) $tecnicoUserId ?>"><?php endif; ?>
+        <?php endif; ?>
+        <label for="per_page_pag" class="muted" style="font-size:12px;margin:0;white-space:nowrap;">Por página</label>
+        <select id="per_page_pag" name="per_page" class="select" style="width:72px;min-width:72px;max-width:72px;" onchange="this.form.submit()">
+          <?php foreach ($perPageOpts as $ppOpt): ?>
+          <option value="<?= (int) $ppOpt ?>"<?= $perPage === (int) $ppOpt ? ' selected' : '' ?>><?= (int) $ppOpt ?></option>
+          <?php endforeach; ?>
+        </select>
+      </form>
+      <span class="pag-info" style="flex:0 0 auto;">Mostrando <?= (int) $fromN ?>–<?= (int) $toN ?> de <?= (int) $totalRows ?></span>
+      <?php if ($totalPages > 1): ?>
+      <div class="pag-controls" style="margin-left:auto;flex:0 0 auto;">
         <?php if ($page <= 1): ?>
           <span class="pag-btn" style="opacity:.4;">‹</span>
         <?php else: ?>
@@ -1814,6 +1928,7 @@ include __DIR__ . '/head.php';
           <a class="pag-btn" href="<?= htmlspecialchars($chamadosListagemHref($page + 1, $f, $q)) ?>">›</a>
         <?php endif; ?>
       </div>
+      <?php endif; ?>
     </div>
     <?php endif; ?>
   </div>

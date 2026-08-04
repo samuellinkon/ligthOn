@@ -105,6 +105,7 @@ $catalogoPainelFormAction     = 'catalogo.php';
 $catalogoPainelHiddenQuery    = [];
 $catalogoPainelHrefImportar   = 'catalogo_importar.php';
 $catalogoPainelHrefAplicadoChamados = 'catalogo_chamados_materiais.php';
+$catalogoPainelHrefDevolvidos = 'catalogo_itens_devolvidos.php';
 require __DIR__ . '/../includes/catalogo_listagem_painel.php';
 ?>
 

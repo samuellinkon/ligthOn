@@ -17,7 +17,7 @@ if (!in_array($tab, ['geral', 'modulos'], true)) {
     $tab = 'geral';
 }
 $configSecao = (string) ($_GET['secao'] ?? 'sistema');
-if (!in_array($configSecao, ['sistema', 'clientes', 'email', 'teste', 'api'], true)) {
+if (!in_array($configSecao, ['sistema', 'clientes', 'email', 'teste', 'api', 'os'], true)) {
     $configSecao = 'sistema';
 }
 if ($configSecao === 'api' && !$isSuperAdminConfig) {
@@ -65,8 +65,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $acao = $_POST['acao'] ?? 'salvar';
     $postSecao = (string) ($_POST['_secao'] ?? $configSecao);
-    if (!in_array($postSecao, ['sistema', 'clientes', 'email', 'teste', 'api'], true)) {
+    if (!in_array($postSecao, ['sistema', 'clientes', 'email', 'teste', 'api', 'os'], true)) {
         $postSecao = 'sistema';
+    }
+
+    if ($acao === 'os_opcao_salvar' || $acao === 'os_opcao_excluir') {
+        if (!db_ok()) {
+            flash_set('err', 'Banco indisponível.');
+            header('Location: configuracoes.php?tab=geral&secao=os');
+            exit;
+        }
+        if ($acao === 'os_opcao_excluir') {
+            $res = repo_chamado_os_opcao_excluir((int) ($_POST['os_id'] ?? 0));
+            flash_set($res['ok'] ? 'ok' : 'err', $res['ok'] ? 'Opção excluída.' : ($res['err'] ?? 'Falha ao excluir.'));
+        } else {
+            $res = repo_chamado_os_opcao_salvar(
+                (string) ($_POST['os_tipo'] ?? ''),
+                (string) ($_POST['os_nome'] ?? ''),
+                (int) ($_POST['os_ordem'] ?? 0),
+                ((int) ($_POST['os_id'] ?? 0)) > 0 ? (int) $_POST['os_id'] : null,
+                !empty($_POST['os_ativo'])
+            );
+            flash_set($res['ok'] ? 'ok' : 'err', $res['ok'] ? 'Opção salva.' : ($res['err'] ?? 'Falha ao salvar.'));
+        }
+        header('Location: configuracoes.php?tab=geral&secao=os');
+        exit;
     }
 
     if ($acao === 'api_public_gerar_chaves') {
@@ -331,6 +354,7 @@ include __DIR__ . '/../includes/head.php';
   <nav class="admin-tabs card mb-24" aria-label="Opções de configuração">
     <button type="button" class="admin-tab<?= $configSecao === 'sistema' ? ' active' : '' ?>" data-config-tab="sistema">Sistema</button>
     <button type="button" class="admin-tab<?= $configSecao === 'clientes' ? ' active' : '' ?>" data-config-tab="clientes">Prefeitura e catálogo</button>
+    <button type="button" class="admin-tab<?= $configSecao === 'os' ? ' active' : '' ?>" data-config-tab="os">Origem e Problema OS</button>
     <button type="button" class="admin-tab<?= $configSecao === 'email' ? ' active' : '' ?>" data-config-tab="email">E-mail e SMTP</button>
     <button type="button" class="admin-tab<?= $configSecao === 'teste' ? ' active' : '' ?>" data-config-tab="teste">Teste de envio</button>
     <?php if ($isSuperAdminConfig): ?>
@@ -338,7 +362,11 @@ include __DIR__ . '/../includes/head.php';
     <?php endif; ?>
   </nav>
 
-  <form class="card config-section-panel<?= $configSecao !== 'teste' ? ' active' : '' ?>" method="post" action="configuracoes.php?tab=geral&secao=<?= htmlspecialchars($configSecao) ?>" autocomplete="off" data-config-save-form>
+  <?php
+    $configSecoesSemFormSalvar = ['teste', 'os'];
+    $configMostrarFormSalvar = !in_array($configSecao, $configSecoesSemFormSalvar, true);
+  ?>
+  <form class="card config-section-panel<?= $configMostrarFormSalvar ? ' active' : '' ?>" method="post" action="configuracoes.php?tab=geral&secao=<?= htmlspecialchars($configSecao) ?>" autocomplete="off" data-config-save-form>
     <input type="hidden" name="acao" value="salvar">
     <input type="hidden" name="_secao" value="<?= htmlspecialchars($configSecao) ?>" data-config-current-section>
 
@@ -566,6 +594,13 @@ include __DIR__ . '/../includes/head.php';
   </div>
   <?php endif; ?>
 
+  <?php
+    $osOpcoesTabelaOk = db_ok() && function_exists('repo_chamado_os_opcoes_table_exists') && repo_chamado_os_opcoes_table_exists();
+    $osOpcoesOrigem   = $osOpcoesTabelaOk ? repo_chamado_os_opcoes_list('origem', false) : [];
+    $osOpcoesProblema = $osOpcoesTabelaOk ? repo_chamado_os_opcoes_list('problema', false) : [];
+    include __DIR__ . '/../includes/partials/config_os_opcoes_panel.php';
+  ?>
+
   <div class="card mt-24 config-section-panel<?= $configSecao === 'teste' ? ' active' : '' ?>" data-config-panel="teste">
     <div class="panel-head">
       <h4>Testar envio</h4>
@@ -631,7 +666,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const currentInput = document.querySelector('[data-config-current-section]');
 
   function activateConfigSection(section) {
-    const isTeste = section === 'teste';
+    const hideSaveForm = section === 'teste' || section === 'os';
     tabs.forEach(function (tabBtn) {
       tabBtn.classList.toggle('active', tabBtn.dataset.configTab === section);
     });
@@ -639,7 +674,7 @@ document.addEventListener('DOMContentLoaded', function () {
       panel.classList.toggle('active', panel.dataset.configPanel === section);
     });
     if (saveForm) {
-      saveForm.classList.toggle('active', !isTeste);
+      saveForm.classList.toggle('active', !hideSaveForm);
       saveForm.action = 'configuracoes.php?tab=geral&secao=' + encodeURIComponent(section);
     }
     if (currentInput) {

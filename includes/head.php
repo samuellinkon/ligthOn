@@ -88,8 +88,11 @@ $cssBust = static function (string $file): int {
   <?php endif; ?>
   <?php if (!empty($operadorPwa)): ?>
   <link rel="manifest" href="<?= htmlspecialchars($basePath) ?>operador/manifest.webmanifest" />
-  <meta name="theme-color" content="#1e3a8a" />
+  <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="<?= htmlspecialchars(defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight') ?>" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-startup-image" href="<?= htmlspecialchars($basePath . (defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png')) ?>" />
   <?php endif; ?>
   <?php
   $crmGoogleMapsApiKeyHead = crm_google_maps_api_key();

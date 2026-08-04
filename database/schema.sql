@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS usuario_password_resets;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS chamado_respostas;
 DROP TABLE IF EXISTS chamado_anexos;
+DROP TABLE IF EXISTS chamado_os_opcoes;
 DROP TABLE IF EXISTS chamado_templates;
 DROP TABLE IF EXISTS os;
 DROP TABLE IF EXISTS kanban_cards;
@@ -297,6 +298,7 @@ CREATE TABLE chamados (
     tecnico_user_id                 INT UNSIGNED NULL,
     aprovado_gestor_em              DATETIME NULL,
     aprovado_gestor_user_id         INT UNSIGNED NULL,
+    validado_em                     DATETIME NULL,
     checklist_realizado             TEXT NULL,
     prioridade         ENUM('Baixa','Normal','Alta','Urgente') NOT NULL DEFAULT 'Normal',
     status               ENUM('Aberto','Em andamento','Aguardando Aprovação','Resolvido','Validado','Fechado','Cancelado') NOT NULL DEFAULT 'Aberto',
@@ -319,7 +321,8 @@ CREATE TABLE chamados (
     INDEX idx_chamados_aberto_em (aberto_em),
     INDEX idx_chamados_servico (servico_id),
     INDEX idx_chamados_tecnico (tecnico_user_id),
-    INDEX idx_chamados_aprovado (aprovado_gestor_em)
+    INDEX idx_chamados_aprovado (aprovado_gestor_em),
+    INDEX idx_chamados_validado_em (validado_em)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 AUTO_INCREMENT=1001;
 
 CREATE TABLE chamado_tecnicos (
@@ -420,6 +423,32 @@ CREATE TABLE chamado_templates (
     ordem      INT NOT NULL DEFAULT 0,
     criado_em  DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Opções dos selects Origem da OS e Problema (geridas em Avançado)
+CREATE TABLE chamado_os_opcoes (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tipo       ENUM('origem', 'problema') NOT NULL,
+    nome       VARCHAR(120) NOT NULL,
+    ativo      TINYINT(1) NOT NULL DEFAULT 1,
+    ordem      INT NOT NULL DEFAULT 0,
+    criado_em  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_chamado_os_opcoes_tipo_nome (tipo, nome),
+    INDEX idx_chamado_os_opcoes_lista (tipo, ativo, ordem, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO chamado_os_opcoes (tipo, nome, ativo, ordem) VALUES
+('origem', 'Telefone', 1, 10),
+('origem', 'WhatsApp', 1, 20),
+('origem', 'Presencial', 1, 30),
+('origem', 'E-mail', 1, 40),
+('origem', 'Rede Ipojuca', 1, 50),
+('origem', 'Outro', 1, 60),
+('problema', 'Ponto Apagado', 1, 10),
+('problema', 'Vazamento de Corrente', 1, 20),
+('problema', 'Implantação', 1, 30),
+('problema', 'Evento', 1, 40),
+('problema', 'Serviços Gerais', 1, 50),
+('problema', 'Outros', 1, 60);
 
 -- -----------------------------------------------------
 -- Ordens de Serviço

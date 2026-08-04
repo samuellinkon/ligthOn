@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var EXPORT_PARAM = /^(xlsx|pdf|pdf_anexos|xlsx_detalhes|relatorio_xlsx)$/i;
+  var EXPORT_PARAM = /^(xlsx|pdf|pdf_anexos|xlsx_detalhes|xlsx_lista|relatorio_xlsx)$/i;
   var EXPORT_PATH = /(export_boletim_bm|export_xlsx|catalogo_export|chamado_export|medicao_export)/i;
 
   var overlay = null;

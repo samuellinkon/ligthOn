@@ -221,11 +221,19 @@ function medicao_relatorio_import_criar_chamados(
             }
 
             $abertoEm = $dataYmd . ' 12:00:00';
-            $pdo->prepare(
-                'UPDATE chamados SET aberto_em = ?, finalizado_operador_em = COALESCE(finalizado_operador_em, ?),
-                    aprovado_gestor_em = COALESCE(aprovado_gestor_em, ?), status = ?
-                 WHERE id = ? LIMIT 1'
-            )->execute([$abertoEm, $abertoEm, $abertoEm, 'Validado', $chId]);
+            if (function_exists('repo_chamados_validado_em_column_exists') && repo_chamados_validado_em_column_exists()) {
+                $pdo->prepare(
+                    'UPDATE chamados SET aberto_em = ?, finalizado_operador_em = COALESCE(finalizado_operador_em, ?),
+                        aprovado_gestor_em = COALESCE(aprovado_gestor_em, ?), validado_em = COALESCE(validado_em, ?), status = ?
+                     WHERE id = ? LIMIT 1'
+                )->execute([$abertoEm, $abertoEm, $abertoEm, $abertoEm, 'Validado', $chId]);
+            } else {
+                $pdo->prepare(
+                    'UPDATE chamados SET aberto_em = ?, finalizado_operador_em = COALESCE(finalizado_operador_em, ?),
+                        aprovado_gestor_em = COALESCE(aprovado_gestor_em, ?), status = ?
+                     WHERE id = ? LIMIT 1'
+                )->execute([$abertoEm, $abertoEm, $abertoEm, 'Validado', $chId]);
+            }
 
             $itens = is_array($gr['itens'] ?? null) ? $gr['itens'] : [];
             foreach ($itens as $it) {

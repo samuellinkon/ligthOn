@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Query string da listagem de chamados (paginação e filtros).
  *
- * @param array{medicao_mes?:string,periodo_de?:string,periodo_ate?:string,periodo_limpar?:bool,cliente_id?:int|null,envolvido_user?:int|null,tecnico_user_id?:int|null,local_q?:string|null} $periodoCtx
+ * @param array{medicao_mes?:string,periodo_de?:string,periodo_ate?:string,periodo_limpar?:bool,cliente_id?:int|null,envolvido_user?:int|null,tecnico_user_id?:int|null,local_q?:string|null,per_page?:int|null} $periodoCtx
  */
 function adm_chamados_url(int $p, string $filtro, string $busca, array $periodoCtx): string
 {
@@ -17,6 +17,10 @@ function adm_chamados_url(int $p, string $filtro, string $busca, array $periodoC
     }
     if ($p > 1) {
         $qs['page'] = $p;
+    }
+    $perPage = (int) ($periodoCtx['per_page'] ?? 0);
+    if ($perPage > 0 && $perPage !== 15) {
+        $qs['per_page'] = $perPage;
     }
     if (!empty($periodoCtx['periodo_limpar'])) {
         $qs['periodo_limpar'] = '1';
@@ -142,8 +146,8 @@ function chamados_periodo_preset_ativo(?string $periodoDe, ?string $periodoAte, 
     return null;
 }
 
-/** Listagem operador: só `f`, `q` e `page` (sem período nem escopos de gestão). */
-function oper_chamados_url(int $p, string $filtro, string $busca): string
+/** Listagem operador: só `f`, `q`, `page` e `per_page` (sem período nem escopos de gestão). */
+function oper_chamados_url(int $p, string $filtro, string $busca, int $perPage = 15): string
 {
     $qs = [];
     if ($filtro !== '') {
@@ -154,6 +158,9 @@ function oper_chamados_url(int $p, string $filtro, string $busca): string
     }
     if ($p > 1) {
         $qs['page'] = $p;
+    }
+    if ($perPage > 0 && $perPage !== 15) {
+        $qs['per_page'] = $perPage;
     }
 
     return 'chamados.php' . ($qs !== [] ? '?' . http_build_query($qs) : '');

@@ -24,7 +24,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
   <div class="medicao-meses-empty muted">
     Nenhum mês com chamados <strong>Validado</strong> nem importação BM nesta empresa.
     <?php if ($medicaoValidadoCount > 0): ?>
-      Há <?= (int) $medicaoValidadoCount ?> chamado(s) Validado no escopo, mas nenhum agrupável por mês de abertura (verifique datas ou importe a planilha BM).
+      Há <?= (int) $medicaoValidadoCount ?> chamado(s) Validado no escopo, mas nenhum agrupável por mês de validação (verifique datas ou importe a planilha BM).
     <?php else: ?>
       <?php if ($medicaoMostrarImportar): ?>
         Valide chamados após o atendimento ou <strong>importe a planilha BM</strong> para abrir a medição do mês.

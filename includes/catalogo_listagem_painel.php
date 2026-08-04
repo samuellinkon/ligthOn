@@ -10,6 +10,7 @@
  * - $catalogoPainelAdminEditaSaldo (bool) se true: saldo editável no modal (painel admin/gestão)
  * - $catalogoPainelHrefImportar (string, opcional) URL do botão Importar (default: admin cliente_itens_importar)
  * - $catalogoPainelHrefAplicadoChamados (string, opcional) URL do relatório aplicado em chamados (default: admin + cliente_id)
+ * - $catalogoPainelHrefDevolvidos (string, opcional) URL da listagem de itens devolvidos/sucatas
  */
 
 declare(strict_types=1);
@@ -32,6 +33,9 @@ $catalogoPainelHrefImportar = isset($catalogoPainelHrefImportar) && (string) $ca
 $catalogoPainelHrefAplicadoChamados = isset($catalogoPainelHrefAplicadoChamados) && (string) $catalogoPainelHrefAplicadoChamados !== ''
     ? (string) $catalogoPainelHrefAplicadoChamados
     : ('catalogo_chamados_materiais.php?cliente_id=' . $catalogoPainelClienteId);
+$catalogoPainelHrefDevolvidos = isset($catalogoPainelHrefDevolvidos) && (string) $catalogoPainelHrefDevolvidos !== ''
+    ? (string) $catalogoPainelHrefDevolvidos
+    : ('catalogo_itens_devolvidos.php?cliente_id=' . $catalogoPainelClienteId);
 
 $tipoFiltro = strtolower(trim((string) ($_GET['tipo'] ?? '')));
 if (!in_array($tipoFiltro, ['', 'produto', 'servico'], true)) {
@@ -238,6 +242,7 @@ $metricCardClass = static function (bool $active): string {
         <a class="btn btn-secondary btn-sm" href="catalogo_export_xlsx.php?cliente_id=<?= (int) $catalogoPainelClienteId ?>">Exportar XLS</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefImportar) ?>">Importar planilha</a>
         <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefAplicadoChamados) ?>" title="Lançamentos de itens do catálogo em chamados">Catálogo aplicado em chamados</a>
+        <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($catalogoPainelHrefDevolvidos) ?>" title="Recolhimentos e sucatas lançados em chamados">Itens devolvidos / sucatas</a>
         <?php if ($catalogoTemEstoque): ?>
         <form method="post" action="<?= htmlspecialchars($catalogoPainelFormAction) ?>" style="display:inline;margin:0;" onsubmit="return confirm('Recalcular o saldo de todos os itens com base nos materiais dos chamados?');">
           <?php foreach ($catalogoPainelHiddenQuery as $hk => $hv): ?>
@@ -252,6 +257,7 @@ $metricCardClass = static function (bool $active): string {
         <span class="btn btn-secondary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;">+ Serviço</span>
         <span class="btn btn-secondary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;">Importar planilha</span>
         <span class="btn btn-secondary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;">Catálogo aplicado em chamados</span>
+        <span class="btn btn-secondary btn-sm" style="opacity:.5;cursor:default;pointer-events:none;">Itens devolvidos / sucatas</span>
         <?php endif; ?>
       </div>
     </div>
@@ -525,10 +531,10 @@ $metricCardClass = static function (bool $active): string {
       </div>
       <?php endif; ?>
       <?php endif; ?>
-      <div class="form-group full">
+      <!-- <div class="form-group full">
         <label for="modal_descricao_simplificada">Descrição simplificada</label>
         <input type="text" id="modal_descricao_simplificada" name="descricao_simplificada" class="input" maxlength="160" placeholder="Texto curto exibido ao técnico no lançamento">
-      </div>
+      </div> -->
       <div class="form-group full">
         <label for="modal_descricao">Descrição</label>
         <textarea id="modal_descricao" name="descricao" class="textarea" rows="3" maxlength="500" placeholder="Descrição opcional para o catálogo"></textarea>

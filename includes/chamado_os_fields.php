@@ -5,8 +5,8 @@ declare(strict_types=1);
  * Campos estilo "Ordem de Serviço" (contribuinte, endereço estruturado, classificações).
  */
 
-/** @return array<string, string> valor interno => rótulo */
-function chamado_os_opcoes_origem(): array
+/** Fallback estático se a tabela chamado_os_opcoes ainda não existir / estiver vazia. */
+function chamado_os_opcoes_origem_fallback(): array
 {
     return [
         'Telefone' => 'Telefone',
@@ -18,6 +18,28 @@ function chamado_os_opcoes_origem(): array
     ];
 }
 
+/**
+ * Opções de Origem da OS (banco dinâmico em Avançado, com fallback).
+ *
+ * @return array<string, string> valor interno => rótulo
+ */
+function chamado_os_opcoes_origem(?string $incluirValor = null): array
+{
+    if (function_exists('repo_chamado_os_opcoes_map')) {
+        $map = repo_chamado_os_opcoes_map('origem', $incluirValor);
+        if (is_array($map) && $map !== []) {
+            return $map;
+        }
+    }
+    $fallback = chamado_os_opcoes_origem_fallback();
+    $extra = trim((string) $incluirValor);
+    if ($extra !== '' && $extra !== 'Portal' && !isset($fallback[$extra])) {
+        $fallback[$extra] = $extra;
+    }
+
+    return $fallback;
+}
+
 /** Valor legado «Portal» → rótulo atual; demais valores das opções ou texto bruto. */
 function chamado_os_rotulo_origem(?string $valor): string
 {
@@ -25,7 +47,7 @@ function chamado_os_rotulo_origem(?string $valor): string
     if ($v === 'Portal') {
         return 'Rede Ipojuca';
     }
-    $opts = chamado_os_opcoes_origem();
+    $opts = chamado_os_opcoes_origem($v);
 
     return $opts[$v] ?? ($v !== '' ? $v : '—');
 }
@@ -39,7 +61,7 @@ function chamado_os_origem_valor_form(?string $valor): string
 }
 
 /** @return array<string, string> */
-function chamado_os_opcoes_problema(): array
+function chamado_os_opcoes_problema_fallback(): array
 {
     return [
         'Ponto Apagado' => 'Ponto Apagado',
@@ -49,6 +71,28 @@ function chamado_os_opcoes_problema(): array
         'Serviços Gerais' => 'Serviços Gerais',
         'Outros' => 'Outros',
     ];
+}
+
+/**
+ * Opções de Problema da OS (banco dinâmico em Avançado, com fallback).
+ *
+ * @return array<string, string>
+ */
+function chamado_os_opcoes_problema(?string $incluirValor = null): array
+{
+    if (function_exists('repo_chamado_os_opcoes_map')) {
+        $map = repo_chamado_os_opcoes_map('problema', $incluirValor);
+        if (is_array($map) && $map !== []) {
+            return $map;
+        }
+    }
+    $fallback = chamado_os_opcoes_problema_fallback();
+    $extra = trim((string) $incluirValor);
+    if ($extra !== '' && !isset($fallback[$extra])) {
+        $fallback[$extra] = $extra;
+    }
+
+    return $fallback;
 }
 
 /** @return array<string, string> */

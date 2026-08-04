@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/audit_log.php';
 
 auth_redirect_se_logado();
 
-$pageTitle = 'Acessar o sistema';
+$pageTitle = defined('APP_BRAND_NAME') ? APP_BRAND_NAME : 'OnLight';
 $erro = '';
 $msgSenhaOk = '';
 $emailPreenchido = '';
@@ -72,13 +72,16 @@ $cssBustLogin = static function (string $file): int {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title><?= htmlspecialchars($pageTitle) ?> · <?= htmlspecialchars(function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação') ?></title>
-  <?php require_once __DIR__ . '/includes/meta_social.php'; app_meta_social_render(['title' => $pageTitle . ' · ' . (function_exists('app_brand_full') ? app_brand_full() : 'OnLight — Gestão em Iluminação')]); ?>
+  <title><?= htmlspecialchars($pageTitle) ?></title>
+  <?php require_once __DIR__ . '/includes/meta_social.php'; app_meta_social_render(['title' => $pageTitle]); ?>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="<?= htmlspecialchars(defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png') ?>">
   <link rel="apple-touch-icon" href="<?= htmlspecialchars(defined('APP_BRAND_ICON') ? APP_BRAND_ICON : 'assets/img/lighton-icon.png') ?>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-title" content="<?= htmlspecialchars($pageTitle) ?>">
   <link rel="stylesheet" href="assets/css/style.css?v=<?= $cssBustLogin('style.css') ?>">
   <link rel="stylesheet" href="assets/css/forms.css?v=<?= $cssBustLogin('forms.css') ?>">
   <link rel="stylesheet" href="assets/css/responsive.css?v=<?= $cssBustLogin('responsive.css') ?>">

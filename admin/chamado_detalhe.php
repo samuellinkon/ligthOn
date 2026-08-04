@@ -1739,6 +1739,9 @@ include __DIR__ . '/../includes/head.php';
           <?php if (!empty($chamado['finalizado_operador_em'])): ?>
             <div class="info-row"><span>Finalizado pelo técnico</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?></strong></div>
           <?php endif; ?>
+          <?php if (!empty($chamado['validado_em'])): ?>
+            <div class="info-row"><span>Validado em</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['validado_em'])) ?></strong></div>
+          <?php endif; ?>
 
           <?php
             $stAtual = trim((string) ($chamado['status'] ?? ''));

@@ -506,17 +506,19 @@ function chamado_geocode_pick_best_hit_relaxed(
         }
     }
 
-    // 2) Rua (obrigatória se informada) + preferência de CEP
+    // 2) Rua + preferência de CEP (se a rua não bater no OSM, cai no fallback de bairro/cidade)
     if ($hasStreet) {
         $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, false, true, ...$anchor);
         if ($hit !== null) {
             return $hit;
         }
-
-        return chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, false, false, ...$anchor);
+        $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, $logradouro, true, $bairro, $postalcode, false, false, ...$anchor);
+        if ($hit !== null) {
+            return $hit;
+        }
     }
 
-    // 3) Sem rua: bairro + CEP, depois só contexto cidade/UF (nunca inventar outra rua)
+    // 3) Fallback: bairro + CEP / bairro + cidade (útil p/ ruas inexistentes no OSM)
     if ($bairro !== '') {
         $hit = chamado_geocode_pick_best_hit($hits, $cidade, $uf, '', false, $bairro, $postalcode, true, true, ...$anchor);
         if ($hit !== null) {
@@ -533,6 +535,11 @@ function chamado_geocode_pick_best_hit_relaxed(
         if ($hit !== null) {
             return $hit;
         }
+    }
+
+    // 4) Último recurso: centroide da cidade (melhor que deixar o pin sem mapa)
+    if ($cidade !== '' && $uf !== '') {
+        return chamado_geocode_pick_best_hit($hits, $cidade, $uf, '', false, '', '', false, false, ...$anchor);
     }
 
     return null;
@@ -562,6 +569,23 @@ function chamado_geocode_attempts_from_api_params(
     $logradouro = trim($logradouro);
     $numero     = trim($numero);
 
+    // q no formato CRM (com · / —) → preenche campos estruturados vazios
+    if ($fallbackQ !== '' && ($logradouro === '' || $city === '' || $uf === '')) {
+        $parsed = chamado_geo_parse_endereco_crm($fallbackQ);
+        if ($logradouro === '' && $parsed['logradouro'] !== '') {
+            $logradouro = $parsed['logradouro'];
+        }
+        if ($bairro === '' && $parsed['bairro'] !== '') {
+            $bairro = $parsed['bairro'];
+        }
+        if ($city === '' && $parsed['cidade'] !== '') {
+            $city = $parsed['cidade'];
+        }
+        if ($uf === '' && $parsed['uf'] !== '') {
+            $uf = $parsed['uf'];
+        }
+    }
+
     if ($logradouro === '' && $street !== '') {
         if (preg_match('/^(\d+)\s+(.+)$/u', $street, $m)) {
             if ($numero === '') {
@@ -574,33 +598,45 @@ function chamado_geocode_attempts_from_api_params(
     }
 
     $ch = [
-        'os_logradouro' => $logradouro,
-        'os_numero'     => $numero,
-        'os_bairro'     => $bairro,
-        'os_cidade'     => $city,
-        'os_uf'         => $uf,
-        'os_cep'        => $postalcode,
+        'os_logradouro'     => $logradouro,
+        'os_numero'         => $numero,
+        'os_bairro'         => $bairro,
+        'os_cidade'         => $city,
+        'os_uf'             => $uf,
+        'os_cep'            => $postalcode,
+        'endereco_completo' => $fallbackQ !== '' ? chamado_geo_normalizar_separadores_endereco($fallbackQ) : '',
     ];
 
     $cep8 = strlen(preg_replace('/\D/', '', $postalcode)) === 8;
     $attempts = $cep8 ? chamado_geocode_attempts_com_cep($ch) : chamado_geocode_attempts($ch);
 
     if ($fallbackQ !== '') {
-        $fqKey = mb_strtolower($fallbackQ, 'UTF-8');
-        $found = false;
-        foreach ($attempts as $attempt) {
-            if (($attempt['type'] ?? '') === 'q'
-                && mb_strtolower(trim((string) ($attempt['q'] ?? '')), 'UTF-8') === $fqKey) {
-                $found = true;
-                break;
-            }
+        $qNorm = chamado_geo_limpar_texto($fallbackQ);
+        if ($qNorm === '') {
+            $qNorm = chamado_geo_normalizar_separadores_endereco($fallbackQ);
         }
-        if (!$found) {
-            $q = $fallbackQ;
-            if (stripos($q, 'brasil') === false && stripos($q, 'brazil') === false) {
-                $q .= ', Brasil';
+        if ($qNorm !== '') {
+            $fqKey = mb_strtolower($qNorm, 'UTF-8');
+            $found = false;
+            foreach ($attempts as $attempt) {
+                if (($attempt['type'] ?? '') === 'q'
+                    && mb_strtolower(trim((string) ($attempt['q'] ?? '')), 'UTF-8') === $fqKey) {
+                    $found = true;
+                    break;
+                }
+                if (($attempt['type'] ?? '') === 'q'
+                    && mb_strtolower(trim((string) ($attempt['q'] ?? '')), 'UTF-8') === $fqKey . ', brasil') {
+                    $found = true;
+                    break;
+                }
             }
-            array_unshift($attempts, ['type' => 'q', 'q' => $q]);
+            if (!$found) {
+                $q = $qNorm;
+                if (stripos($q, 'brasil') === false && stripos($q, 'brazil') === false) {
+                    $q .= ', Brasil';
+                }
+                $attempts[] = ['type' => 'q', 'q' => $q];
+            }
         }
     }
 
@@ -657,6 +693,23 @@ function chamado_geocode_resolve_os(
     $bairro     = trim($bairro);
     $logradouro = trim($logradouro);
     $numero     = trim($numero);
+
+    if ($fallbackQ !== '' && ($logradouro === '' || $city === '' || $uf === '' || $bairro === '')) {
+        $parsedQ = chamado_geo_parse_endereco_crm($fallbackQ);
+        if ($logradouro === '' && $parsedQ['logradouro'] !== '') {
+            $logradouro = $parsedQ['logradouro'];
+        }
+        if ($bairro === '' && $parsedQ['bairro'] !== '') {
+            $bairro = $parsedQ['bairro'];
+        }
+        if ($city === '' && $parsedQ['cidade'] !== '') {
+            $city = $parsedQ['cidade'];
+        }
+        if ($uf === '' && $parsedQ['uf'] !== '') {
+            $uf = $parsedQ['uf'];
+        }
+    }
+
     $logForPick = $logradouro !== '' ? $logradouro : $street;
 
     // Âncora do CEP (Correios) — escolhe o trecho OSM certo e serve de fallback.
@@ -821,14 +874,70 @@ function chamado_geo_numero_valido(string $num): bool
     return true;
 }
 
-function chamado_geo_limpar_texto(string $s): string
+/**
+ * Normaliza separadores do CRM (`·`, `—`) para formato amigável ao Nominatim/Google.
+ */
+function chamado_geo_normalizar_separadores_endereco(string $s): string
 {
     $s = trim($s);
     if ($s === '') {
         return '';
     }
+    $s = str_replace(['·', '•'], ',', $s);
+    // "Ipojuca — PE" / "Ipojuca – PE" → "Ipojuca - PE"
+    $s = preg_replace('/\s*[—–]\s*([A-Za-z]{2})\b/u', ' - $1', $s);
+    $s = preg_replace('/\s*,\s*/u', ', ', $s);
+    $s = preg_replace('/\s+/u', ' ', trim($s));
+
+    return $s;
+}
+
+/**
+ * Extrai logradouro/bairro/cidade/UF de endereços no formato CRM
+ * (`RUA · BAIRRO · Cidade — PE` ou `RUA, BAIRRO, Cidade - PE`).
+ *
+ * @return array{logradouro:string,bairro:string,cidade:string,uf:string}
+ */
+function chamado_geo_parse_endereco_crm(string $s): array
+{
+    $empty = ['logradouro' => '', 'bairro' => '', 'cidade' => '', 'uf' => ''];
+    $s = trim($s);
+    if ($s === '') {
+        return $empty;
+    }
+
+    if (preg_match('/^(.+?)\s*[·•]\s*(.+?)\s*[·•]\s*(.+?)\s*[—–-]\s*([A-Za-z]{2})\b/u', $s, $m)) {
+        return [
+            'logradouro' => trim($m[1]),
+            'bairro'     => trim($m[2]),
+            'cidade'     => trim($m[3]),
+            'uf'         => strtoupper($m[4]),
+        ];
+    }
+
+    $norm = chamado_geo_normalizar_separadores_endereco($s);
+    $norm = preg_replace('/,\s*Brasil\s*$/iu', '', $norm);
+    if (preg_match('/^(.+?),\s*(.+?),\s*(.+?)\s*-\s*([A-Za-z]{2})\b/u', $norm, $m)) {
+        return [
+            'logradouro' => trim($m[1]),
+            'bairro'     => trim($m[2]),
+            'cidade'     => trim($m[3]),
+            'uf'         => strtoupper($m[4]),
+        ];
+    }
+
+    return $empty;
+}
+
+function chamado_geo_limpar_texto(string $s): string
+{
+    $s = chamado_geo_normalizar_separadores_endereco($s);
+    if ($s === '') {
+        return '';
+    }
     $s = preg_replace('/\s*\([^)]*\)\s*/u', ' ', $s);
-    $s = preg_replace('/\s*[—–-]\s*.+$/u', '', $s);
+    // Remove sufixo descritivo após " - ", mas preserva UF de 2 letras (ex.: " - PE").
+    $s = preg_replace('/\s+-\s+(?![A-Za-z]{2}\b).+$/u', '', $s);
     $s = preg_replace('/\s+/u', ' ', trim($s));
 
     return $s;
@@ -945,13 +1054,28 @@ function chamado_geocode_attempts(array $ch): array
 
     $endereco = trim((string) ($ch['endereco_completo'] ?? ''));
     if ($endereco !== '') {
-        $pushQ($endereco);
+        $norm = chamado_geo_normalizar_separadores_endereco($endereco);
+        if ($norm !== '') {
+            $pushQ($norm);
+        }
         $limpo = chamado_geo_limpar_texto($endereco);
-        if ($limpo !== '') {
+        if ($limpo !== '' && $limpo !== $norm) {
             $pushQ($limpo);
             if ($cidade !== '' && $uf !== '' && mb_stripos($limpo, $cidade, 0, 'UTF-8') === false) {
                 $pushQ($limpo . ', ' . $cidade . ' - ' . $uf);
             }
+        }
+    }
+
+    // Fallback: muitas ruas da planilha não existem no OSM — bairro/cidade ainda posicionam o pin.
+    if ($bairro !== '' && $cidade !== '' && $uf !== '') {
+        $pushQ($bairro . ', ' . $cidade . ' - ' . $uf);
+    }
+    if ($cidade !== '' && $uf !== '') {
+        $pushQ($cidade . ' - ' . $uf);
+        $ufNome = chamado_geo_uf_nome($uf);
+        if ($ufNome !== '' && $ufNome !== $uf) {
+            $pushQ($cidade . ', ' . $ufNome . ', Brasil');
         }
     }
 

@@ -25,6 +25,9 @@ function medicao_bm_chamados_importados_ids(int $clienteMatrizId, string $refYm)
     $periodoAte = date('Y-m-t', strtotime($periodoDe . ' 12:00:00'));
 
     try {
+        $dataRef = function_exists('repo_chamados_sql_data_ref_medicao_bm')
+            ? repo_chamados_sql_data_ref_medicao_bm('c')
+            : 'c.aberto_em';
         $st = $pdo->prepare(
             "SELECT c.id
              FROM chamados c
@@ -34,7 +37,7 @@ function medicao_bm_chamados_importados_ids(int $clienteMatrizId, string $refYm)
                    c.origem_os = 'Importação BM'
                    OR ((c.ponto_referencia LIKE 'BM:%' OR c.ponto_referencia LIKE 'GIP:%') AND TRIM(c.ponto_referencia) <> '')
                )
-               AND DATE(c.aberto_em) BETWEEN ? AND ?"
+               AND DATE({$dataRef}) BETWEEN ? AND ?"
         );
         $st->execute([$clienteMatrizId, $clienteMatrizId, $periodoDe, $periodoAte]);
         $ids = [];
@@ -262,8 +265,11 @@ function medicao_bm_excluir_mapa_meses(int $clienteMatrizId, array $refYms): arr
             $map[$ym]['ok']              = true;
         }
 
+        $dataRefCh = function_exists('repo_chamados_sql_data_ref_medicao_bm')
+            ? repo_chamados_sql_data_ref_medicao_bm('c')
+            : 'c.aberto_em';
         $stCh = $pdo->prepare(
-            "SELECT DATE_FORMAT(c.aberto_em, '%Y-%m') AS ym, COUNT(*) AS n
+            "SELECT DATE_FORMAT({$dataRefCh}, '%Y-%m') AS ym, COUNT(*) AS n
              FROM chamados c
              INNER JOIN clientes cl ON cl.id = c.cliente_id
              WHERE (cl.id = ? OR cl.empresa_id = ?)
@@ -271,7 +277,7 @@ function medicao_bm_excluir_mapa_meses(int $clienteMatrizId, array $refYms): arr
                    c.origem_os = 'Importação BM'
                    OR ((c.ponto_referencia LIKE 'BM:%' OR c.ponto_referencia LIKE 'GIP:%') AND TRIM(c.ponto_referencia) <> '')
                )
-             GROUP BY DATE_FORMAT(c.aberto_em, '%Y-%m')"
+             GROUP BY DATE_FORMAT({$dataRefCh}, '%Y-%m')"
         );
         $stCh->execute([$clienteMatrizId, $clienteMatrizId]);
         foreach ($stCh->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {

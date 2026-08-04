@@ -63,8 +63,15 @@ $rel          = repo_medicao_chamados_relatorio($clienteId, $dataDe, $dataAte);
 $linhas       = $rel['rows'];
 $tot          = $rel['totais'];
 $itensResumo  = repo_medicao_itens_movimento_resumo($clienteId, $dataDe, $dataAte);
-$itensLinhas  = $itensResumo['rows'];
+$itensLinhas  = array_values(array_filter(
+    $itensResumo['rows'],
+    static fn (array $r): bool => (string) ($r['movimento'] ?? '') !== 'devolvido'
+));
 $itensTotais  = $itensResumo['totais'];
+$hrefSucatasCatalogo = 'catalogo_itens_devolvidos.php?' . http_build_query([
+    'data_de'  => $dataDe,
+    'data_ate' => $dataAte,
+]);
 
 $impPkg    = repo_medicao_import_fetch($clienteId, $mesRef);
 $impCab    = $impPkg['cabecalho'] ?? null;
@@ -272,16 +279,6 @@ include __DIR__ . '/../includes/head.php';
           </div>
           <div class="metric-change muted">Qtd <?= htmlspecialchars(medicao_ver_fmt_qtd((float) ($itensTotais['qtd_usada'] ?? 0))) ?> · R$ <?= number_format((float) ($itensTotais['valor_usado'] ?? 0), 2, ',', '.') ?></div>
         </div>
-        <div class="card metric">
-          <div class="metric-top">
-            <div>
-              <div class="metric-label">Sucata / recolhidos</div>
-              <div class="metric-value metric-value--compact"><?= (int) ($itensTotais['n_itens_devolvidos'] ?? 0) ?></div>
-            </div>
-            <div class="icon-box red">DV</div>
-          </div>
-          <div class="metric-change muted">Qtd <?= htmlspecialchars(medicao_ver_fmt_qtd((float) ($itensTotais['qtd_devolvida'] ?? 0))) ?> · R$ <?= number_format((float) ($itensTotais['valor_devolvido'] ?? 0), 2, ',', '.') ?> · não compõe medição</div>
-        </div>
       </div>
     </div>
   </div>
@@ -331,16 +328,17 @@ include __DIR__ . '/../includes/head.php';
   <?php endif; ?>
 
   <div class="card medicao-view-section">
-    <div class="panel-head">
-      <h4>Itens usados e devolvidos</h4>
-      <span class="panel-sub"><?= count($itensLinhas) ?> item(ns) agrupados por movimento</span>
+    <div class="panel-head" style="flex-wrap:wrap;gap:12px;">
+      <div>
+        <h4>Itens usados</h4>
+        <span class="panel-sub"><?= count($itensLinhas) ?> item(ns) medidos · <a href="<?= htmlspecialchars($hrefSucatasCatalogo) ?>">Ver sucatas no catálogo</a></span>
+      </div>
     </div>
     <div class="panel-body" style="padding-top:0;">
       <div class="table-wrap medicao-view-table">
         <table data-crm-sortable>
           <thead>
             <tr class="crm-table-head-sort">
-              <?php crm_sort_th('Movimento', 'movimento'); ?>
               <?php crm_sort_th('Item', 'item'); ?>
               <?php crm_sort_th('Tipo', 'tipo'); ?>
               <?php crm_sort_th('Unid.', 'unidade'); ?>
@@ -352,10 +350,9 @@ include __DIR__ . '/../includes/head.php';
           </thead>
           <tbody>
             <?php if (empty($itensLinhas)): ?>
-            <tr><td colspan="8" class="muted" style="padding:28px;text-align:center;">Nenhum item usado ou devolvido foi lançado nos chamados deste mês.</td></tr>
+            <tr><td colspan="7" class="muted" style="padding:28px;text-align:center;">Nenhum item usado foi lançado nos chamados deste mês.</td></tr>
             <?php else: foreach ($itensLinhas as $item): ?>
             <?php
-              $mov = (string) ($item['movimento'] ?? 'utilizado');
               $itemIdRow = (int) ($item['item_id'] ?? 0);
               $itemAplicadoHref = '';
               if ($itemIdRow > 0) {
@@ -365,6 +362,7 @@ include __DIR__ . '/../includes/head.php';
                       'periodo_de'  => $dataDe,
                       'periodo_ate' => $dataAte,
                       'item_id'     => $itemIdRow,
+                      'movimento'   => 'utilizado',
                       'data_de'     => $dataDe,
                       'data_ate'    => $dataAte,
                   ]);
@@ -374,7 +372,6 @@ include __DIR__ . '/../includes/head.php';
                   : '';
             ?>
             <tr<?= $trLinkAttrs ?> <?= crm_sort_row_attr([
-                'movimento' => $mov,
                 'item'      => (string) ($item['item_nome'] ?? ''),
                 'tipo'      => (string) ($item['item_tipo'] ?? ''),
                 'unidade'   => (string) ($item['unidade'] ?? ''),
@@ -383,7 +380,6 @@ include __DIR__ . '/../includes/head.php';
                 'vtotal'    => (string) (float) ($item['valor_total'] ?? 0),
                 'chamados'  => (string) (int) ($item['n_chamados'] ?? 0),
             ]) ?>>
-              <td><span class="badge <?= $mov === 'devolvido' ? 'info' : 'success' ?>"><?= $mov === 'devolvido' ? 'Sucata' : 'Usado' ?></span></td>
               <td>
                 <div class="td-title"><?= htmlspecialchars((string) ($item['item_nome'] ?? '')) ?></div>
                 <?php if (!empty($item['item_codigo'])): ?>
@@ -420,17 +416,15 @@ include __DIR__ . '/../includes/head.php';
               <?php crm_sort_th('Status', 'status'); ?>
               <?php crm_sort_th('Materiais', 'materiais', ['type' => 'number', 'right' => true]); ?>
               <?php crm_sort_th('Serviços', 'servicos', ['type' => 'number', 'right' => true]); ?>
-              <?php crm_sort_th('Sucata (ref.)', 'devolvidos', ['type' => 'number', 'right' => true]); ?>
               <?php crm_sort_th('Valor medido', 'custoliq', ['type' => 'number', 'right' => true]); ?>
             </tr>
           </thead>
           <tbody>
             <?php if (empty($linhasExibicao)): ?>
-            <tr><td colspan="8" class="muted" style="padding:28px;text-align:center;">Nenhum chamado neste mês e sem importação BM para esta referência.</td></tr>
+            <tr><td colspan="7" class="muted" style="padding:28px;text-align:center;">Nenhum chamado neste mês e sem importação BM para esta referência.</td></tr>
             <?php else: foreach ($linhasExibicao as $r): ?>
             <?php
               $valorLinha = (float) ($r['valor_total_linha'] ?? 0);
-              $valorDev   = (float) ($r['valor_devolvidos'] ?? 0);
               $valorLiq   = $valorLinha;
               $abRaw = (string) ($r['aberto_em'] ?? $r['aberto_em_br'] ?? '');
               $abIso = $abRaw !== '' && $abRaw !== '—' ? date('Y-m-d H:i:s', strtotime($abRaw)) : '';
@@ -446,7 +440,6 @@ include __DIR__ . '/../includes/head.php';
                 'status'      => (string) ($r['status'] ?? ''),
                 'materiais'   => (string) (float) ($r['valor_materiais'] ?? 0),
                 'servicos'    => (string) (float) ($r['valor_servicos_itens'] ?? 0),
-                'devolvidos'  => (string) $valorDev,
                 'custoliq'    => (string) $valorLiq,
             ]) ?>>
               <td class="td-mute"><?= htmlspecialchars((string) ($r['aberto_em_br'] ?? '')) ?></td>
@@ -461,7 +454,6 @@ include __DIR__ . '/../includes/head.php';
               <td><span class="badge <?= status_class((string) ($r['status'] ?? '')) ?>"><?= htmlspecialchars((string) ($r['status'] ?? '')) ?></span></td>
               <td class="text-right">R$ <?= number_format((float) ($r['valor_materiais'] ?? 0), 2, ',', '.') ?></td>
               <td class="text-right">R$ <?= number_format((float) ($r['valor_servicos_itens'] ?? 0), 2, ',', '.') ?></td>
-              <td class="text-right td-mute">R$ <?= number_format($valorDev, 2, ',', '.') ?></td>
               <td class="text-right"><strong>R$ <?= number_format($valorLiq, 2, ',', '.') ?></strong></td>
             </tr>
             <?php endforeach; endif; ?>

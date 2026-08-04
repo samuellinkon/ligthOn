@@ -85,9 +85,9 @@ if ($dab === '' || $dab === '0000-00-00') {
     $dab = date('Y-m-d');
 }
 
-$origOpts = chamado_os_opcoes_origem();
 $origOsValor = chamado_os_origem_valor_form((string) ($ch_os_vals['origem_os'] ?? ''));
-$probOpts = chamado_os_opcoes_problema();
+$origOpts = chamado_os_opcoes_origem($origOsValor);
+$probOpts = chamado_os_opcoes_problema((string) ($ch_os_vals['problema_os'] ?? ''));
 $chOsReadonlyAddr = !empty($ch_os_readonly_endereco);
 
 $ch_os_loc_preview = null;
