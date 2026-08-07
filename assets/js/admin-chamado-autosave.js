@@ -1,10 +1,8 @@
 /**
- * Chamado (admin): gravação automática da ficha OS, prioridade e status via AJAX.
+ * Chamado (admin): salvamento manual da ficha OS (FAB) + AJAX de prioridade/status.
  */
 (function (global) {
   'use strict';
-
-  var DEBOUNCE_MS = 650;
 
   var STATUS_BADGE_CLASS = {
     Aberto: 'open',
@@ -115,36 +113,112 @@
     }
   }
 
+  function isInternalNavLink(anchor) {
+    if (!anchor || !anchor.getAttribute) return false;
+    var href = anchor.getAttribute('href');
+    if (!href || href === '#' || href.charAt(0) === '#') return false;
+    if (anchor.getAttribute('download') != null) return false;
+    if (anchor.target === '_blank') return false;
+    if (/^(mailto:|tel:|javascript:)/i.test(href)) return false;
+    try {
+      var url = new URL(href, global.location.href);
+      if (url.origin !== global.location.origin) return false;
+      // Mesma página, só âncora
+      if (
+        url.pathname === global.location.pathname &&
+        url.search === global.location.search &&
+        url.hash
+      ) {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function initOs() {
     var panel = document.getElementById('chamado-form-os-dados');
-    if (!panel || panel.getAttribute('data-chamado-os-ajax') !== '1') return;
+    if (!panel || panel.getAttribute('data-chamado-os-save') !== '1') return;
 
     var saving = false;
-    var pending = false;
-    var debounceTimer = null;
+    var dirty = false;
     var lastSnap = panelSnapshot(panel);
+    var leaveConfirmOpen = false;
+
+    var fab = document.createElement('button');
+    fab.type = 'button';
+    fab.id = 'chamado-os-save-fab';
+    fab.className = 'chamado-os-save-fab';
+    fab.setAttribute('aria-label', 'Salvar alterações da ordem de serviço');
+    fab.title = 'Salvar alterações da ordem de serviço';
+    fab.textContent = 'Salvar alterações';
+    document.body.appendChild(fab);
+
+    function setDirty(next) {
+      dirty = !!next;
+      fab.classList.toggle('is-dirty', dirty);
+      fab.disabled = saving;
+    }
+
+    function syncDirtyFromPanel() {
+      setDirty(panelSnapshot(panel) !== lastSnap);
+    }
 
     function setBusy(busy) {
       panel.classList.toggle('chamado-os-dados-panel--saving', !!busy);
+      fab.disabled = !!busy;
+      fab.classList.toggle('is-saving', !!busy);
+      fab.textContent = busy ? 'Salvando…' : 'Salvar alterações';
       panel.querySelectorAll('input, select, textarea').forEach(function (el) {
         el.disabled = !!busy;
       });
     }
 
+    function onBeforeUnload(e) {
+      if (!dirty || saving) return;
+      e.preventDefault();
+      e.returnValue = '';
+    }
+
+    function confirmLeave() {
+      if (!dirty || saving) return Promise.resolve(true);
+      if (typeof global.appConfirm !== 'function') {
+        return Promise.resolve(
+          global.confirm(
+            'Você tem alterações na ordem de serviço que ainda não foram salvas. Deseja sair sem salvar?'
+          )
+        );
+      }
+      leaveConfirmOpen = true;
+      return global
+        .appConfirm({
+          title: 'Alterações não salvas',
+          message:
+            'Você tem alterações na ordem de serviço que ainda não foram salvas. Deseja sair sem salvar?',
+          confirmText: 'Sair sem salvar',
+          cancelText: 'Continuar editando',
+          danger: true,
+        })
+        .then(function (ok) {
+          leaveConfirmOpen = false;
+          return !!ok;
+        })
+        .catch(function () {
+          leaveConfirmOpen = false;
+          return false;
+        });
+    }
+
     function doSave() {
       var snap = panelSnapshot(panel);
-      if (snap === lastSnap) return;
-      if (saving) {
-        pending = true;
-        return;
-      }
+      if (snap === lastSnap || saving) return;
 
       // Montar o payload ANTES de setBusy: inputs disabled são ignorados
       // em buildOsFormData e acabavam gravando ficha vazia (apagando endereço).
       var fd = buildOsFormData(panel);
 
       saving = true;
-      pending = false;
       setBusy(true);
 
       postForm(fd)
@@ -154,6 +228,7 @@
             return;
           }
           lastSnap = snap;
+          setDirty(false);
           if (data.msg) toastOk(data.msg);
         })
         .catch(function (err) {
@@ -162,35 +237,55 @@
         .finally(function () {
           saving = false;
           setBusy(false);
-          if (pending) {
-            pending = false;
-            doSave();
-          }
+          syncDirtyFromPanel();
         });
-    }
-
-    function scheduleSave() {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(doSave, DEBOUNCE_MS);
     }
 
     panel.addEventListener('change', function (e) {
       var t = e.target;
       if (!t || !t.name) return;
-      scheduleSave();
+      syncDirtyFromPanel();
     });
     panel.addEventListener('input', function (e) {
       var t = e.target;
       if (!t || !t.name) return;
       if (t.tagName === 'SELECT') return;
-      scheduleSave();
+      syncDirtyFromPanel();
     });
+
+    fab.addEventListener('click', function () {
+      if (saving) return;
+      if (!dirty) {
+        toastOk('Nenhuma alteração para salvar.');
+        return;
+      }
+      doSave();
+    });
+
+    document.addEventListener(
+      'click',
+      function (e) {
+        if (!dirty || saving || leaveConfirmOpen) return;
+        var anchor = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!isInternalNavLink(anchor)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var href = anchor.href;
+        confirmLeave().then(function (ok) {
+          if (!ok) return;
+          dirty = false;
+          global.location.href = href;
+        });
+      },
+      true
+    );
+
+    global.addEventListener('beforeunload', onBeforeUnload);
   }
 
   function initMetaSelect(selectEl, acao) {
     if (!selectEl) return;
 
-    var form = selectEl.closest('form');
     var initial = selectEl.value;
 
     selectEl.addEventListener('change', function () {

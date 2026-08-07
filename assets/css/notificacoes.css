@@ -168,7 +168,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 12px 10px;
+  padding: 10px 12px 10px;
   border-bottom: 1px solid var(--border, #e2e8f0);
   flex-shrink: 0;
 }
@@ -249,26 +249,49 @@
   background: var(--surface-raised, #f1f5f9);
 }
 
-.notification--assigned .topbar-notif-type-icon {
+.notification--created .topbar-notif-type-icon {
   background: rgba(59, 130, 246, 0.12);
   color: #2563eb;
 }
 
-.notification--resolved .topbar-notif-type-icon,
-.notification--validated .topbar-notif-type-icon {
+.notification--assigned .topbar-notif-type-icon {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+
+.notification--finalized .topbar-notif-type-icon {
+  background: rgba(234, 179, 8, 0.16);
+  color: #a16207;
+}
+
+.notification--approved .topbar-notif-type-icon {
   background: rgba(34, 197, 94, 0.12);
   color: #16a34a;
 }
 
-.notification--urgent .topbar-notif-type-icon {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
+.notification--validated .topbar-notif-type-icon {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
 }
 
-.notification--status .topbar-notif-type-icon,
 .notification--message .topbar-notif-type-icon {
   background: rgba(245, 158, 11, 0.12);
   color: #d97706;
+}
+
+.notification--reopened .topbar-notif-type-icon {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+
+.notification--bm .topbar-notif-type-icon {
+  background: rgba(20, 184, 166, 0.14);
+  color: #0f766e;
+}
+
+.notification--custo .topbar-notif-type-icon {
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
 }
 
 .notification--info .topbar-notif-type-icon {

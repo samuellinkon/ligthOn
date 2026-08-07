@@ -37,10 +37,10 @@ if ($CRM_CHAMADOS_IS_OPERADOR) {
     $escopoLista = $matrizL > 0 ? $matrizL : null;
     $clienteIdListagem = 0;
     $envolvidoUser = 0;
-    $tecnicoUserId = 0;
-    $localQ = '';
-    $tecnicoRepo = null;
-    $localQRepo = null;
+    $tecnicoUserId = max(0, (int) ($_GET['tecnico_user_id'] ?? 0));
+    $localQ        = trim((string) ($_GET['local_q'] ?? ''));
+    $tecnicoRepo   = $tecnicoUserId > 0 ? $tecnicoUserId : null;
+    $localQRepo    = $localQ !== '' ? $localQ : null;
 } else {
     $escopoCh = gestao_scope_cliente_id($me);
 
@@ -219,7 +219,7 @@ if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST
         $qsRed['local_q'] = $ploc;
     }
     $pf = strtolower(trim((string) ($_POST['f_ctx'] ?? '')));
-    if ($pf !== '' && in_array($pf, ['abertos', 'andamento', 'aguardando', 'resolvidos', 'cancelados', 'urgentes'], true)) {
+    if ($pf !== '' && in_array($pf, ['abertos', 'andamento', 'aguardando', 'resolvidos', 'validados', 'cancelados', 'urgentes', 'ativos'], true)) {
         $qsRed['f'] = $pf;
     }
     $redir = 'chamados.php' . ($qsRed !== [] ? '?' . http_build_query($qsRed) : '');
@@ -228,9 +228,8 @@ if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST
 }
 
 $f = strtolower(trim((string) ($_GET['f'] ?? '')));
-if ($CRM_CHAMADOS_IS_OPERADOR) {
-    $f = '';
-} elseif (!in_array($f, ['', 'abertos', 'andamento', 'aguardando', 'resolvidos', 'cancelados', 'urgentes'], true)) {
+$chFiltrosStatusOk = ['', 'abertos', 'andamento', 'aguardando', 'resolvidos', 'validados', 'resolvido_bm', 'cancelados', 'urgentes', 'ativos'];
+if (!in_array($f, $chFiltrosStatusOk, true)) {
     $f = '';
 }
 $q = trim((string) ($_GET['q'] ?? ''));
@@ -340,6 +339,8 @@ if (db_ok()) {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Aguardando Aprovação'));
     } elseif ($f === 'resolvidos') {
         $lista = array_values(array_filter($lista, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true)));
+    } elseif ($f === 'validados') {
+        $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Validado'));
     } elseif ($f === 'cancelados') {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Cancelado'));
     } elseif ($f === 'ativos') {
@@ -483,7 +484,7 @@ $admChPeriodoCtx = [
     'local_q'           => $localQ !== '' ? $localQ : null,
     'per_page'          => $perPage,
 ];
-$chamadosPeriodoPresetAtivo = (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR)
+$chamadosPeriodoPresetAtivo = !$CRM_CHAMADOS_IS_OPERADOR
     ? chamados_periodo_preset_ativo($periodoDe, $periodoAte, $periodoLimpar, $medicaoMes)
     : null;
 $admChClearBuscaCtx = array_merge($admChPeriodoCtx, ['local_q' => null, 'tecnico_user_id' => null]);
@@ -520,7 +521,8 @@ $mergeBmExport = $periodoDe !== null && $periodoAte !== null && $nBm > 0 && $f =
 $maxExportRows = 20000;
 
 if ($exportFmt === 'pdf_anexos') {
-    $fExportMedicao = $f !== '' ? $f : ($mergeBmExport ? 'resolvido_bm' : '');
+    // Mesma regra da medição/BM: só Validado com validado_em no período.
+    $fExportMedicao = 'resolvido_bm';
     require_once __DIR__ . '/crm_export_pdf_debug.php';
     crm_export_pdf_flush_output_buffers();
     ob_start();
@@ -1535,13 +1537,27 @@ include __DIR__ . '/head.php';
     <?php if ($CRM_CHAMADOS_IS_OPERADOR): ?>
     <div class="filters" style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
       <form method="get" action="chamados.php" class="filters--form" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;flex:1;min-width:0;">
+        <div class="form-group" style="margin:0;flex:0 0 150px;min-width:0;max-width:180px;">
+          <label for="filtro_status_op" style="font-size:12px;">Status</label>
+          <select id="filtro_status_op" name="f" class="select">
+            <option value=""<?= $f === '' ? ' selected' : '' ?>>Todos</option>
+            <option value="ativos"<?= $f === 'ativos' ? ' selected' : '' ?>>Em fluxo (exc. Validado/Cancelado)</option>
+            <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
+            <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
+            <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
+            <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
+            <option value="validados"<?= $f === 'validados' ? ' selected' : '' ?>>Validado</option>
+            <option value="cancelados"<?= $f === 'cancelados' ? ' selected' : '' ?>>Cancelados</option>
+            <option value="urgentes"<?= $f === 'urgentes' ? ' selected' : '' ?>>Urgentes</option>
+          </select>
+        </div>
         <div class="form-group" style="margin:0;flex:1;min-width:200px;">
           <label for="q_op" style="font-size:12px;">Buscar</label>
           <input type="search" id="q_op" name="q" class="input" value="<?= htmlspecialchars($q) ?>" placeholder="ID ou palavra no assunto">
         </div>
         <?php if ($perPage !== 15): ?><input type="hidden" name="per_page" value="<?= (int) $perPage ?>"><?php endif; ?>
-        <button type="submit" class="btn btn-primary">Buscar</button>
-        <?php if ($q !== ''): ?>
+        <button type="submit" class="btn btn-primary">Aplicar filtros</button>
+        <?php if ($q !== '' || $f !== ''): ?>
         <a href="<?= htmlspecialchars(oper_chamados_url(1, '', '', $perPage)) ?>" class="btn btn-secondary">Limpar</a>
         <?php endif; ?>
       </form>
@@ -1575,6 +1591,7 @@ include __DIR__ . '/head.php';
             <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
             <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
             <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
+            <option value="validados"<?= $f === 'validados' ? ' selected' : '' ?>>Validado</option>
             <option value="cancelados"<?= $f === 'cancelados' ? ' selected' : '' ?>>Cancelados</option>
             <option value="urgentes"<?= $f === 'urgentes' ? ' selected' : '' ?>>Urgentes</option>
           </select>
@@ -1594,7 +1611,7 @@ include __DIR__ . '/head.php';
         <?php if ($q !== '' && !$periodoLimpar && $periodoDe !== null && $periodoAte !== null): ?>
         <p class="muted" style="font-size:12px;margin:0;flex:1 1 100%;">A busca ignora o filtro de período e procura em todos os chamados do escopo.</p>
         <?php endif; ?>
-        <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR): ?>
+        <?php if (!$CRM_CHAMADOS_IS_OPERADOR): ?>
         <div class="form-group" style="margin:0;flex:1 1 0;min-width:140px;">
           <label for="local_q" style="font-size:12px;">Local (endereço, bairro…)</label>
           <input type="search" id="local_q" name="local_q" class="input" value="<?= htmlspecialchars($localQ) ?>" placeholder="Filtrar por texto no local" style="width:100%;min-width:0;min-height:40px;font-size:14px;">
@@ -1611,7 +1628,7 @@ include __DIR__ . '/head.php';
         <?php endif; ?>
         <?php if ($perPage !== 15): ?><input type="hidden" name="per_page" value="<?= (int) $perPage ?>"><?php endif; ?>
         <button type="submit" class="btn btn-primary" style="justify-content:center;flex:0 0 auto;flex-shrink:0;">Aplicar filtros</button>
-        <?php if ($q !== '' || (!$CRM_CHAMADOS_IS_CLIENTE && ($localQ !== '' || $tecnicoUserId > 0))): ?>
+        <?php if ($q !== '' || $localQ !== '' || $tecnicoUserId > 0): ?>
         <a href="<?= htmlspecialchars($chamadosListagemHref(1, $f, '', $admChClearBuscaCtx)) ?>" class="btn" style="flex-shrink:0;">Limpar busca</a>
         <?php endif; ?>
       </form>

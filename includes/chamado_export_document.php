@@ -11,6 +11,8 @@ declare(strict_types=1);
  * @param list<array<string,mixed>> $materiais
  * @param list<array<string,mixed>> $anexos
  * @param list<array<string,mixed>> $fotosPonto Imagens do cadastro do poste (ponto_iluminacao_imagens)
+ * @param list<array<string,mixed>> $historico Eventos do histórico do chamado
+ * @param list<array<string,mixed>> $tecnicos Equipe atribuída
  */
 function chamado_export_document_html(
     array $chamado,
@@ -19,7 +21,9 @@ function chamado_export_document_html(
     array $anexos,
     bool $autoprint,
     array $fotosPonto = [],
-    bool $resumoConversa = false
+    bool $resumoConversa = false,
+    array $historico = [],
+    array $tecnicos = []
 ): string {
     if (!defined('APP_BRAND_NAME')) {
         require_once __DIR__ . '/config.php';
@@ -151,10 +155,44 @@ function chamado_export_document_html(
     $emitidoEm = date('d/m/Y \à\s H:i');
     $emitidoIso = date('c');
 
+    $fmtDt = static function (?string $raw): string {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $ts = strtotime($raw);
+
+        return $ts ? date('d/m/Y \à\s H:i', $ts) : $raw;
+    };
+
+    $fmtCpf = static function (?string $cpf): string {
+        $cpf = trim((string) $cpf);
+        if ($cpf === '') {
+            return '';
+        }
+        if (function_exists('chamado_os_sanitize_cpf')) {
+            return (string) (chamado_os_sanitize_cpf($cpf) ?? $cpf);
+        }
+        $d = preg_replace('/\D/', '', $cpf) ?? '';
+        if (strlen($d) === 11) {
+            return substr($d, 0, 3) . '.' . substr($d, 3, 3) . '.' . substr($d, 6, 3) . '-' . substr($d, 9, 2);
+        }
+
+        return $cpf;
+    };
+
+    $vOuTraco = static function (string $s): string {
+        $s = trim($s);
+
+        return $s !== '' ? $s : '—';
+    };
+
     $abertoEm = '';
-    if (!empty($chamado['data'])) {
-        $ts = strtotime((string) $chamado['data']);
-        $abertoEm = $ts ? date('d/m/Y \à\s H:i', $ts) : (string) $chamado['data'];
+    if (!empty($chamado['data_abertura_os'])) {
+        $abertoEm = $fmtDt((string) $chamado['data_abertura_os']);
+    }
+    if ($abertoEm === '' && !empty($chamado['data'])) {
+        $abertoEm = $fmtDt((string) $chamado['data']);
     }
 
     $posteTxt = '';
@@ -162,26 +200,76 @@ function chamado_export_document_html(
     if ($pid > 0) {
         $cod = trim((string) ($chamado['ponto_codigo_poste'] ?? ''));
         $posteTxt = $cod !== '' ? $cod : ('Poste #' . $pid);
+    } else {
+        $posteTxt = '— Sem vínculo com ponto —';
     }
 
-    $nTec = 0;
-    if (!empty($chamado['tecnicos']) && is_array($chamado['tecnicos'])) {
-        $nTec = count($chamado['tecnicos']);
-    } elseif (trim((string) ($chamado['tecnico_nome'] ?? '')) !== '') {
-        $nTec = 1;
+    $equipeNomes = [];
+    if ($tecnicos !== []) {
+        foreach ($tecnicos as $tec) {
+            $nm = trim((string) ($tec['nome'] ?? ''));
+            if ($nm !== '') {
+                $equipeNomes[] = $nm;
+            }
+        }
     }
+    if ($equipeNomes === [] && !empty($chamado['tecnicos']) && is_array($chamado['tecnicos'])) {
+        foreach ($chamado['tecnicos'] as $tec) {
+            if (is_array($tec)) {
+                $nm = trim((string) ($tec['nome'] ?? ''));
+            } else {
+                $nm = trim((string) $tec);
+            }
+            if ($nm !== '') {
+                $equipeNomes[] = $nm;
+            }
+        }
+    }
+    if ($equipeNomes === []) {
+        $tn = trim((string) ($chamado['tecnico_nome'] ?? ''));
+        if ($tn !== '') {
+            $equipeNomes[] = $tn;
+        }
+    }
+    $nTec = count($equipeNomes);
+    $equipeTxt = $equipeNomes !== [] ? implode(', ', $equipeNomes) : '';
 
     $categoriaTxt = trim((string) ($chamado['tipo_os'] ?? ''));
     if ($categoriaTxt === '') {
         $categoriaTxt = trim((string) ($chamado['servico_tipo'] ?? ''));
     }
     $canalTxt = trim((string) ($chamado['origem_os'] ?? ''));
+    $problemaOs = trim((string) ($chamado['problema_os'] ?? ''));
     $tipoChamadoHdr = $categoriaTxt !== '' ? $categoriaTxt : trim((string) ($chamado['servico_tipo'] ?? ''));
+    if ($tipoChamadoHdr === '' && $problemaOs !== '') {
+        $tipoChamadoHdr = $problemaOs;
+    }
 
     $stLabel = trim((string) ($chamado['status'] ?? ''));
     $prLabel = trim((string) ($chamado['prioridade'] ?? ''));
     $nAnexos = count($anexos);
     $paginaAnexos = ($anexos !== [] || $fotosPonto !== []);
+
+    require_once __DIR__ . '/chamado_os_fields.php';
+
+    $cpfFmt = $fmtCpf((string) ($chamado['contribuinte_cpf'] ?? ''));
+    $nomeSol = trim((string) ($chamado['contribuinte_nome'] ?? ''));
+    $telSol = trim((string) ($chamado['contribuinte_telefone'] ?? ''));
+    $emailSol = trim((string) ($chamado['contribuinte_email'] ?? ''));
+    $osCep = trim((string) ($chamado['os_cep'] ?? ''));
+    $osLog = trim((string) ($chamado['os_logradouro'] ?? ''));
+    $osNum = trim((string) ($chamado['os_numero'] ?? ''));
+    $osComp = trim((string) ($chamado['os_complemento'] ?? ''));
+    $osBairro = trim((string) ($chamado['os_bairro'] ?? ''));
+    $osCidade = trim((string) ($chamado['os_cidade'] ?? ''));
+    $osUf = trim((string) ($chamado['os_uf'] ?? ''));
+    $pontoRef = trim((string) ($chamado['ponto_referencia'] ?? ''));
+    $latOs = $chamado['latitude'] ?? null;
+    $lngOs = $chamado['longitude'] ?? null;
+    $validadoEm = !empty($chamado['validado_em']) ? $fmtDt((string) $chamado['validado_em']) : '';
+    $finOpEm = !empty($chamado['finalizado_operador_em']) ? $fmtDt((string) $chamado['finalizado_operador_em']) : '';
+    $aprovEm = !empty($chamado['aprovado_gestor_em']) ? $fmtDt((string) $chamado['aprovado_gestor_em']) : '';
+    $aprovNome = trim((string) ($chamado['aprovado_gestor_nome'] ?? ''));
 
     ob_start();
     ?>
@@ -214,20 +302,20 @@ function chamado_export_document_html(
     body {
       margin: 0;
       font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      font-size: 10.5px;
-      line-height: 1.35;
+      font-size: 8.5px;
+      line-height: 1.25;
       color: var(--ink);
       background: #eef2f7;
     }
     @page {
       size: A4;
-      margin: 9mm 10mm 11mm;
+      margin: 6mm 7mm 7mm;
     }
     @media print {
       body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .no-print { display: none !important; }
       a[href^="http"]::after { content: ''; }
-      .sheet { box-shadow: none !important; padding: 8mm 9mm 10mm !important; }
+      .sheet { box-shadow: none !important; padding: 4mm 5mm 5mm !important; }
       /* Faixa KPI sempre em 1 linha na impressão */
       .kpi-strip {
         display: flex !important;
@@ -239,29 +327,36 @@ function chamado_export_document_html(
       .field-grid--dados-chamado {
         grid-template-columns: repeat(4, 1fr) !important;
       }
+      .anexo-gallery img,
+      .ponto-gallery img {
+        max-height: 200px !important;
+      }
     }
     .sheet {
       max-width: 820px;
       margin: 0 auto;
-      padding: 12px 14px 18px;
+      padding: 8px 10px 10px;
       background: #fff;
       box-shadow: var(--shadow);
       border-radius: 0;
     }
 
-    /* Segunda folha: anexos e fotos do ponto */
+    /* Anexos/fotos seguem o fluxo (sem forçar nova folha) */
     .doc-attachments-page {
-      page-break-before: always;
-      break-before: page;
+      page-break-before: auto;
+      break-before: auto;
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px dashed var(--line);
     }
 
     /* Cabeçalho institucional */
     .doc-hero {
       display: grid;
-      grid-template-columns: 1fr minmax(0, 180px);
-      gap: 10px 14px;
+      grid-template-columns: 1fr minmax(0, 150px);
+      gap: 6px 10px;
       align-items: start;
-      padding-bottom: 8px;
+      padding-bottom: 4px;
       margin-bottom: 0;
     }
     @media (max-width: 720px) {
@@ -273,62 +368,62 @@ function chamado_export_document_html(
       gap: 8px;
     }
     .doc-brand-img {
-      max-height: 34px;
-      max-width: 160px;
+      max-height: 26px;
+      max-width: 120px;
       width: auto;
       object-fit: contain;
       display: block;
     }
     .doc-logo-svg {
-      width: 34px;
-      height: 34px;
+      width: 26px;
+      height: 26px;
       flex-shrink: 0;
       display: block;
     }
     .doc-brand-text .product {
-      font-size: 14px;
+      font-size: 11px;
       font-weight: 800;
       letter-spacing: -0.03em;
-      line-height: 1.15;
+      line-height: 1.1;
       color: var(--ink);
     }
     .doc-brand-text .product-tag {
-      font-size: 9px;
+      font-size: 7.5px;
       color: var(--muted);
       font-weight: 500;
-      margin-top: 2px;
+      margin-top: 1px;
     }
     .doc-pref {
-      margin-top: 6px;
-      font-size: 12px;
+      margin-top: 3px;
+      font-size: 9.5px;
       font-weight: 700;
       letter-spacing: -0.02em;
       color: #0c1324;
     }
     .doc-system {
-      font-size: 11px;
+      font-size: 8.5px;
       color: var(--muted);
-      margin-top: 2px;
+      margin-top: 1px;
       font-weight: 500;
     }
     .doc-kind {
       display: inline-block;
-      margin-top: 6px;
-      font-size: 9px;
+      margin-top: 3px;
+      font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.12em;
       color: var(--accent);
       text-transform: uppercase;
     }
     .doc-hero-aside {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 6px;
       background: linear-gradient(180deg, var(--panel2) 0%, #fff 45%);
-      padding: 8px 10px;
-      box-shadow: var(--shadow);
+      padding: 5px 7px;
+      box-shadow: none;
     }
     .doc-ch-num {
-      font-size: 22px;
+      font-size: 16px;
       font-weight: 800;
       letter-spacing: -0.04em;
       line-height: 1;
@@ -355,35 +450,36 @@ function chamado_export_document_html(
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      font-size: 10px;
+      font-size: 8px;
       flex: 0 0 auto;
     }
     .doc-meta-row .mv {
       font-weight: 700;
       text-align: right;
       word-break: break-word;
+      font-size: 8px;
     }
     .doc-rule {
-      height: 3px;
+      height: 2px;
       background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%);
       border-radius: 2px;
-      margin: 8px 0 10px;
+      margin: 4px 0 6px;
     }
 
     .doc-section {
-      margin-top: 10px;
+      margin-top: 5px;
       page-break-inside: auto;
     }
     .doc-section-title {
-      font-size: 9px;
+      font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #334155;
-      margin: 0 0 6px;
+      margin: 0 0 3px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
     .doc-section-title::after {
       content: '';
@@ -396,7 +492,7 @@ function chamado_export_document_html(
     .kpi-strip {
       display: flex;
       flex-wrap: nowrap;
-      gap: 6px;
+      gap: 4px;
       align-items: stretch;
     }
     @media (max-width: 760px) {
@@ -405,15 +501,15 @@ function chamado_export_document_html(
     }
     .kpi-card {
       flex: 1 1 0;
-      min-width: 72px;
+      min-width: 56px;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 5px 6px 4px;
+      border-radius: 4px;
+      padding: 3px 4px 2px;
       background: var(--panel2);
       box-shadow: none;
     }
     .kpi-card .kl {
-      font-size: 8px;
+      font-size: 6.5px;
       font-weight: 700;
       letter-spacing: 0.03em;
       text-transform: uppercase;
@@ -421,18 +517,18 @@ function chamado_export_document_html(
       word-break: normal;
       overflow-wrap: normal;
       hyphens: manual;
-      line-height: 1.25;
+      line-height: 1.15;
     }
     .kpi-card .kv {
-      margin-top: 2px;
-      font-size: 11px;
+      margin-top: 1px;
+      font-size: 9px;
       font-weight: 800;
       letter-spacing: -0.02em;
       color: #0c1324;
       word-break: normal;
       overflow-wrap: normal;
       white-space: nowrap;
-      line-height: 1.2;
+      line-height: 1.15;
     }
     .kpi-card--accent { background: var(--accent-soft); border-color: #bfdbfe; }
     .kpi-card--money { background: var(--accent2-soft); border-color: #a7f3d0; }
@@ -442,7 +538,7 @@ function chamado_export_document_html(
     .field-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 5px 8px;
+      gap: 3px 5px;
     }
     /* Dados do chamado: 4×2 (oito campos em duas linhas no PDF) */
     .field-grid--dados-chamado {
@@ -453,68 +549,68 @@ function chamado_export_document_html(
       .field-grid--dados-chamado { grid-template-columns: repeat(2, 1fr); }
     }
     .field {
-      padding: 4px 6px;
+      padding: 2px 5px;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 4px;
       background: #fff;
     }
     .field .k {
-      font-size: 8px;
+      font-size: 6.5px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       color: var(--muted);
-      margin-bottom: 4px;
+      margin-bottom: 1px;
     }
-    .field .v { font-size: 10px; font-weight: 700; color: #1e293b; word-break: break-word; }
+    .field .v { font-size: 8px; font-weight: 700; color: #1e293b; word-break: break-word; line-height: 1.2; }
     .field--wide { grid-column: 1 / -1; }
 
     /* Descrição */
     .desc-box {
       border: 1px solid #cbd5e1;
-      border-radius: 6px;
+      border-radius: 4px;
       background: var(--panel);
-      padding: 6px 8px;
+      padding: 4px 6px;
     }
     .desc-box .inner-title {
-      font-size: 8px;
+      font-size: 6.5px;
       font-weight: 800;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #475569;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     .prose {
       white-space: pre-wrap;
       word-break: break-word;
       color: #334155;
-      line-height: 1.4;
+      line-height: 1.3;
       margin: 0;
-      font-size: 10px;
+      font-size: 8px;
     }
-    .muted { color: var(--muted); font-size: 9.5px; }
+    .muted { color: var(--muted); font-size: 8px; }
 
     /* Localização card */
     .loc-card {
       display: flex;
-      gap: 8px;
+      gap: 5px;
       align-items: flex-start;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 6px 8px;
+      border-radius: 4px;
+      padding: 3px 6px;
       background: linear-gradient(135deg, #fff 0%, var(--panel2) 100%);
-      box-shadow: var(--shadow);
+      box-shadow: none;
     }
     .loc-pin {
-      font-size: 18px;
+      font-size: 12px;
       line-height: 1;
       flex-shrink: 0;
       filter: grayscale(0.2);
     }
     .loc-body { flex: 1; min-width: 0; }
     .coords-line {
-      margin-top: 4px;
-      font-size: 9px;
+      margin-top: 2px;
+      font-size: 7.5px;
       color: var(--muted);
       font-variant-numeric: tabular-nums;
     }
@@ -522,17 +618,17 @@ function chamado_export_document_html(
     /* Tabelas */
     .table-block {
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 4px;
       overflow: hidden;
       background: #fff;
-      margin-top: 6px;
+      margin-top: 3px;
     }
     .table-block:first-child { margin-top: 0; }
     .table-head {
-      padding: 5px 8px;
-      font-size: 9px;
+      padding: 3px 6px;
+      font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
       background: linear-gradient(180deg, #fafbff 0%, var(--panel) 100%);
       border-bottom: 1px solid var(--line);
@@ -542,11 +638,11 @@ function chamado_export_document_html(
     table.data {
       width: 100%;
       border-collapse: collapse;
-      font-size: 9px;
+      font-size: 7.5px;
     }
     table.data th, table.data td {
       border-top: 1px solid var(--line);
-      padding: 3px 5px;
+      padding: 2px 4px;
       text-align: left;
       vertical-align: top;
     }
@@ -554,77 +650,77 @@ function chamado_export_document_html(
       border-top: 0;
       background: var(--panel2);
       font-weight: 700;
-      font-size: 8px;
+      font-size: 7px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       color: var(--muted);
     }
     table.data tfoot td {
       font-weight: 800;
       background: var(--accent2-soft);
       color: #065f46;
-      border-top: 2px solid #6ee7b7;
-      font-size: 10px;
+      border-top: 1px solid #6ee7b7;
+      font-size: 8px;
     }
     .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
     /* Timeline */
     .timeline-wrap {
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 6px 8px 4px 12px;
+      border-radius: 4px;
+      padding: 3px 6px 2px 10px;
       background: #fff;
     }
     .timeline {
       position: relative;
-      padding-left: 14px;
+      padding-left: 11px;
     }
     .timeline::before {
       content: '';
       position: absolute;
-      left: 4px;
+      left: 3px;
       top: 2px;
-      bottom: 4px;
-      width: 2px;
+      bottom: 2px;
+      width: 1.5px;
       background: linear-gradient(180deg, var(--accent), #94a3b8);
       border-radius: 2px;
     }
     .tl-item {
       position: relative;
-      padding-bottom: 6px;
+      padding-bottom: 3px;
     }
-    .tl-item:last-child { padding-bottom: 4px; }
+    .tl-item:last-child { padding-bottom: 1px; }
     .tl-dot {
       position: absolute;
-      left: -13px;
+      left: -10px;
       top: 2px;
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: #fff;
-      border: 2px solid var(--accent);
-      box-shadow: 0 0 0 2px #fff;
+      border: 1.5px solid var(--accent);
+      box-shadow: 0 0 0 1px #fff;
     }
     .tl-head {
       display: flex;
       flex-wrap: wrap;
-      gap: 3px 6px;
+      gap: 2px 5px;
       align-items: baseline;
-      margin-bottom: 2px;
-      font-size: 9px;
+      margin-bottom: 0;
+      font-size: 7.5px;
     }
     .tl-role {
       font-weight: 800;
       color: var(--accent);
-      font-size: 8px;
+      font-size: 7px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
     }
     .tl-name { font-weight: 700; color: #1e293b; }
     .tl-when { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
     .pill-int {
-      font-size: 9px;
-      padding: 2px 7px;
+      font-size: 7px;
+      padding: 1px 5px;
       border-radius: 999px;
       background: #fff7ed;
       color: #9a3412;
@@ -637,52 +733,52 @@ function chamado_export_document_html(
       white-space: pre-wrap;
       word-break: break-word;
       color: #475569;
-      line-height: 1.35;
-      font-size: 9px;
+      line-height: 1.25;
+      font-size: 7.5px;
     }
 
     /* Anexos + galeria */
     .gallery-title {
-      font-size: 9px;
+      font-size: 7.5px;
       font-weight: 800;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      margin: 8px 8px 6px;
+      margin: 4px 6px 3px;
       color: #475569;
     }
     .anexo-gallery {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
-      padding: 0 8px 10px;
+      padding: 0 6px 8px;
     }
     @media (max-width: 560px) { .anexo-gallery { grid-template-columns: 1fr; } }
     .anexo-gallery figure {
       margin: 0;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 6px;
       overflow: hidden;
       background: var(--panel2);
-      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+      box-shadow: none;
     }
     .anexo-gallery .img-a {
       display: block;
       background: #fff;
       text-align: center;
-      padding: 8px;
+      padding: 6px;
     }
     .anexo-gallery img {
       max-width: 100%;
-      max-height: 140px;
+      max-height: 220px;
       height: auto;
       object-fit: contain;
       vertical-align: middle;
     }
     .anexo-gallery figcaption {
-      padding: 8px 10px 10px;
-      font-size: 10.5px;
+      padding: 4px 6px 5px;
+      font-size: 7.5px;
       color: var(--muted);
-      line-height: 1.35;
+      line-height: 1.2;
     }
 
     /* Fotos ponto */
@@ -690,38 +786,38 @@ function chamado_export_document_html(
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
-      padding: 0 8px 10px;
+      padding: 0 6px 8px;
     }
     @media (max-width: 560px) { .ponto-gallery { grid-template-columns: 1fr; } }
     .ponto-gallery figure {
       margin: 0;
       border: 1px dashed #94a3b8;
-      border-radius: 12px;
+      border-radius: 6px;
       overflow: hidden;
       background: #fff;
-      box-shadow: var(--shadow);
+      box-shadow: none;
     }
-    .ponto-gallery .img-a { display: block; padding: 8px; text-align: center; background: #f8fafc; }
+    .ponto-gallery .img-a { display: block; padding: 6px; text-align: center; background: #f8fafc; }
     .ponto-gallery img {
       max-width: 100%;
-      max-height: 140px;
+      max-height: 220px;
       object-fit: contain;
     }
     .ponto-gallery figcaption {
-      padding: 8px 10px 10px;
-      font-size: 10.5px;
+      padding: 4px 6px 5px;
+      font-size: 7.5px;
       color: var(--muted);
     }
 
     .footer-block {
-      margin-top: 12px;
-      padding: 8px 10px;
+      margin-top: 6px;
+      padding: 4px 6px;
       border: 1px dashed var(--line);
-      border-radius: var(--radius);
+      border-radius: 6px;
       background: var(--panel2);
-      font-size: 8.5px;
+      font-size: 7px;
       color: var(--muted);
-      line-height: 1.45;
+      line-height: 1.3;
       page-break-inside: avoid;
     }
     .footer-block strong { color: #475569; }
@@ -833,7 +929,7 @@ function chamado_export_document_html(
     <div class="doc-rule" role="presentation"></div>
 
     <?php if (trim((string) ($chamado['titulo'] ?? '')) !== ''): ?>
-    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#0f172a;letter-spacing:-0.02em;">
+    <p style="margin:0 0 4px;font-size:9px;font-weight:700;color:#0f172a;letter-spacing:-0.02em;">
       <?= $h((string) $chamado['titulo']) ?>
     </p>
     <?php endif; ?>
@@ -864,33 +960,46 @@ function chamado_export_document_html(
       </div>
     </section>
 
-    <section class="doc-section" aria-labelledby="sec-dados">
-      <h2 id="sec-dados" class="doc-section-title">Dados do chamado</h2>
+    <section class="doc-section" aria-labelledby="sec-solicitante">
+      <h2 id="sec-solicitante" class="doc-section-title">Ordem de serviço — Dados do solicitante</h2>
       <div class="field-grid field-grid--dados-chamado">
-        <div class="field"><div class="k">Prefeitura / órgão</div><div class="v"><?= $h(trim((string) ($chamado['cliente'] ?? '')) ?: '—') ?></div></div>
-        <div class="field"><div class="k">Responsável</div><div class="v"><?= $h(trim((string) ($chamado['responsavel'] ?? '')) ?: '—') ?></div></div>
-        <div class="field"><div class="k">Técnicos</div><div class="v"><?= $h(trim((string) ($chamado['tecnico_nome'] ?? '')) ?: '—') ?></div></div>
-        <div class="field"><div class="k">Categoria</div><div class="v"><?= $h($categoriaTxt !== '' ? $categoriaTxt : '—') ?></div></div>
-        <div class="field"><div class="k">Canal de abertura</div><div class="v"><?= $h($canalTxt !== '' ? $canalTxt : '—') ?></div></div>
-        <div class="field"><div class="k">Data de abertura</div><div class="v"><?= $h($abertoEm !== '' ? $abertoEm : '—') ?></div></div>
-        <div class="field"><div class="k">Poste (ponto)</div><div class="v"><?= $h($posteTxt !== '' ? $posteTxt : '—') ?></div></div>
-        <div class="field"><div class="k">Serviço (catálogo)</div><div class="v"><?= $h(trim((string) ($chamado['servico_nome'] ?? '')) ?: '—') ?></div></div>
-        <?php if (!empty($chamado['finalizado_operador_em'])): ?>
-        <div class="field"><div class="k">Finalizado pelo operador</div><div class="v"><?= $h((string) $chamado['finalizado_operador_em']) ?></div></div>
-        <?php endif; ?>
-        <?php if (!empty($chamado['aprovado_gestor_em'])): ?>
-        <div class="field"><div class="k">Aprovado pelo gestor</div><div class="v"><?= $h((string) $chamado['aprovado_gestor_em']) ?> <?= !empty($chamado['aprovado_gestor_nome']) ? ' · ' . $h((string) $chamado['aprovado_gestor_nome']) : '' ?></div></div>
-        <?php endif; ?>
-        <?php if (!empty(trim((string) ($chamado['checklist_realizado'] ?? '')))): ?>
-        <div class="field field--wide"><div class="k">Checklist (execução)</div><div class="v prose" style="font-weight:500;white-space:pre-wrap;"><?= nl2br($h(trim((string) $chamado['checklist_realizado']))) ?></div></div>
-        <?php endif; ?>
+        <div class="field"><div class="k">CPF</div><div class="v"><?= $h($vOuTraco($cpfFmt)) ?></div></div>
+        <div class="field"><div class="k">Nome</div><div class="v"><?= $h($vOuTraco($nomeSol)) ?></div></div>
+        <div class="field"><div class="k">Data de abertura</div><div class="v"><?= $h($vOuTraco($abertoEm)) ?></div></div>
+        <div class="field"><div class="k">Telefone</div><div class="v"><?= $h($vOuTraco($telSol)) ?></div></div>
+        <div class="field field--wide"><div class="k">E-mail</div><div class="v"><?= $h($vOuTraco($emailSol)) ?></div></div>
+        <div class="field"><div class="k">Prefeitura / órgão</div><div class="v"><?= $h($vOuTraco(trim((string) ($chamado['cliente'] ?? '')))) ?></div></div>
+        <div class="field"><div class="k">Responsável</div><div class="v"><?= $h($vOuTraco(trim((string) ($chamado['responsavel'] ?? '')))) ?></div></div>
+      </div>
+    </section>
+
+    <section class="doc-section" aria-labelledby="sec-endereco">
+      <h2 id="sec-endereco" class="doc-section-title">Endereço e problema no local</h2>
+      <div class="field-grid field-grid--dados-chamado">
+        <div class="field"><div class="k">CEP</div><div class="v"><?= $h($vOuTraco($osCep)) ?></div></div>
+        <div class="field"><div class="k">Endereço</div><div class="v"><?= $h($vOuTraco($osLog)) ?></div></div>
+        <div class="field"><div class="k">Número</div><div class="v"><?= $h($vOuTraco($osNum)) ?></div></div>
+        <div class="field"><div class="k">Complemento</div><div class="v"><?= $h($vOuTraco($osComp)) ?></div></div>
+        <div class="field"><div class="k">Bairro</div><div class="v"><?= $h($vOuTraco($osBairro)) ?></div></div>
+        <div class="field"><div class="k">Cidade</div><div class="v"><?= $h($vOuTraco($osCidade)) ?></div></div>
+        <div class="field"><div class="k">UF</div><div class="v"><?= $h($vOuTraco($osUf)) ?></div></div>
+      </div>
+    </section>
+
+    <section class="doc-section" aria-labelledby="sec-coords">
+      <h2 id="sec-coords" class="doc-section-title">Coordenadas e referência</h2>
+      <div class="field-grid field-grid--dados-chamado">
+        <div class="field"><div class="k">Latitude</div><div class="v"><?= $h($vOuTraco($latOs !== null && $latOs !== '' ? (string) $latOs : '')) ?></div></div>
+        <div class="field"><div class="k">Longitude</div><div class="v"><?= $h($vOuTraco($lngOs !== null && $lngOs !== '' ? (string) $lngOs : '')) ?></div></div>
+        <div class="field field--wide"><div class="k">Ponto de referência</div><div class="v"><?= $h($vOuTraco($pontoRef)) ?></div></div>
+        <div class="field field--wide"><div class="k">Ponto de iluminação</div><div class="v"><?= $h($posteTxt) ?></div></div>
       </div>
     </section>
 
     <section class="doc-section" aria-labelledby="sec-desc">
-      <h2 id="sec-desc" class="doc-section-title">Descrição</h2>
+      <h2 id="sec-desc" class="doc-section-title">Descrição do problema</h2>
       <div class="desc-box">
-        <div class="inner-title">Descrição do atendimento</div>
+        <div class="inner-title">Descrição</div>
         <div class="prose"><?php
         $__d = trim((string) ($chamado['descricao'] ?? ''));
         echo $__d !== '' ? nl2br($h($__d)) : '<span class="muted">Sem texto registado.</span>';
@@ -898,33 +1007,13 @@ function chamado_export_document_html(
       </div>
     </section>
 
-    <?php
-    $end = trim((string) ($chamado['endereco_completo'] ?? ''));
-    $la  = $chamado['latitude'] ?? null;
-    $lo  = $chamado['longitude'] ?? null;
-    if ($end !== '' || ($la !== null && $la !== '' && $lo !== null && $lo !== '')):
-    ?>
-    <section class="doc-section" aria-labelledby="sec-loc">
-      <h2 id="sec-loc" class="doc-section-title">Localização</h2>
-      <div class="loc-card">
-        <div class="loc-pin" aria-hidden="true">📍</div>
-        <div class="loc-body">
-          <?php if ($end !== ''): ?><div class="prose" style="margin:0;font-weight:600;color:#1e293b;"><?= nl2br($h($end)) ?></div><?php endif; ?>
-          <?php if ($la !== null && $la !== '' && $lo !== null && $lo !== ''): ?>
-          <div class="coords-line">Coordenadas · <?= $h((string) $la) ?>, <?= $h((string) $lo) ?></div>
-          <?php endif; ?>
-        </div>
-      </div>
-    </section>
-    <?php endif; ?>
-
     <section class="doc-section" aria-labelledby="sec-itens">
       <h2 id="sec-itens" class="doc-section-title">Materiais e movimentação</h2>
 
       <div class="table-block">
         <div class="table-head">Materiais e serviços utilizados</div>
         <?php if ($matsUtil === []): ?>
-          <p class="muted" style="margin:6px 8px;">Nenhum item utilizado registado.</p>
+          <p class="muted" style="margin:3px 6px;">Nenhum item utilizado registado.</p>
         <?php else: ?>
           <table class="data">
             <thead>
@@ -965,7 +1054,7 @@ function chamado_export_document_html(
       <div class="table-block" style="margin-top:8px;">
         <div class="table-head table-head--neutral">Itens recolhidos / devolvidos</div>
         <?php if ($matsDev === []): ?>
-          <p class="muted" style="margin:6px 8px;">Nenhum recolhimento ou devolução registado.</p>
+          <p class="muted" style="margin:3px 6px;">Nenhum recolhimento ou devolução registado.</p>
         <?php else: ?>
           <table class="data">
             <thead>
@@ -993,56 +1082,7 @@ function chamado_export_document_html(
               <?php endforeach; ?>
             </tbody>
           </table>
-          <p class="muted" style="margin:6px 8px 8px;font-size:8px;">Valores de devolução não entram no total financeiro do utilizado.</p>
-        <?php endif; ?>
-      </div>
-    </section>
-
-    <section class="doc-section" aria-labelledby="sec-timeline">
-      <h2 id="sec-timeline" class="doc-section-title">Linha do tempo da conversa</h2>
-      <div class="timeline-wrap">
-        <?php if ($resumoConversa): ?>
-          <?php
-          $nResp = count($respostas);
-          $nInt = 0;
-          foreach ($respostas as $rx) {
-              if (!empty($rx['interna'])) {
-                  $nInt++;
-              }
-          }
-          ?>
-          <?php if ($nResp === 0): ?>
-            <p class="muted" style="margin:0;">Nenhuma mensagem registada neste chamado.</p>
-          <?php else: ?>
-            <p style="margin:0;line-height:1.65;color:#334155;">
-              <strong><?= (int) $nResp ?></strong> mensagem(ns) na conversa<?= $nInt > 0 ? ', incluindo <strong>' . (int) $nInt . '</strong> nota(s) interna(s) (visíveis apenas na gestão).' : '.' ?>
-              O texto completo das mensagens pode ser consultado no sistema.
-            </p>
-          <?php endif; ?>
-        <?php elseif ($respostas === []): ?>
-          <p class="muted" style="margin:0;">Nenhuma mensagem registada.</p>
-        <?php else: ?>
-          <div class="timeline">
-            <?php foreach ($respostas as $r):
-                $tipoRaw = (string) ($r['tipo'] ?? '');
-                $role = $roleFromTipo($tipoRaw);
-                $autor = trim((string) ($r['autor'] ?? ''));
-                $when = (string) ($r['data'] ?? '');
-                $txtRaw = (string) ($r['texto'] ?? '');
-                $txtShow = $excerptMsg($txtRaw);
-                ?>
-            <div class="tl-item">
-              <span class="tl-dot" aria-hidden="true"></span>
-              <div class="tl-head">
-                <span class="tl-role"><?= $h($role) ?></span>
-                <?php if ($autor !== ''): ?><span class="tl-name"><?= $h($autor) ?></span><?php endif; ?>
-                <span class="tl-when"><?= $h($when) ?></span>
-                <?php if (!empty($r['interna'])): ?><span class="pill-int">Interna</span><?php endif; ?>
-              </div>
-              <p class="tl-text"><?= nl2br($h($txtShow !== '' ? $txtShow : '—')) ?></p>
-            </div>
-            <?php endforeach; ?>
-          </div>
+          <p class="muted" style="margin:2px 6px 4px;font-size:7px;">Valores de devolução não entram no total financeiro do utilizado.</p>
         <?php endif; ?>
       </div>
     </section>

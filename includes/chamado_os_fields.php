@@ -113,6 +113,33 @@ function chamado_eh_origem_importacao_bm(?array $chamado): bool
     return trim((string) ($chamado['origem_os'] ?? '')) === 'Importação BM';
 }
 
+/**
+ * Portal do cliente: pode editar a ficha OS enquanto status é Aberto e ainda não há técnico atribuído.
+ */
+function chamado_portal_cliente_pode_editar_os(?array $chamado): bool
+{
+    if (!$chamado) {
+        return false;
+    }
+    if (trim((string) ($chamado['status'] ?? '')) !== 'Aberto') {
+        return false;
+    }
+    $ids = $chamado['tecnico_ids'] ?? [];
+    if (!is_array($ids)) {
+        $ids = [];
+    }
+    foreach ($ids as $tid) {
+        if ((int) $tid > 0) {
+            return false;
+        }
+    }
+    if ((int) ($chamado['tecnico_user_id'] ?? 0) > 0) {
+        return false;
+    }
+
+    return true;
+}
+
 /** Gera o título do chamado a partir da classificação da OS (problema, origem opcional). */
 function chamado_os_titulo_from_post(array $post): string
 {

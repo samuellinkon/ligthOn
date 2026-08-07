@@ -28,29 +28,74 @@ function notificacao_ui_tipo(array $n): string
     $tipo   = strtolower(trim((string) ($n['tipo'] ?? '')));
     $titulo = mb_strtolower((string) ($n['titulo'] ?? ''), 'UTF-8');
 
-    if ($tipo === 'chamado_tecnico_atribuido' || str_contains($titulo, 'atribuído') || str_contains($titulo, 'atribuido')) {
+    if ($tipo === 'chamado_criado' || preg_match('/^novo chamado\s*#/', $titulo)) {
+        return 'created';
+    }
+    if (
+        $tipo === 'chamado_tecnico_atribuido'
+        || str_contains($titulo, 'atribuído a você')
+        || str_contains($titulo, 'atribuido a você')
+        || str_contains($titulo, 'atribuído a voce')
+        || str_contains($titulo, 'atribuido a voce')
+    ) {
         return 'assigned';
     }
-    if (str_contains($titulo, 'validado')) {
+    if (
+        $tipo === 'chamado_finalizado_tecnico'
+        || $tipo === 'chamado_em_atendimento'
+        || str_contains($titulo, 'finalizado pelo técnico')
+        || str_contains($titulo, 'finalizado pelo tecnico')
+        || str_contains($titulo, 'em atendimento')
+        || str_contains($titulo, 'técnico designado')
+        || str_contains($titulo, 'tecnico designado')
+    ) {
+        return 'finalized';
+    }
+    if (
+        $tipo === 'chamado_aprovado_gestor'
+        || str_contains($titulo, 'aprovado pelo gestor')
+        || (str_contains($titulo, 'foi resolvido') && !str_contains($titulo, 'validado'))
+    ) {
+        return 'approved';
+    }
+    if (
+        $tipo === 'chamado_validado_cliente'
+        || str_contains($titulo, 'validado pelo cliente')
+        || str_contains($titulo, 'aprovado pelo cliente')
+        || str_contains($titulo, 'validado')
+    ) {
         return 'validated';
     }
-    if (str_contains($titulo, 'resolvido')) {
-        return 'resolved';
-    }
-    if (str_contains($titulo, 'urgente')) {
-        return 'urgent';
-    }
-    if ($tipo === 'chamado_criado' || str_contains($titulo, 'novo chamado')) {
-        return 'urgent';
+    if ($tipo === 'chamado_reaberto' || str_contains($titulo, 'reaberto')) {
+        return 'reopened';
     }
     if ($tipo === 'chamado_mensagem' || str_contains($titulo, 'mensagem')) {
         return 'message';
     }
-    if ($tipo === 'chamado_status') {
-        return 'status';
+    if ($tipo === 'medicao_bm_importado' || str_contains($titulo, 'importação bm') || str_contains($titulo, 'importacao bm')) {
+        return 'bm';
+    }
+    if ($tipo === 'medicao_custo_pendente' || str_contains($titulo, 'custo adicional') || str_contains($titulo, 'custo pendente')) {
+        return 'custo';
     }
 
     return 'info';
+}
+
+function notificacao_ui_icone(string $tipo): string
+{
+    return match ($tipo) {
+        'created'   => '✚',
+        'assigned'  => '👤',
+        'finalized' => '⏳',
+        'approved'  => '✓',
+        'validated' => '★',
+        'message'   => '💬',
+        'reopened'  => '↺',
+        'bm'        => '📊',
+        'custo'     => '💰',
+        default     => 'ℹ',
+    };
 }
 
 function notificacao_ui_titulo(array $n): string
@@ -58,24 +103,21 @@ function notificacao_ui_titulo(array $n): string
     $titulo = trim((string) ($n['titulo'] ?? ''));
     $cid    = notificacao_ui_extrair_chamado_id($n);
     $idPart = $cid > 0 ? '#' . $cid : '';
+    $tipo   = notificacao_ui_tipo($n);
 
-    if (preg_match('/foi atribuído um chamado ao técnico/i', $titulo)) {
-        return 'Chamado ' . $idPart . ' atribuído a você';
-    }
-    if (preg_match('/chamado\s*#\d+\s*:\s*resolvido/i', $titulo)) {
-        return 'Chamado ' . $idPart . ' foi resolvido';
-    }
-    if (preg_match('/chamado\s*#\d+\s*:\s*validado/i', $titulo)) {
-        return 'Chamado ' . $idPart . ' validado';
-    }
-    if (preg_match('/nova mensagem no chamado/i', $titulo)) {
-        return 'Nova mensagem no chamado ' . $idPart;
-    }
-    if (preg_match('/novo chamado/i', $titulo)) {
-        return 'Novo chamado ' . $idPart;
-    }
-
-    return $titulo !== '' ? $titulo : 'Notificação';
+    return match ($tipo) {
+        'created'   => 'Novo chamado ' . $idPart,
+        'assigned'  => 'Chamado ' . $idPart . ' atribuído a você',
+        'finalized' => str_contains(mb_strtolower($titulo, 'UTF-8'), 'em atendimento')
+            || str_contains(mb_strtolower((string) ($n['tipo'] ?? ''), 'UTF-8'), 'em_atendimento')
+            ? 'Chamado ' . $idPart . ' em atendimento'
+            : 'Chamado ' . $idPart . ' finalizado pelo técnico',
+        'approved'  => 'Chamado ' . $idPart . ' aprovado pelo gestor',
+        'validated' => 'Chamado ' . $idPart . ' validado pelo cliente',
+        'reopened'  => 'Chamado ' . $idPart . ' reaberto pelo cliente',
+        'message'   => 'Nova mensagem no chamado ' . $idPart,
+        default     => $titulo !== '' ? $titulo : 'Notificação',
+    };
 }
 
 function notificacao_ui_descricao(array $n): string
@@ -86,11 +128,15 @@ function notificacao_ui_descricao(array $n): string
     }
 
     return match (notificacao_ui_tipo($n)) {
-        'assigned'  => 'Você foi definido como responsável técnico por este chamado.',
-        'resolved'  => 'O atendimento foi marcado como resolvido e aguarda validação, se aplicável.',
-        'validated' => 'O chamado foi conferido e validado pela gestão.',
+        'created'   => 'Um novo chamado foi aberto. Abra para analisar e encaminhar.',
+        'assigned'  => 'Um chamado foi atribuído a você. Abra para iniciar o atendimento.',
+        'finalized' => 'O técnico finalizou o atendimento. O chamado aguarda aprovação do gestor.',
+        'approved'  => 'O gestor aprovou o atendimento. O chamado aguarda validação do cliente.',
+        'validated' => 'O cliente validou o chamado.',
+        'reopened'  => 'O chamado voltou ao status Aberto para novo atendimento.',
         'message'   => 'Há uma nova mensagem neste chamado. Abra para ler e responder.',
-        'urgent'    => 'Este chamado requer atenção prioritária.',
+        'bm'        => 'Uma nova medição BM foi importada. Abra o mês para conferir os dados.',
+        'custo'     => 'Há um custo pendente de aprovação na medição.',
         default     => 'Atualização relacionada a este chamado.',
     };
 }

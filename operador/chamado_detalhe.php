@@ -244,17 +244,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
         if ($nomeItem === '') {
             flash_set('err', 'Informe o nome do item devolutivo.');
         } else {
-            require_once __DIR__ . '/../includes/notificacoes.php';
-            $tituloNotif = sprintf('Solicitação de item devolutivo no chamado #%d: %s', $id, mb_substr($nomeItem, 0, 80, 'UTF-8'));
-            $descNotif   = trim($codItem !== '' ? 'Código: ' . $codItem . ' · ' : '') . 'Qtd: ' . $qtdItem
-                . ($obsItem !== '' ? ' · ' . $obsItem : '');
-            $destGest = repo_notificacao_destinatarios_chamado($id, true);
-            foreach (array_unique($destGest) as $uidDest) {
-                if ((int) $uidDest === (int) ($user['id'] ?? 0)) {
-                    continue;
-                }
-                repo_notificacao_insert((int) $uidDest, $id, null, $tituloNotif, $descNotif, 'chamado_item_devolutivo');
-            }
             audit_log_registar('chamado.item_devolutivo.solicitar', 'chamado', $id, (int) ($ch['cliente_id'] ?? 0) ?: null, [
                 'nome' => $nomeItem, 'codigo' => $codItem, 'qtd' => $qtdItem, 'obs' => $obsItem,
             ]);
@@ -268,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
                 'operador',
                 $txtDev,
                 false,
-                (int) ($user['id'] ?? 0)
+                null
             );
             flash_set('ok', 'Solicitação enviada ao gestor.');
         }

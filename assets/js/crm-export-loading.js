@@ -218,7 +218,11 @@
         var ct = (response.headers.get('Content-Type') || '').toLowerCase();
 
         if (response.redirected && ct.indexOf('text/html') !== -1) {
-          window.location.href = response.url;
+          if (openInNewTab) {
+            window.open(response.url, '_blank', 'noopener,noreferrer');
+          } else {
+            window.location.href = response.url;
+          }
           return null;
         }
 
@@ -226,8 +230,13 @@
           throw new Error('Falha na exportação (HTTP ' + response.status + ').');
         }
 
+        // HTML de impressão (export=pdf do chamado): respeita target="_blank".
         if (ct.indexOf('text/html') !== -1) {
-          window.location.href = url;
+          if (openInNewTab) {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          } else {
+            window.location.href = url;
+          }
           return null;
         }
 

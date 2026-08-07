@@ -27,15 +27,58 @@
   function getNotificationType(n) {
     var tipo = String((n && n.tipo) || '').toLowerCase();
     var titulo = String((n && n.titulo) || '').toLowerCase();
-    if (tipo === 'chamado_tecnico_atribuido' || titulo.indexOf('atribuído') !== -1 || titulo.indexOf('atribuido') !== -1) {
+
+    if (tipo === 'chamado_criado' || /^novo chamado\s*#/.test(titulo)) {
+      return 'created';
+    }
+    if (
+      tipo === 'chamado_tecnico_atribuido' ||
+      titulo.indexOf('atribuído a você') !== -1 ||
+      titulo.indexOf('atribuido a você') !== -1 ||
+      titulo.indexOf('atribuído a voce') !== -1 ||
+      titulo.indexOf('atribuido a voce') !== -1
+    ) {
       return 'assigned';
     }
-    if (titulo.indexOf('validado') !== -1) return 'validated';
-    if (titulo.indexOf('resolvido') !== -1) return 'resolved';
-    if (titulo.indexOf('urgente') !== -1) return 'urgent';
-    if (tipo === 'chamado_mensagem' || titulo.indexOf('mensagem') !== -1) return 'message';
-    if (tipo === 'chamado_status' || /chamado\s*#\d+\s*:/.test(titulo)) return 'status';
+    if (
+      tipo === 'chamado_finalizado_tecnico' ||
+      tipo === 'chamado_em_atendimento' ||
+      titulo.indexOf('finalizado pelo técnico') !== -1 ||
+      titulo.indexOf('finalizado pelo tecnico') !== -1 ||
+      titulo.indexOf('em atendimento') !== -1 ||
+      titulo.indexOf('técnico designado') !== -1 ||
+      titulo.indexOf('tecnico designado') !== -1
+    ) {
+      return 'finalized';
+    }
+    if (
+      tipo === 'chamado_aprovado_gestor' ||
+      titulo.indexOf('aprovado pelo gestor') !== -1 ||
+      (titulo.indexOf('foi resolvido') !== -1 && titulo.indexOf('validado') === -1)
+    ) {
+      return 'approved';
+    }
+    if (
+      tipo === 'chamado_validado_cliente' ||
+      titulo.indexOf('validado pelo cliente') !== -1 ||
+      titulo.indexOf('aprovado pelo cliente') !== -1 ||
+      titulo.indexOf('validado') !== -1
+    ) {
+      return 'validated';
+    }
+    if (tipo === 'chamado_reaberto' || titulo.indexOf('reaberto') !== -1) {
+      return 'reopened';
+    }
+    if (tipo === 'chamado_mensagem' || titulo.indexOf('mensagem') !== -1) {
+      return 'message';
+    }
     if (tipo === 'medicao_bm_importado' || titulo.indexOf('importação bm') !== -1 || titulo.indexOf('importacao bm') !== -1) {
+      return 'bm';
+    }
+    if (tipo === 'medicao_custo_pendente' || titulo.indexOf('custo adicional') !== -1 || titulo.indexOf('custo pendente') !== -1) {
+      return 'custo';
+    }
+    if (tipo === 'chamado_status' || tipo === 'chamado_item_devolutivo') {
       return 'info';
     }
     return 'info';
@@ -43,12 +86,15 @@
 
   function getNotificationIcon(type) {
     var icons = {
+      created: '✚',
       assigned: '👤',
-      resolved: '✓',
-      validated: '✓',
-      urgent: '!',
+      finalized: '⏳',
+      approved: '✓',
+      validated: '★',
       message: '💬',
-      status: '↻',
+      reopened: '↺',
+      bm: '📊',
+      custo: '💰',
       info: 'ℹ',
     };
     return icons[type] || icons.info;
@@ -66,29 +112,23 @@
     var titulo = String((n && n.titulo) || '').trim();
     var cid = extractChamadoId(n);
     var idPart = cid > 0 ? '#' + cid : '';
-    var low = titulo.toLowerCase();
+    var type = getNotificationType(n);
 
-    if (/foi atribuído um chamado ao técnico/i.test(titulo) || /atribuído um chamado/i.test(titulo)) {
-      return 'Chamado ' + idPart + ' atribuído a você';
+    if (type === 'created') return 'Novo chamado ' + idPart;
+    if (type === 'assigned') return 'Chamado ' + idPart + ' atribuído a você';
+    if (type === 'finalized') {
+      var tipoRaw = String((n && n.tipo) || '').toLowerCase();
+      if (titulo.toLowerCase().indexOf('em atendimento') !== -1 || tipoRaw === 'chamado_em_atendimento') {
+        return 'Chamado ' + idPart + ' em atendimento';
+      }
+      return 'Chamado ' + idPart + ' finalizado pelo técnico';
     }
-    if (/chamado\s*#\d+\s*:\s*resolvido/i.test(titulo)) {
-      return 'Chamado ' + idPart + ' foi resolvido';
-    }
-    if (/chamado\s*#\d+\s*:\s*validado/i.test(titulo)) {
-      return 'Chamado ' + idPart + ' validado';
-    }
-    if (/chamado\s*#\d+\s*:\s*/i.test(titulo)) {
-      var st = extractStatusFromTitle(titulo);
-      return st ? 'Chamado ' + idPart + ': ' + st : titulo;
-    }
-    if (/nova mensagem no chamado/i.test(titulo)) {
-      return 'Nova mensagem no chamado ' + idPart;
-    }
+    if (type === 'approved') return 'Chamado ' + idPart + ' aprovado pelo gestor';
+    if (type === 'validated') return 'Chamado ' + idPart + ' validado pelo cliente';
+    if (type === 'reopened') return 'Chamado ' + idPart + ' reaberto pelo cliente';
+    if (type === 'message') return 'Nova mensagem no chamado ' + idPart;
     if (/nova importação bm/i.test(titulo) || /nova importacao bm/i.test(titulo)) {
       return titulo;
-    }
-    if (low.indexOf('urgente') !== -1 && cid > 0) {
-      return 'Chamado ' + idPart + ' — atenção urgente';
     }
     return titulo || 'Notificação';
   }
@@ -98,55 +138,47 @@
     if (desc) return desc;
 
     var type = getNotificationType(n);
-    var titulo = String((n && n.titulo) || '').toLowerCase();
-
-    if (type === 'assigned') {
-      return 'Você foi definido como responsável técnico por este chamado.';
+    if (type === 'created') {
+      return 'Um novo chamado foi aberto. Abra para analisar e encaminhar.';
     }
-    if (type === 'resolved') {
-      return 'O atendimento foi marcado como resolvido e aguarda validação, se aplicável.';
+    if (type === 'assigned') {
+      return 'Um chamado foi atribuído a você. Abra para iniciar o atendimento.';
+    }
+    if (type === 'finalized') {
+      return 'O técnico finalizou o atendimento. O chamado aguarda aprovação do gestor.';
+    }
+    if (type === 'approved') {
+      return 'O gestor aprovou o atendimento. O chamado aguarda validação do cliente.';
     }
     if (type === 'validated') {
-      return 'O chamado foi conferido e validado pela gestão.';
+      return 'O cliente validou o chamado.';
+    }
+    if (type === 'reopened') {
+      return 'O chamado voltou ao status Aberto para novo atendimento.';
     }
     if (type === 'message') {
       return 'Há uma nova mensagem neste chamado. Abra para ler e responder.';
     }
-    if (String((n && n.tipo) || '') === 'medicao_bm_importado') {
+    if (type === 'bm') {
       return 'Uma nova medição BM foi importada. Abra o mês para conferir os dados.';
     }
-    if (type === 'urgent') {
-      return 'Este chamado requer atenção prioritária.';
-    }
-    if (type === 'status') {
-      var st = extractStatusFromTitle(n.titulo);
-      if (st === 'Em andamento') {
-        return 'O chamado entrou em atendimento. Acompanhe o progresso.';
-      }
-      if (st === 'Aguardando Aprovação') {
-        return 'O chamado aguarda aprovação da gestão.';
-      }
-      if (st) {
-        return 'O status do chamado foi atualizado para «' + st + '».';
-      }
-    }
-    if (titulo.indexOf('fechado') !== -1) {
-      return 'O chamado foi encerrado.';
+    if (type === 'custo') {
+      return 'Há um custo pendente de aprovação na medição.';
     }
     return 'Atualização relacionada a este chamado.';
   }
 
   function getEventLabel(n) {
     var type = getNotificationType(n);
+    if (type === 'created') return 'Criação';
     if (type === 'assigned') return 'Atribuído';
-    if (type === 'resolved') return 'Resolvido';
-    if (type === 'validated') return 'Validado';
+    if (type === 'finalized') return 'Finalizado pelo técnico';
+    if (type === 'approved') return 'Aprovado pelo gestor';
+    if (type === 'validated') return 'Validado pelo cliente';
+    if (type === 'reopened') return 'Reaberto';
     if (type === 'message') return 'Mensagem';
-    if (type === 'urgent') return 'Urgente';
-    if (type === 'status') {
-      var st = extractStatusFromTitle(n.titulo);
-      return st || 'Status';
-    }
+    if (type === 'bm') return 'Importação BM';
+    if (type === 'custo') return 'Custo pendente';
     return 'Atualização';
   }
 
@@ -199,11 +231,6 @@
     return d ? d.getTime() : 0;
   }
 
-  function isMedicaoNotification(n) {
-    var tipo = String((n && n.tipo) || '').toLowerCase();
-    return tipo === 'medicao_custo_pendente' || tipo === 'medicao_bm_importado';
-  }
-
   function resolveNotificationHref(n) {
     var link = n && n.link ? String(n.link).trim() : '';
     if (link && link !== '#') return link;
@@ -211,67 +238,36 @@
     return cid > 0 ? 'chamado_detalhe.php?id=' + cid : '#';
   }
 
-  function isChamadoNotification(n) {
-    if (isMedicaoNotification(n)) return false;
-    var tipo = String((n && n.tipo) || '').toLowerCase();
-    if (tipo.indexOf('chamado') === 0) return true;
-    return extractChamadoId(n) > 0;
-  }
-
-  function isSystemNotification(n) {
-    return !isChamadoNotification(n);
+  function filterTypeKey(filter) {
+    if (filter === 'aberto') return 'created';
+    if (filter === 'atendido_tecnico') return 'finalized';
+    if (filter === 'validado') return 'validated';
+    if (filter === 'aprovado') return 'approved';
+    return '';
   }
 
   function filterNotifications(items, filter) {
     if (!filter || filter === 'all') return items;
-    if (filter === 'unread') return items.filter(isUnread);
-    if (filter === 'chamados') {
-      return items.filter(isChamadoNotification);
-    }
-    if (filter === 'sistema') {
-      return items.filter(isSystemNotification);
-    }
-    return items;
+    var typeKey = filterTypeKey(filter);
+    if (!typeKey) return items;
+    return items.filter(function (n) {
+      return getNotificationType(n) === typeKey;
+    });
   }
 
+  /**
+   * Cada notificação vira um item separado (sem agrupar por chamado),
+   * para exibir criação, resolvido, aprovação etc. individualmente.
+   */
   function groupNotificationsByChamado(notifications) {
-    var byChamado = {};
-    var singles = [];
-
-    notifications.forEach(function (n) {
-      if (isMedicaoNotification(n)) {
-        singles.push({ kind: 'single', item: n });
-        return;
-      }
-      var cid = extractChamadoId(n);
-      if (cid <= 0) {
-        singles.push({ kind: 'single', item: n });
-        return;
-      }
-      if (!byChamado[cid]) byChamado[cid] = [];
-      byChamado[cid].push(n);
-    });
-
-    var groups = [];
-    Object.keys(byChamado).forEach(function (key) {
-      var cid = parseInt(key, 10);
-      var items = byChamado[cid].slice().sort(function (a, b) {
+    return notifications
+      .slice()
+      .sort(function (a, b) {
         return notificationSortKey(b) - notificationSortKey(a);
+      })
+      .map(function (n) {
+        return { kind: 'single', item: n };
       });
-      if (items.length === 1) {
-        groups.push({ kind: 'single', item: items[0] });
-      } else {
-        groups.push({ kind: 'group', chamado_id: cid, items: items });
-      }
-    });
-
-    var all = groups.concat(singles);
-    all.sort(function (a, b) {
-      var ta = a.kind === 'group' ? notificationSortKey(a.items[0]) : notificationSortKey(a.item);
-      var tb = b.kind === 'group' ? notificationSortKey(b.items[0]) : notificationSortKey(b.item);
-      return tb - ta;
-    });
-    return all;
   }
 
   function buildGroupedTitle(g) {
@@ -288,6 +284,12 @@
         labels.push(lbl);
       }
     });
+    // Validado sucede Resolvido — não mostrar os dois no mesmo agrupamento.
+    if (seen['Validado'] && seen['Resolvido']) {
+      labels = labels.filter(function (lbl) {
+        return lbl !== 'Resolvido';
+      });
+    }
     return labels.join(' · ');
   }
 
@@ -314,10 +316,16 @@
   }
 
   function collectIds(g) {
-    if (g.kind === 'single') return [g.item.id];
-    return g.items.map(function (n) {
-      return n.id;
-    });
+    var ids =
+      g.kind === 'single'
+        ? [g.item.id]
+        : g.items.map(function (n) {
+            return n.id;
+          });
+    if (g.suppressed_ids && g.suppressed_ids.length) {
+      ids = ids.concat(g.suppressed_ids);
+    }
+    return ids;
   }
 
   function renderEntry(g, filterActive) {
@@ -499,8 +507,7 @@
       });
 
       if (markAll) {
-        var unreadFiltered = filterNotifications(allItems, 'unread');
-        markAll.hidden = unreadFiltered.length === 0;
+        markAll.hidden = allItems.filter(isUnread).length === 0;
       }
 
       list.querySelectorAll('.topbar-notif-link').forEach(function (a) {
@@ -594,7 +601,9 @@
         e.preventDefault();
         activeFilter = tab.getAttribute('data-notif-filter') || 'all';
         tabs.forEach(function (t) {
-          t.classList.toggle('is-active', t === tab);
+          var on = t === tab;
+          t.classList.toggle('is-active', on);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
         });
         renderList();
       });

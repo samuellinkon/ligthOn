@@ -15,12 +15,13 @@ require_once __DIR__ . '/repository.php';
 require_once __DIR__ . '/flash.php';
 require_once __DIR__ . '/notificacao_ui.php';
 
-$uid        = (int) ($NOTIF_PAINEL['uid'] ?? 0);
-$selfFile   = (string) ($NOTIF_PAINEL['self'] ?? 'notificacoes.php');
-$voltar     = (string) ($NOTIF_PAINEL['voltar'] ?? 'index.php');
-$sidebar    = (string) ($NOTIF_PAINEL['sidebar'] ?? 'sidebar-admin.php');
-$pageTitle  = (string) ($NOTIF_PAINEL['pageTitle'] ?? 'Notificações');
-$activePage = (string) ($NOTIF_PAINEL['activePage'] ?? '');
+$uid              = (int) ($NOTIF_PAINEL['uid'] ?? 0);
+$selfFile         = (string) ($NOTIF_PAINEL['self'] ?? 'notificacoes.php');
+$voltar           = (string) ($NOTIF_PAINEL['voltar'] ?? 'index.php');
+$sidebar          = (string) ($NOTIF_PAINEL['sidebar'] ?? 'sidebar-admin.php');
+$pageTitle        = (string) ($NOTIF_PAINEL['pageTitle'] ?? 'Notificações');
+$activePage       = (string) ($NOTIF_PAINEL['activePage'] ?? '');
+$somenteAtribuido = !empty($NOTIF_PAINEL['somenteAtribuido']);
 
 if ($uid <= 0) {
     http_response_code(403);
@@ -28,17 +29,22 @@ if ($uid <= 0) {
     exit;
 }
 
+$filtrosOk = ['aberto', 'atendido_tecnico', 'validado', 'aprovado'];
 $filtroRaw = strtolower(trim((string) ($_GET['filtro'] ?? '')));
-$filtro    = $filtroRaw === 'unread' ? 'unread' : null;
+$filtro    = $somenteAtribuido
+    ? null
+    : (in_array($filtroRaw, $filtrosOk, true) ? $filtroRaw : null);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $acao = strtolower(trim((string) ($_POST['acao'] ?? '')));
     if ($acao === 'read_all' && db_ok() && repo_notificacoes_table_exists()) {
-        repo_notificacoes_marcar_todas_lidas($uid);
+        repo_notificacoes_marcar_todas_lidas($uid, $somenteAtribuido);
         flash_set('ok', 'Todas as notificações foram marcadas como lidas.');
     }
     $postFiltro = strtolower(trim((string) ($_POST['filtro'] ?? '')));
-    $redirFiltro = $postFiltro === 'unread' ? 'unread' : null;
+    $redirFiltro = $somenteAtribuido
+        ? null
+        : (in_array($postFiltro, $filtrosOk, true) ? $postFiltro : null);
     $redir = notif_painel_url($selfFile, max(1, (int) ($_POST['page'] ?? 1)), $redirFiltro);
     header('Location: ' . $redir);
     exit;
@@ -78,17 +84,17 @@ $unreadTotal = 0;
 $tableOk     = db_ok() && repo_notificacoes_table_exists();
 
 if ($tableOk) {
-    $res         = repo_notificacoes_list_paginated($uid, $page, $perPage, $filtro);
+    $res         = repo_notificacoes_list_paginated($uid, $page, $perPage, $filtro, $somenteAtribuido);
     $rows        = $res['rows'];
     $total       = (int) $res['total'];
-    $unreadTotal = repo_notificacoes_count_unread($uid);
+    $unreadTotal = repo_notificacoes_count_unread($uid, $somenteAtribuido);
 }
 
 $totalPages = max(1, (int) ceil($total / $perPage));
 if ($page > $totalPages) {
     $page = $totalPages;
     if ($tableOk) {
-        $res   = repo_notificacoes_list_paginated($uid, $page, $perPage, $filtro);
+        $res   = repo_notificacoes_list_paginated($uid, $page, $perPage, $filtro, $somenteAtribuido);
         $rows  = $res['rows'];
         $total = (int) $res['total'];
     }
@@ -101,8 +107,9 @@ $toN    = $total === 0 ? 0 : min($offset + count($rows), $total);
 function notif_painel_url(string $self, int $p, ?string $filtro): string
 {
     $qs = [];
-    if ($filtro === 'unread') {
-        $qs['filtro'] = 'unread';
+    $ok = ['aberto', 'atendido_tecnico', 'validado', 'aprovado'];
+    if ($filtro !== null && $filtro !== '' && in_array($filtro, $ok, true)) {
+        $qs['filtro'] = $filtro;
     }
     if ($p > 1) {
         $qs['page'] = $p;
@@ -130,13 +137,15 @@ include __DIR__ . '/head.php';
   <div class="card">
     <div class="panel-head notif-page__head">
       <div>
-        <h4>Todas as notificações</h4>
-        <span class="panel-sub">Mensagens e avisos dos seus chamados</span>
+        <h4><?= $somenteAtribuido ? 'Chamados atribuídos' : 'Todas as notificações' ?></h4>
+        <span class="panel-sub"><?= $somenteAtribuido
+            ? 'Avisos quando um chamado é atribuído a você'
+            : 'Mensagens e avisos dos seus chamados' ?></span>
       </div>
       <?php if ($tableOk && $unreadTotal > 0): ?>
       <form method="post" action="<?= htmlspecialchars($selfFile) ?>" class="notif-page__mark-all-form">
         <input type="hidden" name="acao" value="read_all">
-        <?php if ($filtro === 'unread'): ?><input type="hidden" name="filtro" value="unread"><?php endif; ?>
+        <?php if ($filtro !== null): ?><input type="hidden" name="filtro" value="<?= htmlspecialchars($filtro) ?>"><?php endif; ?>
         <?php if ($page > 1): ?><input type="hidden" name="page" value="<?= (int) $page ?>"><?php endif; ?>
         <button type="submit" class="btn btn-secondary btn-sm">Marcar todas como lidas</button>
       </form>
@@ -144,21 +153,36 @@ include __DIR__ . '/head.php';
     </div>
 
     <div class="panel-body">
+      <?php if (!$somenteAtribuido):
+      $filtrosUi = [
+          ''                  => 'Todas',
+          'aberto'            => 'Aberto',
+          'atendido_tecnico'  => 'Atendido por técnico',
+          'validado'          => 'Validado',
+          'aprovado'          => 'Aprovado',
+      ];
+      ?>
       <div class="notif-page__filters" role="tablist" aria-label="Filtrar notificações">
-        <a href="<?= htmlspecialchars(notif_painel_url($selfFile, 1, null)) ?>"
-           class="notif-page__filter<?= $filtro === null ? ' is-active' : '' ?>">Todas</a>
-        <a href="<?= htmlspecialchars(notif_painel_url($selfFile, 1, 'unread')) ?>"
-           class="notif-page__filter<?= $filtro === 'unread' ? ' is-active' : '' ?>">
-          Não lidas<?= $unreadTotal > 0 ? ' (' . (int) $unreadTotal . ')' : '' ?>
-        </a>
+        <?php foreach ($filtrosUi as $filtroKey => $filtroLabel):
+            $filtroVal = $filtroKey === '' ? null : $filtroKey;
+            $isActive  = ($filtroVal === null && $filtro === null) || ($filtroVal !== null && $filtro === $filtroVal);
+            ?>
+        <a href="<?= htmlspecialchars(notif_painel_url($selfFile, 1, $filtroVal)) ?>"
+           class="notif-page__filter<?= $isActive ? ' is-active' : '' ?>"
+           role="tab"
+           aria-selected="<?= $isActive ? 'true' : 'false' ?>"><?= htmlspecialchars($filtroLabel) ?></a>
+        <?php endforeach; ?>
       </div>
+      <?php endif; ?>
 
       <?php if (!$tableOk): ?>
         <div class="empty">Notificações indisponíveis (banco ou tabela ausente).</div>
       <?php elseif ($rows === []): ?>
         <div class="empty">
           <strong>Nenhuma notificação</strong>
-          <?= $filtro === 'unread' ? ' por ler no momento.' : ' no seu histórico.' ?>
+          <?= $somenteAtribuido
+              ? ' de chamado atribuído.'
+              : ($filtro === null ? ' no seu histórico.' : ' neste filtro.') ?>
         </div>
       <?php else: ?>
         <p class="notif-page__meta">A mostrar <?= (int) $fromN ?>–<?= (int) $toN ?> de <?= (int) $total ?>.</p>

@@ -1,6 +1,7 @@
 <?php
 /**
- * API JSON — notificações do operador logado (mesmo contrato que admin/notificacoes_api.php).
+ * API JSON — notificações do operador logado.
+ * Técnico só vê notificações de chamado atribuído.
  */
 
 require_once __DIR__ . '/../includes/auth.php';
@@ -34,7 +35,7 @@ if ($method === 'GET') {
     if ($action === 'count') {
         echo json_encode([
             'ok'     => true,
-            'unread' => repo_notificacoes_count_unread($uid),
+            'unread' => repo_notificacoes_count_unread($uid, true),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -42,7 +43,7 @@ if ($method === 'GET') {
         $limit = (int) ($_GET['limit'] ?? 40);
         echo json_encode([
             'ok'    => true,
-            'items' => repo_notificacoes_list_for_user($uid, $limit),
+            'items' => repo_notificacoes_list_for_user($uid, $limit, true),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -63,12 +64,12 @@ if ($method === 'POST') {
         $ok = repo_notificacao_marcar_lida($nid, $uid);
         echo json_encode([
             'ok'     => $ok,
-            'unread' => repo_notificacoes_count_unread($uid),
+            'unread' => repo_notificacoes_count_unread($uid, true),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
     if ($action === 'read_all') {
-        $n = repo_notificacoes_marcar_todas_lidas($uid);
+        $n = repo_notificacoes_marcar_todas_lidas($uid, true);
         echo json_encode([
             'ok'      => true,
             'updated' => $n,

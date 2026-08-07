@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($acao === '' && ($trLeg !== '' || $temLeg)) {
                 $acao = 'responder';
             }
-            $acoesPortalCliente = ['responder', 'status', 'cancelar', 'validar'];
+            $acoesPortalCliente = ['responder', 'status', 'cancelar', 'validar', 'os_dados'];
             if (!in_array($acao, $acoesPortalCliente, true)) {
                 flash_set('err', 'Esta ação não está disponível no portal do cliente.');
                 header('Location: chamado_detalhe.php?id=' . $id);
@@ -437,6 +437,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } elseif ($acao === 'os_dados') {
             require_once __DIR__ . '/../includes/chamado_os_fields.php';
+            if ($CRM_CHAMADO_PORTAL) {
+                $chOsPortal = (isset($__chPost) && is_array($__chPost)) ? $__chPost : repo_chamado($id);
+                if (!chamado_portal_cliente_pode_editar_os(is_array($chOsPortal) ? $chOsPortal : null)) {
+                    $errOsPortal = 'A ficha só pode ser alterada enquanto o chamado estiver Aberto e sem técnico atribuído.';
+                    if (op_chamado_detalhe_is_ajax()) {
+                        op_chamado_mat_json_send(['ok' => false, 'err' => $errOsPortal], 403);
+                    }
+                    flash_set('err', $errOsPortal);
+                    header('Location: chamado_detalhe.php?id=' . $id);
+                    exit;
+                }
+            }
             $os = chamado_os_parse_post($_POST);
             $os['titulo'] = chamado_os_titulo_from_post($_POST);
             $os['descricao'] = trim($_POST['descricao'] ?? '');
@@ -604,11 +616,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         $stamp = date('Y-m-d_His');
         if ($exportFmt === 'pdf') {
             require_once __DIR__ . '/../includes/chamado_export_document.php';
+            require_once __DIR__ . '/../includes/chamado_historico.php';
             $cidEx = (int) ($chEx['cliente_id'] ?? 0);
+            $historicoEx = db_ok() ? repo_chamado_historico_list($id, $chEx) : [];
+            $tecnicosEx  = db_ok() ? repo_chamado_tecnicos_list($id) : [];
             audit_log_registar('chamado.exportar', 'chamado', $id, $cidEx > 0 ? $cidEx : null, [
                 'formato' => 'pdf_html',
             ]);
-            $htmlOut = chamado_export_document_html($chEx, $respostasEx, $materiaisEx, $anexosEx, true, $pontoFotosEx, false);
+            $htmlOut = chamado_export_document_html(
+                $chEx,
+                $respostasEx,
+                $materiaisEx,
+                $anexosEx,
+                true,
+                $pontoFotosEx,
+                false,
+                $historicoEx,
+                $tecnicosEx
+            );
             header('Content-Type: text/html; charset=UTF-8');
             header('Content-Disposition: inline; filename="chamado_' . $id . '_impressao.html"');
             echo $htmlOut;
@@ -742,6 +767,9 @@ $tecnicoNomesSelecionados = $chamado['tecnico_nomes'] ?? [];
 if (empty($tecnicoNomesSelecionados) && !empty($chamado['tecnico_nome'])) {
     $tecnicoNomesSelecionados = [(string) $chamado['tecnico_nome']];
 }
+$portalClientePodeEditarOs = $CRM_CHAMADO_PORTAL
+    && is_array($chamado)
+    && chamado_portal_cliente_pode_editar_os($chamado);
 
 /* agrupa anexos por resposta para exibir junto da mensagem (e os "soltos" no painel) */
 $anexosPorResposta = [];
@@ -1272,11 +1300,11 @@ include __DIR__ . '/../includes/head.php';
         $ch_os_use_visualizacao_mapa_component = $chVizMapaAtivo;
         $ch_viz_mapa['geocode_api'] = $chamadoGeocodeApiUrl;
       ?>
-      <?php if ($CRM_CHAMADO_PORTAL): ?>
+      <?php if ($CRM_CHAMADO_PORTAL && !$portalClientePodeEditarOs): ?>
       <div class="card" style="overflow:hidden;">
         <div class="panel-head">
           <h4>Ordem de serviço</h4>
-          <span class="panel-sub">Contribuinte, endereço e classificação no mesmo bloco; descrição abaixo — igual ao formulário de abertura (somente leitura no portal)</span>
+          <span class="panel-sub">Somente leitura — a edição fica disponível enquanto o chamado estiver Aberto e sem técnico atribuído</span>
         </div>
         <fieldset disabled class="chamado-os-portal-readonly" style="border:0;margin:0;padding:0;min-width:0;">
         <div class="form" style="padding: 0 24px 20px;">
@@ -1315,9 +1343,12 @@ include __DIR__ . '/../includes/head.php';
         <?php endif; ?>
       </div>
       <?php else: ?>
-      <div id="chamado-form-os-dados" class="card chamado-os-dados-panel" data-chamado-os-ajax="1" style="overflow:hidden;">
+      <div id="chamado-form-os-dados" class="card chamado-os-dados-panel" data-chamado-os-save="1" style="overflow:hidden;">
         <div class="panel-head">
           <h4>Ordem de serviço</h4>
+          <?php if ($CRM_CHAMADO_PORTAL): ?>
+          <span class="panel-sub">Você pode alterar a ficha enquanto o chamado estiver Aberto e sem técnico atribuído</span>
+          <?php endif; ?>
         </div>
         <div class="form" style="padding: 0 24px 20px;">
           <?php

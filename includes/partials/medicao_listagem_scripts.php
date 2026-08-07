@@ -77,7 +77,7 @@ $medicaoJsClienteId = (int) ($medicaoJsClienteId ?? 0);
       return appendQuery('chamados.php', qc);
     }
     if (kind === 'xlsx_detalhes' || kind === 'pdf_anexos') {
-      var qe = Object.assign({ medicao_mes: mes, export: kind }, p);
+      var qe = Object.assign({ f: 'resolvido_bm', medicao_mes: mes, export: kind }, p);
       if (clienteId > 0) {
         qe.cliente_id = String(clienteId);
       }

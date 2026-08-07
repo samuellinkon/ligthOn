@@ -33,6 +33,7 @@ $painelNotifOk = false;
 $notifUnreadInitial = 0;
 $notifApiHref       = '';
 $notifPaginaHref    = '';
+$perf               = '';
 if (function_exists('db_ok') && db_ok()) {
     if (!function_exists('repo_notificacoes_table_exists')) {
         require_once __DIR__ . '/repository.php';
@@ -52,7 +53,7 @@ if (function_exists('db_ok') && db_ok()) {
         } elseif ($uidN > 0 && $perf === 'operador') {
             $painelNotifOk = true;
             if (function_exists('repo_notificacoes_count_unread')) {
-                $notifUnreadInitial = repo_notificacoes_count_unread($uidN);
+                $notifUnreadInitial = repo_notificacoes_count_unread($uidN, true);
             }
             $notifApiHref    = $bp . '/operador/notificacoes_api.php';
             $notifPaginaHref = $bp . '/operador/notificacoes.php';
@@ -105,12 +106,15 @@ if (function_exists('db_ok') && db_ok()) {
             </div>
             <button type="button" class="topbar-notif-mark-all" id="topbarNotifMarkAll" hidden>Marcar todas como lidas</button>
           </div>
+          <?php if ($perf !== 'operador'): ?>
           <div class="topbar-notif-tabs" role="tablist" aria-label="Filtrar notificações">
             <button type="button" class="is-active" data-notif-filter="all" role="tab" aria-selected="true">Todas</button>
-            <button type="button" data-notif-filter="unread" role="tab" aria-selected="false">Não lidas</button>
-            <button type="button" data-notif-filter="chamados" role="tab" aria-selected="false">Chamados</button>
-            <button type="button" data-notif-filter="sistema" role="tab" aria-selected="false">Sistema</button>
+            <button type="button" data-notif-filter="aberto" role="tab" aria-selected="false">Aberto</button>
+            <button type="button" data-notif-filter="atendido_tecnico" role="tab" aria-selected="false">Atendido por técnico</button>
+            <button type="button" data-notif-filter="validado" role="tab" aria-selected="false">Validado</button>
+            <button type="button" data-notif-filter="aprovado" role="tab" aria-selected="false">Aprovado</button>
           </div>
+          <?php endif; ?>
           <ul class="topbar-notif-list" id="topbarNotifList"></ul>
           <?php if ($notifPaginaHref !== ''): ?>
           <div class="topbar-notif-foot">

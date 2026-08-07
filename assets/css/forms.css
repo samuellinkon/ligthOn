@@ -1161,7 +1161,7 @@ form.info-row {
 .form-fill-dev-fab {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  bottom: 62px; /* acima do FAB Salvar alterações */
   z-index: 9998;
   padding: 10px 14px;
   font-size: 12px;
@@ -1779,6 +1779,53 @@ form.info-row {
 .chamado-os-dados-panel--saving {
   opacity: 0.72;
   pointer-events: none;
+}
+
+/* FAB: salvar ficha OS (admin) — canto inferior direito */
+.chamado-os-save-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9998;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  font-family: inherit;
+  opacity: 0.55;
+  transition: filter 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chamado-os-save-fab.is-dirty {
+  opacity: 1;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+}
+
+.chamado-os-save-fab:hover {
+  filter: brightness(1.06);
+}
+
+.chamado-os-save-fab:active {
+  transform: scale(0.98);
+}
+
+.chamado-os-save-fab.is-saving,
+.chamado-os-save-fab:disabled {
+  cursor: wait;
+  opacity: 0.75;
+  filter: none;
+}
+
+.chamado-os-save-fab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 .equipe-picker-form--saving {

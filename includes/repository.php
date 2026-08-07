@@ -3620,8 +3620,21 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
         $params[] = 'Aguardando Aprovação';
-    } elseif ($filtro === 'resolvido') {
+    } elseif ($filtro === 'resolvido' || $filtro === 'resolvidos') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
+    } elseif ($filtro === 'abertos') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Aberto';
+    } elseif ($filtro === 'validados' || $filtro === 'validado') {
+        $where[] = "ch.status = 'Validado'";
+    } elseif ($filtro === 'cancelados') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Cancelado';
+    } elseif ($filtro === 'ativos') {
+        $where[] = 'ch.status NOT IN (\'Validado\',\'Cancelado\')';
+    } elseif ($filtro === 'urgentes') {
+        $where[] = 'ch.prioridade IN (\'Alta\',\'Urgente\')';
+        $where[] = 'ch.status NOT IN (\'Resolvido\',\'Fechado\',\'Cancelado\',\'Validado\')';
     }
 
     $buscaQ = _repo_chamados_busca_q_sql($q, false, true);
@@ -3849,8 +3862,21 @@ function repo_chamados_portal_list(
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
         $params[] = 'Aguardando Aprovação';
-    } elseif ($filtro === 'resolvido') {
+    } elseif ($filtro === 'resolvido' || $filtro === 'resolvidos') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\',\'Cancelado\')';
+    } elseif ($filtro === 'abertos') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Aberto';
+    } elseif ($filtro === 'validados' || $filtro === 'validado') {
+        $where[] = "ch.status = 'Validado'";
+    } elseif ($filtro === 'cancelados') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Cancelado';
+    } elseif ($filtro === 'ativos') {
+        $where[] = 'ch.status NOT IN (\'Validado\',\'Cancelado\')';
+    } elseif ($filtro === 'urgentes') {
+        $where[] = 'ch.prioridade IN (\'Alta\',\'Urgente\')';
+        $where[] = 'ch.status NOT IN (\'Resolvido\',\'Fechado\',\'Cancelado\',\'Validado\')';
     }
 
     $buscaQ = _repo_chamados_busca_q_sql($q, false, true);
@@ -3992,7 +4018,7 @@ function _repo_chamados_admin_sql_where(
         $params[] = 'Aguardando Aprovação';
     } elseif ($filtro === 'resolvidos') {
         $where[] = 'ch.status IN (\'Resolvido\',\'Fechado\')';
-    } elseif ($filtro === 'resolvido_bm') {
+    } elseif ($filtro === 'validados' || $filtro === 'validado' || $filtro === 'resolvido_bm') {
         $where[] = repo_chamados_status_sql_medicao_bm();
     } elseif ($filtro === 'cancelados') {
         $where[]  = 'ch.status = ?';
@@ -7128,17 +7154,13 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
         'status_anterior' => $stAnt,
         'status_novo'     => 'Aberto',
     ]);
-    if (function_exists('repo_notificacao_insert')) {
-        require_once __DIR__ . '/notificacoes.php';
-        $tituloReab = sprintf('Chamado #%d reaberto pelo cliente', $id);
-        $descReab   = 'O chamado voltou ao status Aberto para novo atendimento.';
-        $dest       = repo_notificacao_destinatarios_chamado($id, true);
-        foreach (array_unique($dest) as $uidDest) {
-            if ($uidDest > 0) {
-                repo_notificacao_insert((int) $uidDest, $id, null, $tituloReab, $descReab, 'chamado_status');
-            }
-        }
+    require_once __DIR__ . '/notificacoes.php';
+    $actorUid = 0;
+    if (function_exists('current_user')) {
+        $cu = current_user();
+        $actorUid = (int) ($cu['id'] ?? 0);
     }
+    notificar_chamado_reaberto($id, $actorUid);
     if ($cidLog > 0) {
         require_once __DIR__ . '/pontos_mapa_cache.php';
         pontos_mapa_cache_invalidate_cliente($cidLog);
@@ -7192,6 +7214,12 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     }
     $stAnterior = trim((string) ($antes['status'] ?? ''));
     $temValidadoEm = repo_chamados_validado_em_column_exists();
+    $actorUid = 0;
+    if (function_exists('current_user')) {
+        $cu = current_user();
+        $actorUid = (int) ($cu['id'] ?? 0);
+    }
+
     if ($temValidadoEm && $status === 'Validado') {
         // Data de validação = referência do chamado no BM (não a de abertura).
         $stmt = $pdo->prepare(
@@ -7201,6 +7229,16 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     } elseif ($temValidadoEm && $stAnterior === 'Validado' && $status !== 'Validado') {
         $stmt = $pdo->prepare('UPDATE chamados SET status = ?, validado_em = NULL WHERE id = ?');
         $ok   = $stmt->execute([$status, $id]);
+    } elseif ($status === 'Resolvido' && $gestaoOperacional && empty($antes['aprovado_gestor_em'])) {
+        // Status Resolvido via dropdown = aprovação do gestor (espelha repo_chamado_aprovar_gestor).
+        $stmt = $pdo->prepare(
+            'UPDATE chamados
+             SET status = ?,
+                 aprovado_gestor_em = COALESCE(aprovado_gestor_em, NOW()),
+                 aprovado_gestor_user_id = COALESCE(aprovado_gestor_user_id, ?)
+             WHERE id = ?'
+        );
+        $ok = $stmt->execute([$status, $actorUid > 0 ? $actorUid : null, $id]);
     } else {
         $stmt = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
         $ok   = $stmt->execute([$status, $id]);
@@ -7211,36 +7249,12 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
             'status_anterior' => (string) ($antes['status'] ?? ''),
             'status_novo'     => $status,
         ]);
-        if ((string) ($antes['status'] ?? '') !== $status && function_exists('repo_notificacao_insert')) {
+        if ((string) ($antes['status'] ?? '') !== $status) {
             require_once __DIR__ . '/notificacoes.php';
-            $tipoNot = 'chamado_status';
             if ($status === 'Resolvido') {
-                $tituloSt = sprintf('Chamado #%d foi resolvido', $id);
-                $descSt   = 'O atendimento foi marcado como resolvido e aguarda validação, se aplicável.';
+                notificar_chamado_aprovado_gestor($id, $actorUid);
             } elseif ($status === 'Validado') {
-                $tituloSt = sprintf('Chamado #%d validado', $id);
-                $descSt   = 'O chamado foi conferido e validado pela gestão.';
-            } elseif ($status === 'Em andamento') {
-                $tituloSt = sprintf('Chamado #%d em atendimento', $id);
-                $descSt   = 'O chamado entrou em atendimento. Acompanhe o progresso.';
-            } elseif ($status === 'Aguardando Aprovação') {
-                $tituloSt = sprintf('Chamado #%d aguarda aprovação', $id);
-                $descSt   = 'O chamado aguarda aprovação da gestão.';
-            } else {
-                $tituloSt = sprintf('Chamado #%d: %s', $id, $status);
-                $descSt   = 'Status alterado de "' . (string) ($antes['status'] ?? '—') . '" para "' . $status . '".';
-            }
-            if ($status === 'Aguardando Aprovação') {
-                $dest = repo_notificacao_destinatarios_chamado($id, true);
-            } elseif ($status === 'Resolvido' || $status === 'Validado') {
-                $dest = repo_notificacao_destinatarios_chamado($id, false);
-            } else {
-                $dest = repo_notificacao_destinatarios_chamado($id, true);
-            }
-            foreach (array_unique($dest) as $uidDest) {
-                if ($uidDest > 0) {
-                    repo_notificacao_insert((int) $uidDest, $id, null, $tituloSt, $descSt, $tipoNot);
-                }
+                notificar_chamado_validado_cliente($id, $actorUid);
             }
         }
         if ($cidLog > 0 && (string) ($antes['status'] ?? '') !== $status) {
@@ -9007,6 +9021,7 @@ function repo_chamado_atribuir_tecnicos(int $chamadoId, array $tecnicoUserIds, i
         if ($idsNovos !== []) {
             require_once __DIR__ . '/notificacoes.php';
             notificar_tecnicos_chamado_atribuido($chamadoId, $idsNovos, 0);
+            notificar_cliente_chamado_tecnico_atribuido($chamadoId, $idsNovos, 0);
         }
 
         return ['ok' => true, 'err' => ''];
@@ -9091,13 +9106,14 @@ function repo_chamado_aprovar_gestor(int $chamadoId, int $gestorUserId, string $
                 WHERE id = ?
             ");
             $st->execute([$gestorUserId, $checklistVal, $chamadoId]);
+            // Histórico sem notificação de mensagem — o aviso de status «Resolvido» cobre o evento.
             repo_create_chamado_resposta(
                 $chamadoId,
                 $gestorNome !== '' ? $gestorNome : 'Gestor',
                 'admin',
                 'Atendimento aprovado pelo gestor.',
                 false,
-                $gestorUserId
+                null
             );
         }
         $pdo->commit();
@@ -9113,6 +9129,11 @@ function repo_chamado_aprovar_gestor(int $chamadoId, int $gestorUserId, string $
                 : ['status_novo' => 'Resolvido', 'gestor_user_id' => $gestorUserId],
             ['id' => $gestorUserId, 'nome' => $gestorNome !== '' ? $gestorNome : 'Gestor', 'perfil' => 'gestor']
         );
+
+        if (!$jaAprovado) {
+            require_once __DIR__ . '/notificacoes.php';
+            notificar_chamado_aprovado_gestor($chamadoId, $gestorUserId);
+        }
 
         return ['ok' => true, 'err' => ''];
     } catch (Throwable $e) {
@@ -9159,13 +9180,14 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
             WHERE id = ?
         ');
         $st->execute([$operadorUserId, $chamadoId]);
+        // Histórico sem notificação de mensagem — o evento «finalizado pelo técnico» cobre o aviso.
         repo_create_chamado_resposta(
             $chamadoId,
             $nomeAutor !== '' ? $nomeAutor : 'Operador',
             'operador',
             'Atendimento finalizado pelo técnico. Aguardando aprovação do gestor.',
             false,
-            $operadorUserId
+            null
         );
         $pdo->commit();
         $cidOp = (int) ($ch['cliente_id'] ?? 0);
@@ -9173,6 +9195,9 @@ function repo_operador_chamado_finalizar(int $chamadoId, int $operadorUserId, in
             'operador_user_id' => $operadorUserId,
             'status_novo'      => 'Aguardando Aprovação',
         ]);
+
+        require_once __DIR__ . '/notificacoes.php';
+        notificar_chamado_finalizado_tecnico($chamadoId, $operadorUserId);
 
         return ['ok' => true, 'err' => ''];
     } catch (Throwable $e) {
@@ -9313,6 +9338,40 @@ function repo_notificacao_destinatarios_medicao_bm(int $clienteMatrizId): array
  *
  * @return list<int>
  */
+/**
+ * Usuários perfil cliente ligados ao chamado (matriz / unidades).
+ *
+ * @return list<int>
+ */
+function repo_notificacao_destinatarios_clientes_chamado(int $chamadoId): array
+{
+    $pdo = db();
+    if (!$pdo || !repo_notificacoes_table_exists() || $chamadoId <= 0) {
+        return [];
+    }
+    $ch = repo_chamado($chamadoId);
+    if (!$ch) {
+        return [];
+    }
+    $empresaRaiz = repo_cliente_catalogo_dono_id((int) ($ch['cliente_id'] ?? 0));
+    if ($empresaRaiz <= 0) {
+        return [];
+    }
+    $ativoSql = _repo_notificacao_sql_usuario_ativo();
+    try {
+        $st = $pdo->prepare(
+            "SELECT id FROM usuarios WHERE perfil = 'cliente' AND cliente_id IN (
+                SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
+            ){$ativoSql}"
+        );
+        $st->execute([$empresaRaiz, $empresaRaiz]);
+
+        return array_values(array_unique(array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN, 0) ?: [])));
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
 function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMensagemInterna): array
 {
     $pdo = db();
@@ -9350,39 +9409,11 @@ function repo_notificacao_destinatarios_chamado(int $chamadoId, bool $somenteMen
 
         if ($empresaRaiz > 0) {
             $pushIds(_repo_notificacao_ids_gestores_empresa($pdo, $empresaRaiz));
-
-            $st = $pdo->prepare(
-                "SELECT id FROM usuarios WHERE perfil = 'cliente' AND cliente_id IN (
-                    SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
-                ){$ativoSql}"
-            );
-            $st->execute([$empresaRaiz, $empresaRaiz]);
-            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
+            $pushIds(repo_notificacao_destinatarios_clientes_chamado($chamadoId));
         }
 
-        foreach (repo_chamado_tecnicos_list($chamadoId) as $tec) {
-            $tid = (int) ($tec['id'] ?? 0);
-            if ($tid > 0) {
-                $ids[] = $tid;
-            }
-        }
-        $tu = isset($ch['tecnico_user_id']) && $ch['tecnico_user_id'] !== null ? (int) $ch['tecnico_user_id'] : 0;
-        if ($tu > 0) {
-            $ids[] = $tu;
-        }
-
-        if ($empresaRaiz > 0) {
-            $st = $pdo->prepare("SELECT id FROM usuarios WHERE perfil = 'operador' AND empresa_id = ?{$ativoSql}");
-            $st->execute([$empresaRaiz]);
-            $pushIds($st->fetchAll(PDO::FETCH_COLUMN, 0));
-            $st2 = $pdo->prepare(
-                "SELECT id FROM usuarios WHERE perfil = 'operador' AND cliente_id IN (
-                    SELECT id FROM clientes WHERE id = ? OR empresa_id = ?
-                ){$ativoSql}"
-            );
-            $st2->execute([$empresaRaiz, $empresaRaiz]);
-            $pushIds($st2->fetchAll(PDO::FETCH_COLUMN, 0));
-        }
+        // Operadores/técnicos não entram no ciclo geral — só recebem
+        // notificação de atribuição (notificar_tecnicos_chamado_atribuido).
 
         return array_values(array_unique($ids));
     } catch (Throwable $e) {
@@ -9439,22 +9470,36 @@ function repo_notificacao_insert(
     }
 }
 
+/** SQL: só notificações de chamado atribuído ao técnico. */
+function repo_notificacoes_sql_somente_atribuido(): string
+{
+    return "(tipo = 'chamado_tecnico_atribuido'
+        OR titulo LIKE '%atribuído a você%'
+        OR titulo LIKE '%atribuido a você%'
+        OR titulo LIKE '%atribuído a voce%'
+        OR titulo LIKE '%atribuido a voce%')";
+}
+
 /**
  * @return list<array{id:int,chamado_id:int,titulo:string,descricao:?string,lida:int,data_criacao:string,link:string}>
  */
-function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
+function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40, bool $somenteAtribuido = false): array
 {
     $pdo = db();
     if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
         return [];
     }
     $limit = max(1, min(100, $limit));
+    $where = 'usuario_id = ?';
+    if ($somenteAtribuido) {
+        $where .= ' AND ' . repo_notificacoes_sql_somente_atribuido();
+    }
     try {
         $st = $pdo->prepare(
             'SELECT id, chamado_id, tipo, titulo, descricao, lida,
                     DATE_FORMAT(data_criacao, \'%Y-%m-%d %H:%i:%s\') AS data_criacao
              FROM notificacoes
-             WHERE usuario_id = ?
+             WHERE ' . $where . '
              ORDER BY data_criacao DESC, id DESC
              LIMIT ' . (int) $limit
         );
@@ -9478,12 +9523,12 @@ function repo_notificacoes_list_for_user(int $usuarioId, int $limit = 40): array
     }
 }
 
-function repo_notificacoes_count_unread(int $usuarioId): int
+function repo_notificacoes_count_unread(int $usuarioId, bool $somenteAtribuido = false): int
 {
-    return repo_notificacoes_count_for_user($usuarioId, 'unread');
+    return repo_notificacoes_count_for_user($usuarioId, 'unread', $somenteAtribuido);
 }
 
-function repo_notificacoes_count_for_user(int $usuarioId, ?string $filtro = null): int
+function repo_notificacoes_count_for_user(int $usuarioId, ?string $filtro = null, bool $somenteAtribuido = false): int
 {
     $pdo = db();
     if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
@@ -9491,6 +9536,9 @@ function repo_notificacoes_count_for_user(int $usuarioId, ?string $filtro = null
     }
     $sql = 'SELECT COUNT(*) FROM notificacoes WHERE usuario_id = ?';
     $params = [$usuarioId];
+    if ($somenteAtribuido || $filtro === 'atribuido') {
+        $sql .= ' AND ' . repo_notificacoes_sql_somente_atribuido();
+    }
     if ($filtro === 'unread') {
         $sql .= ' AND lida = 0';
     }
@@ -9507,8 +9555,13 @@ function repo_notificacoes_count_for_user(int $usuarioId, ?string $filtro = null
 /**
  * @return array{rows:list<array>,total:int}
  */
-function repo_notificacoes_list_paginated(int $usuarioId, int $page, int $perPage, ?string $filtro = null): array
-{
+function repo_notificacoes_list_paginated(
+    int $usuarioId,
+    int $page,
+    int $perPage,
+    ?string $filtro = null,
+    bool $somenteAtribuido = false
+): array {
     $pdo = db();
     if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
         return ['rows' => [], 'total' => 0];
@@ -9518,7 +9571,28 @@ function repo_notificacoes_list_paginated(int $usuarioId, int $page, int $perPag
     $offset  = ($page - 1) * $perPage;
     $where   = 'usuario_id = ?';
     $params  = [$usuarioId];
-    if ($filtro === 'unread') {
+    if ($somenteAtribuido || $filtro === 'atribuido') {
+        $where .= ' AND ' . repo_notificacoes_sql_somente_atribuido();
+    } elseif ($filtro === 'aberto') {
+        // Filtros por etapa do chamado (lida/não lida não entra — sempre lista todas).
+        $where .= " AND (tipo = 'chamado_criado' OR titulo LIKE 'Novo chamado #%')";
+    } elseif ($filtro === 'atendido_tecnico') {
+        $where .= " AND (tipo = 'chamado_finalizado_tecnico'
+            OR tipo = 'chamado_em_atendimento'
+            OR titulo LIKE '%finalizado pelo técnico%'
+            OR titulo LIKE '%finalizado pelo tecnico%'
+            OR titulo LIKE '%em atendimento%'
+            OR titulo LIKE '%técnico designado%'
+            OR titulo LIKE '%tecnico designado%')";
+    } elseif ($filtro === 'validado') {
+        $where .= " AND (tipo = 'chamado_validado_cliente'
+            OR titulo LIKE '%validado%'
+            OR titulo LIKE '%aprovado pelo cliente%')";
+    } elseif ($filtro === 'aprovado') {
+        $where .= " AND (tipo = 'chamado_aprovado_gestor'
+            OR titulo LIKE '%aprovado pelo gestor%'
+            OR (titulo LIKE '%foi resolvido%' AND titulo NOT LIKE '%validado%'))";
+    } elseif ($filtro === 'unread') {
         $where .= ' AND lida = 0';
     }
     try {
@@ -9571,16 +9645,18 @@ function repo_notificacao_marcar_lida(int $notificacaoId, int $usuarioId): bool
     }
 }
 
-function repo_notificacoes_marcar_todas_lidas(int $usuarioId): int
+function repo_notificacoes_marcar_todas_lidas(int $usuarioId, bool $somenteAtribuido = false): int
 {
     $pdo = db();
     if (!$pdo || !repo_notificacoes_table_exists() || $usuarioId <= 0) {
         return 0;
     }
     try {
-        $st = $pdo->prepare(
-            'UPDATE notificacoes SET lida = 1, data_leitura = NOW() WHERE usuario_id = ? AND lida = 0'
-        );
+        $sql = 'UPDATE notificacoes SET lida = 1, data_leitura = NOW() WHERE usuario_id = ? AND lida = 0';
+        if ($somenteAtribuido) {
+            $sql .= ' AND ' . repo_notificacoes_sql_somente_atribuido();
+        }
+        $st = $pdo->prepare($sql);
         $st->execute([$usuarioId]);
 
         return $st->rowCount();

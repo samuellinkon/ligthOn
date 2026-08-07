@@ -107,11 +107,12 @@
   filter: brightness(1.05);
 }
 
-/* Toast rápido (ex.: copiado) */
+/* Toast rápido (ex.: copiado) — canto superior direito, abaixo da topbar */
 .app-toast-stack {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  top: calc(var(--topbar-h, 78px) + 12px);
+  bottom: auto;
   z-index: 10060;
   display: flex;
   flex-direction: column;
@@ -127,7 +128,7 @@
   color: #fff;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 

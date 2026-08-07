@@ -155,8 +155,8 @@ $hrefChamados = 'chamados.php?' . http_build_query([
     'periodo_de'  => $dataDe,
     'periodo_ate' => $dataAte,
 ]);
-$hrefXlsxDet = adm_chamados_export_url('xlsx_detalhes', '', '', $chExportCtxVer);
-$hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', '', '', $chExportCtxVer);
+$hrefXlsxDet = adm_chamados_export_url('xlsx_detalhes', 'resolvido_bm', '', $chExportCtxVer);
+$hrefPdfAnexos = adm_chamados_export_url('pdf_anexos', 'resolvido_bm', '', $chExportCtxVer);
 if (defined('CRM_EXPORT_PDF_DEBUG') && CRM_EXPORT_PDF_DEBUG) {
     $hrefPdfAnexos .= (strpos($hrefPdfAnexos, '?') !== false ? '&' : '?') . 'pdf_debug=1';
 }
