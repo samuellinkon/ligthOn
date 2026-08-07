@@ -248,7 +248,7 @@ function chamado_export_document_html(
     $stLabel = trim((string) ($chamado['status'] ?? ''));
     $prLabel = trim((string) ($chamado['prioridade'] ?? ''));
     $nAnexos = count($anexos);
-    $paginaAnexos = ($anexos !== [] || $fotosPonto !== []);
+    $paginaAnexos = ($anexos !== []);
 
     require_once __DIR__ . '/chamado_os_fields.php';
 
@@ -1149,50 +1149,6 @@ function chamado_export_document_html(
             <?php endforeach; ?>
           </div>
           <?php endif; ?>
-      </div>
-    </section>
-    <?php endif; ?>
-
-    <?php if ($fotosPonto !== []): ?>
-    <section class="doc-section" aria-labelledby="sec-ponto">
-      <h2 id="sec-ponto" class="doc-section-title">Fotos do ponto de iluminação (cadastro)</h2>
-      <div class="table-block">
-        <div class="table-head">Registo no sistema</div>
-        <table class="data">
-          <thead>
-            <tr>
-              <th>Ficheiro</th>
-              <th>Tamanho</th>
-              <th>Principal</th>
-              <th>Enviado em</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($fotosPonto as $fp): ?>
-            <tr>
-              <td><?= $h((string) ($fp['nome_original'] ?? '')) ?></td>
-              <td><?= $h($fmtBytes((int) ($fp['tamanho'] ?? 0))) ?></td>
-              <td><?= !empty($fp['principal']) ? 'Sim' : '—' ?></td>
-              <td><?= $h((string) ($fp['enviado_em'] ?? '')) ?></td>
-            </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
-        <div class="gallery-title">Imagens</div>
-        <div class="ponto-gallery">
-          <?php foreach ($fotosPonto as $fp):
-              $fid = (int) ($fp['id'] ?? 0);
-              $fnome = (string) ($fp['nome_original'] ?? '');
-              $srcPt = 'ponto_iluminacao_imagem.php?id=' . $fid;
-              ?>
-          <figure>
-            <a class="img-a" href="<?= $h($srcPt) ?>">
-              <img src="<?= $h($srcPt) ?>" alt="<?= $h($fnome !== '' ? $fnome : 'Foto do ponto') ?>" loading="lazy" />
-            </a>
-            <figcaption><?= $h($fnome) ?><?= !empty($fp['principal']) ? ' · Principal' : '' ?></figcaption>
-          </figure>
-          <?php endforeach; ?>
-        </div>
       </div>
     </section>
     <?php endif; ?>
