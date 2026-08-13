@@ -1558,8 +1558,8 @@ form.info-row {
 }
 
 .chamado-mat-modal__box--pick {
-  width: min(100%, 520px);
-  max-height: min(92vh, 620px);
+  width: min(100%, 720px);
+  max-height: min(92vh, 720px);
 }
 
 .chamado-mat-modal__body--pick {
@@ -1569,7 +1569,7 @@ form.info-row {
 }
 
 .chamado-mat-results--modal {
-  max-height: min(38vh, 260px);
+  max-height: min(46vh, 360px);
   overflow-y: auto;
   margin: 0 0 10px;
   padding-right: 2px;
@@ -1700,12 +1700,12 @@ form.info-row {
 }
 
 .chamado-mat-results__opt {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 4px 14px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 10px 14px;
   margin: 0;
   border: 0;
   border-bottom: 1px solid var(--border-soft);
@@ -1724,6 +1724,13 @@ form.info-row {
   background: rgba(83, 74, 183, 0.08);
 }
 
+.chamado-mat-results__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .chamado-mat-results__nome {
   font-weight: 600;
   font-size: 14px;
@@ -1731,6 +1738,45 @@ form.info-row {
 
 .chamado-mat-results__sub {
   font-size: 12px;
+}
+
+.chamado-mat-results__saldo {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: rgba(83, 74, 183, 0.1);
+  color: var(--primary, #534ab7);
+  border: 1px solid rgba(83, 74, 183, 0.18);
+}
+
+.chamado-mat-results__saldo--baixo {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+.chamado-mat-results__saldo--servico {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+  font-weight: 600;
+}
+
+.chamado-mat-preview__saldo {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(83, 74, 183, 0.12);
+  color: var(--primary, #534ab7);
 }
 
 .chamado-mat-preview {

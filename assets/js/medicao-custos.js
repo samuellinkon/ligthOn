@@ -115,6 +115,124 @@
     }
   }
 
+  function setText(id, value, fallback) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var t = value === null || value === undefined ? '' : String(value).trim();
+    el.textContent = t !== '' ? t : fallback || '—';
+  }
+
+  function fmtQtd(n) {
+    if (typeof n !== 'number' || isNaN(n)) n = parseNum(n);
+    return n.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+  }
+
+  function statusBadgeClass(st) {
+    if (st === 'Pendente') return 'badge waiting medicao-custo-status--pendente';
+    if (st === 'Aprovado') return 'badge done medicao-custo-status--aprovado';
+    if (st === 'Rejeitado') return 'badge urgent medicao-custo-status--rejeitado';
+    return 'badge plain';
+  }
+
+  /* —— Detalhe (somente leitura) —— */
+  function getVerModal() {
+    return document.getElementById('medicao-custo-ver-modal');
+  }
+
+  function openVerModal(data) {
+    var verModal = getVerModal();
+    if (!verModal) {
+      alertErr('Modal de detalhe não encontrado. Recarregue a página (Ctrl+F5) ou confirme o deploy do partial.');
+      return;
+    }
+    if (!data || !data.id) return;
+    var st = (data.status || '').trim() || '—';
+
+    var statusWrap = document.getElementById('medicao-custo-ver-status');
+    if (statusWrap) {
+      statusWrap.innerHTML = '';
+      var badge = document.createElement('span');
+      badge.className = statusBadgeClass(st);
+      badge.textContent = st;
+      statusWrap.appendChild(badge);
+    }
+
+    setText('medicao-custo-ver-codigo', data.item_codigo || '');
+    setText('medicao-custo-ver-descricao', data.descricao || '');
+    setText('medicao-custo-ver-unidade', data.unidade || '');
+    setText('medicao-custo-ver-qtd', fmtQtd(data.quantidade));
+    setText('medicao-custo-ver-vunit', fmtBrl(Number(data.valor_unitario) || 0));
+    setText('medicao-custo-ver-total', fmtBrl(Number(data.valor_total) || 0));
+
+    var obsEl = document.getElementById('medicao-custo-ver-obs');
+    var obs = (data.observacao || '').trim();
+    if (obsEl) {
+      obsEl.textContent = obs !== '' ? obs : 'Sem observação';
+      if (obs === '') obsEl.classList.add('medicao-custo-ver-modal__obs--empty');
+      else obsEl.classList.remove('medicao-custo-ver-modal__obs--empty');
+    }
+
+    setText('medicao-custo-ver-criado-em', data.criado_em_br || '');
+    setText('medicao-custo-ver-criado-por', data.criado_por_nome || '');
+
+    var aprovWrap = document.getElementById('medicao-custo-ver-aprovado-wrap');
+    var rejWrap = document.getElementById('medicao-custo-ver-rejeitado-wrap');
+    if (aprovWrap) {
+      var aprovEm = (data.aprovado_em_br || '').trim();
+      aprovWrap.hidden = !aprovEm;
+      setText('medicao-custo-ver-aprovado-em', aprovEm);
+    }
+    if (rejWrap) {
+      var rejEm = (data.rejeitado_em_br || '').trim();
+      var rejMotivo = (data.rejeitado_motivo || '').trim();
+      var showRej = st === 'Rejeitado' || rejEm || rejMotivo;
+      rejWrap.hidden = !showRej;
+      var rejParts = [];
+      if (rejEm) rejParts.push(rejEm);
+      if (rejMotivo) rejParts.push(rejMotivo);
+      setText('medicao-custo-ver-rejeitado', rejParts.join(' — ') || '—');
+    }
+
+    verModal.hidden = false;
+    verModal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeVerModal() {
+    var verModal = getVerModal();
+    if (!verModal) return;
+    verModal.hidden = true;
+    verModal.setAttribute('aria-hidden', 'true');
+  }
+
+  // Delegação: funciona mesmo com cache parcial / re-render da tabela
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var btn = t.closest('.js-medicao-custo-ver');
+    if (!btn || !secao.contains(btn)) return;
+    ev.preventDefault();
+    try {
+      openVerModal(JSON.parse(btn.getAttribute('data-custo') || '{}'));
+    } catch (e) {
+      alertErr('Dados inválidos.');
+    }
+  });
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    if (t.closest('[data-medicao-custo-ver-close]')) {
+      closeVerModal();
+    }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    var verModal = getVerModal();
+    if (ev.key === 'Escape' && verModal && !verModal.hidden) {
+      closeVerModal();
+    }
+  });
+
   /* —— Aprovar / rejeitar (cliente ou admin) —— */
   if (podeAprovar) {
     secao.querySelectorAll('.js-medicao-custo-aprovar').forEach(function (btn) {
@@ -367,7 +485,7 @@
       unidade: unInput ? unInput.value : 'UN',
       quantidade: qtdInput ? qtdInput.value : '1',
       valor_unitario: vunitInput ? vunitInput.value : '0',
-      observacao: document.getElementById('medicao-custo-obs')?.value || '',
+      observacao: (document.getElementById('medicao-custo-obs') || {}).value || '',
     };
     var submitBtn = document.getElementById('medicao-custo-submit');
     if (submitBtn) submitBtn.disabled = true;

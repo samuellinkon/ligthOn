@@ -124,13 +124,15 @@ $nPendente = (int) ($custosTotais['n_pendente'] ?? 0);
               <td class="text-right tabular-nums"><strong>R$ <?= number_format((float) ($c['valor_total'] ?? 0), 2, ',', '.') ?></strong></td>
               <td><span class="badge <?= htmlspecialchars(medicao_custo_status_badge_class($cSt)) ?>"><?= htmlspecialchars($cSt) ?></span></td>
               <td class="td-actions">
+                <?php $custoJsonAttr = htmlspecialchars(json_encode(medicao_custo_para_json($c), JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>
+                <button type="button" class="action js-medicao-custo-ver" data-custo="<?= $custoJsonAttr ?>">Ver</button>
                 <?php if ($medicaoCustosPodeAprovar && $cSt === 'Pendente'): ?>
                 <button type="button" class="action primary js-medicao-custo-aprovar" data-id="<?= $cId ?>">Aprovar</button>
                 <button type="button" class="action js-medicao-custo-rejeitar" data-id="<?= $cId ?>">Rejeitar</button>
                 <?php endif; ?>
                 <?php if ($medicaoCustosPodeEditar && in_array($cSt, ['Pendente', 'Rejeitado'], true)): ?>
                 <button type="button" class="action<?= ($medicaoCustosPodeAprovar && $cSt === 'Pendente') ? '' : ' primary' ?> js-medicao-custo-editar"
-                        data-custo="<?= htmlspecialchars(json_encode(medicao_custo_para_json($c), JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>">Editar</button>
+                        data-custo="<?= $custoJsonAttr ?>">Editar</button>
                 <button type="button" class="action danger js-medicao-custo-excluir" data-id="<?= $cId ?>">Excluir</button>
                 <?php endif; ?>
               </td>
@@ -143,8 +145,96 @@ $nPendente = (int) ($custosTotais['n_pendente'] ?? 0);
     </div>
   </section>
 
+  <?php if ($tabelaDisponivel): ?>
+  <div id="medicao-custo-ver-modal" class="chamado-mat-modal medicao-custo-modal medicao-custo-ver-modal" hidden aria-hidden="true">
+    <button type="button" class="chamado-mat-modal__scrim medicao-custo-modal__scrim" data-medicao-custo-ver-close tabindex="-1" aria-label="Fechar"></button>
+    <div class="chamado-mat-modal__box medicao-custo-modal__container medicao-custo-ver-modal__container" role="dialog" aria-modal="true" aria-labelledby="medicao-custo-ver-modal-title">
+      <header class="medicao-custo-modal__header">
+        <div class="medicao-custo-modal__header-text">
+          <p class="medicao-custo-modal__eyebrow">Medição · <?= htmlspecialchars($mesRef) ?></p>
+          <h3 id="medicao-custo-ver-modal-title" class="medicao-custo-modal__title">Detalhe do custo</h3>
+          <p class="medicao-custo-modal__subtitle">Lançamento completo — item, valores e observação.</p>
+        </div>
+        <button type="button" class="medicao-custo-modal__close" data-medicao-custo-ver-close aria-label="Fechar">
+          <span aria-hidden="true">×</span>
+        </button>
+      </header>
+      <div class="medicao-custo-modal__body medicao-custo-ver-modal__body">
+        <section class="medicao-custo-modal__section medicao-custo-ver-modal__section">
+          <div class="medicao-custo-ver-modal__top">
+            <div class="medicao-custo-ver-modal__top-main">
+              <span class="medicao-custo-ver-modal__code-label">Código</span>
+              <strong id="medicao-custo-ver-codigo" class="medicao-custo-ver-modal__code">—</strong>
+            </div>
+            <div id="medicao-custo-ver-status" class="medicao-custo-ver-modal__status">
+              <span class="badge plain">—</span>
+            </div>
+          </div>
+          <div class="medicao-custo-ver-modal__desc-card">
+            <span class="medicao-custo-ver-modal__field-label">Descrição</span>
+            <p id="medicao-custo-ver-descricao" class="medicao-custo-ver-modal__desc">—</p>
+          </div>
+        </section>
+
+        <section class="medicao-custo-modal__section medicao-custo-ver-modal__section" aria-labelledby="medicao-custo-ver-sec-valores">
+          <h4 id="medicao-custo-ver-sec-valores" class="medicao-custo-modal__section-title">Valores</h4>
+          <div class="medicao-custo-ver-modal__values">
+            <div class="medicao-custo-ver-modal__metric">
+              <span class="medicao-custo-ver-modal__field-label">Unidade</span>
+              <strong id="medicao-custo-ver-unidade" class="medicao-custo-ver-modal__metric-val">—</strong>
+            </div>
+            <div class="medicao-custo-ver-modal__metric">
+              <span class="medicao-custo-ver-modal__field-label">Quantidade</span>
+              <strong id="medicao-custo-ver-qtd" class="medicao-custo-ver-modal__metric-val">—</strong>
+            </div>
+            <div class="medicao-custo-ver-modal__metric">
+              <span class="medicao-custo-ver-modal__field-label">Valor unitário</span>
+              <strong id="medicao-custo-ver-vunit" class="medicao-custo-ver-modal__metric-val">—</strong>
+            </div>
+            <div class="medicao-custo-modal__total-card medicao-custo-ver-modal__total-card" aria-live="polite">
+              <span class="medicao-custo-modal__total-label">Total</span>
+              <strong id="medicao-custo-ver-total" class="medicao-custo-modal__total-value">R$ 0,00</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="medicao-custo-modal__section medicao-custo-ver-modal__section" aria-labelledby="medicao-custo-ver-sec-obs">
+          <h4 id="medicao-custo-ver-sec-obs" class="medicao-custo-modal__section-title">Observação</h4>
+          <div class="medicao-custo-ver-modal__obs-card">
+            <p id="medicao-custo-ver-obs" class="medicao-custo-ver-modal__obs">—</p>
+          </div>
+        </section>
+
+        <section class="medicao-custo-modal__section medicao-custo-ver-modal__section medicao-custo-ver-modal__section--last" aria-labelledby="medicao-custo-ver-sec-meta">
+          <h4 id="medicao-custo-ver-sec-meta" class="medicao-custo-modal__section-title">Registo</h4>
+          <dl class="medicao-custo-ver-modal__meta">
+            <div class="medicao-custo-ver-modal__meta-row">
+              <dt>Criado em</dt>
+              <dd id="medicao-custo-ver-criado-em">—</dd>
+            </div>
+            <div class="medicao-custo-ver-modal__meta-row">
+              <dt>Criado por</dt>
+              <dd id="medicao-custo-ver-criado-por">—</dd>
+            </div>
+            <div class="medicao-custo-ver-modal__meta-row" id="medicao-custo-ver-aprovado-wrap" hidden>
+              <dt>Aprovado em</dt>
+              <dd id="medicao-custo-ver-aprovado-em">—</dd>
+            </div>
+            <div class="medicao-custo-ver-modal__meta-row medicao-custo-ver-modal__meta-row--block" id="medicao-custo-ver-rejeitado-wrap" hidden>
+              <dt>Rejeição</dt>
+              <dd id="medicao-custo-ver-rejeitado">—</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <footer class="medicao-custo-modal__footer">
+        <button type="button" class="btn btn-secondary medicao-custo-modal__btn-cancel" data-medicao-custo-ver-close>Fechar</button>
+      </footer>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <?php if (($medicaoCustosPodeCriar || $medicaoCustosPodeEditar) && $tabelaDisponivel): ?>
-  <?php $medicaoCustoModalMesLabel = function_exists('medicao_mes_label_pt') ? medicao_mes_label_pt($mesRef) : $mesRef; ?>
   <div id="medicao-custo-modal" class="chamado-mat-modal medicao-custo-modal" hidden aria-hidden="true">
     <button type="button" class="chamado-mat-modal__scrim medicao-custo-modal__scrim" data-medicao-custo-close tabindex="-1" aria-label="Fechar"></button>
     <div class="chamado-mat-modal__box medicao-custo-modal__container" role="dialog" aria-modal="true" aria-labelledby="medicao-custo-modal-title" aria-describedby="medicao-custo-modal-desc">

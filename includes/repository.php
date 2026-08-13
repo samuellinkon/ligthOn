@@ -5777,6 +5777,49 @@ function repo_medicao_resumo_mensal_list(int $empresaRaizId, int $limiteLinhas =
 }
 
 /**
+ * Valor total BM de um mês (mesma regra do card em admin/medicao.php):
+ * Validado + itens produto/serviço + custos aprovados (+ import só se não houver Validado).
+ */
+function repo_medicao_valor_total_mes(int $empresaRaizId, string $refYm): float
+{
+    if ($empresaRaizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        return 0.0;
+    }
+    foreach (repo_medicao_resumo_mensal_list($empresaRaizId, 120) as $row) {
+        if ((string) ($row['ym'] ?? '') === $refYm) {
+            return round((float) ($row['valor_total'] ?? 0), 2);
+        }
+    }
+
+    return 0.0;
+}
+
+/**
+ * Matriz usada na listagem de medição (escopo, senão empresa padrão do catálogo).
+ */
+function repo_medicao_matriz_id_para_dashboard(?int $clienteIdEscopo = null): int
+{
+    $raw = 0;
+    if ($clienteIdEscopo !== null && $clienteIdEscopo > 0) {
+        $raw = $clienteIdEscopo;
+    } else {
+        $raw = (int) (repo_catalogo_cliente_id_padrao_admin() ?? 0);
+        if ($raw <= 0 && function_exists('repo_clientes_empresas')) {
+            $empresas = repo_clientes_empresas();
+            $raw = (int) (($empresas[0]['id'] ?? 0));
+        }
+    }
+    if ($raw <= 0) {
+        return 0;
+    }
+    $matriz = function_exists('repo_cliente_matriz_raiz_id')
+        ? repo_cliente_matriz_raiz_id($raw)
+        : $raw;
+
+    return $matriz > 0 ? $matriz : $raw;
+}
+
+/**
  * Substitui importação BM do mês (uma por matriz + ref_ym).
  *
  * @param list<array<string,mixed>> $linhas saída de medicao_csv_parse_bm_planilha()['linhas']
@@ -6323,8 +6366,8 @@ function repo_usuarios_gestores_por_empresa_raiz(int $empresaRaizClienteId): arr
 /**
  * Métricas agregadas para o dashboard admin (com MySQL).
  *
- * Inclui pontos_total (pontos_iluminacao) e medicao_mes_valor (soma valor_medido_periodo
- * das linhas BM do mês corrente, ref YYYY-MM).
+ * Inclui pontos_total e medicao_mes_valor (= card da listagem de Medição:
+ * Validado + itens + custos aprovados, mesma matriz).
  *
  * @return array<string,int|float|string>|null
  */
@@ -6403,6 +6446,7 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
         }
 
         $refYmDash = date('Y-m');
+        $matrizMedicao = repo_medicao_matriz_id_para_dashboard($cid);
         if ($cid !== null) {
             $st = $pdo->prepare('
                 SELECT COUNT(*) FROM pontos_iluminacao
@@ -6410,45 +6454,13 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             ');
             $st->execute([$cid, $cid]);
             $pontosTotal = (int) $st->fetchColumn();
-
-            $midMedicao = repo_cliente_matriz_raiz_id($cid);
-            if ($midMedicao <= 0) {
-                $midMedicao = $cid;
-            }
-            $dataRefDash = repo_chamados_sql_data_ref_medicao_bm('ch');
-            $st = $pdo->prepare("
-                SELECT COALESCE(SUM(ci.subtotal), 0)
-                FROM chamado_itens ci
-                INNER JOIN chamados ch ON ch.id = ci.chamado_id
-                WHERE ci.movimento = 'utilizado'
-                  AND ch.status = 'Validado'
-                  AND DATE({$dataRefDash}) >= ?
-                  AND DATE({$dataRefDash}) <= ?
-                  AND ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
-                  " . _repo_chamados_sql_apenas_ativos('ch') . '
-            ');
-            $mesIni = $refYmDash . '-01';
-            $mesFim = date('Y-m-t', strtotime($mesIni));
-            $st->execute([$mesIni, $mesFim, $cid, $cid]);
-            $medicaoMesValor = (float) $st->fetchColumn();
         } else {
             $pontosTotal = (int) $pdo->query('SELECT COUNT(*) FROM pontos_iluminacao')->fetchColumn();
-            $dataRefDash = repo_chamados_sql_data_ref_medicao_bm('ch');
-            $st = $pdo->prepare("
-                SELECT COALESCE(SUM(ci.subtotal), 0)
-                FROM chamado_itens ci
-                INNER JOIN chamados ch ON ch.id = ci.chamado_id
-                WHERE ci.movimento = 'utilizado'
-                  AND ch.status = 'Validado'
-                  AND DATE({$dataRefDash}) >= ?
-                  AND DATE({$dataRefDash}) <= ?
-                  " . _repo_chamados_sql_apenas_ativos('ch') . '
-            ');
-            $mesIni = $refYmDash . '-01';
-            $mesFim = date('Y-m-t', strtotime($mesIni));
-            $st->execute([$mesIni, $mesFim]);
-            $medicaoMesValor = (float) $st->fetchColumn();
         }
+        // Mesmo valor do card em admin/medicao.php (não somar todas as empresas).
+        $medicaoMesValor = $matrizMedicao > 0
+            ? repo_medicao_valor_total_mes($matrizMedicao, $refYmDash)
+            : 0.0;
 
         return [
             'ch_total'                    => $chTotal ?? 0,

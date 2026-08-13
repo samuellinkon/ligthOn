@@ -550,6 +550,10 @@ include __DIR__ . '/../includes/head.php';
   });
 })();
 </script>
-<script src="<?= htmlspecialchars($basePath) ?>assets/js/medicao-custos.js" defer></script>
+<?php
+$medicaoCustosJs = dirname(__DIR__) . '/assets/js/medicao-custos.js';
+$medicaoCustosJsV = is_file($medicaoCustosJs) ? (int) filemtime($medicaoCustosJs) : time();
+?>
+<script src="<?= htmlspecialchars($basePath) ?>assets/js/medicao-custos.js?v=<?= $medicaoCustosJsV ?>" defer></script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

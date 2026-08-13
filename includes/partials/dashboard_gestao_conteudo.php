@@ -41,7 +41,7 @@
         </div>
         <div class="icon-box">BM</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) . ' · chamados com status Validado' : 'Sem conexão ao banco' ?></div>
+      <div class="metric-change metric-change--admin"><?= $dash ? htmlspecialchars(medicao_mes_label_pt($refYmDashboard)) . ' · mesmo valor do card em Medição (Validado + custos aprovados)' : 'Sem conexão ao banco' ?></div>
     </div>
   </div>
   </div>

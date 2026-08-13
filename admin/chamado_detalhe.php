@@ -1400,6 +1400,7 @@ include __DIR__ . '/../includes/head.php';
                 'codigo' => (string) ($_ci['codigo'] ?? ''),
                 'unidade' => (string) ($_ci['unidade'] ?? ''),
                 'valor_unitario' => (float) ($_ci['valor_unitario'] ?? 0),
+                'estoque_saldo' => (float) ($_ci['estoque_saldo'] ?? 0),
             ];
             $tt = strtolower(trim((string) ($_ci['tipo'] ?? '')));
             if ($tt === 'produto') {
@@ -2308,12 +2309,30 @@ if ($ch_viz_scripts_ativo) {
     document.body.style.overflow = 'hidden';
   }
 
+  function fmtSaldo(n) {
+    var f = parseFloat(String(n).replace(',', '.'));
+    if (isNaN(f)) f = 0;
+    return f.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+  }
+
+  function saldoLabel(it) {
+    if (normTipo(it.tipo) === 'servico') {
+      return { text: 'Serviço', cls: 'chamado-mat-results__saldo chamado-mat-results__saldo--servico' };
+    }
+    var saldo = parseFloat(String(it.estoque_saldo != null ? it.estoque_saldo : 0).replace(',', '.'));
+    if (isNaN(saldo)) saldo = 0;
+    var un = (it.unidade || '').trim();
+    var text = 'Saldo: ' + fmtSaldo(saldo) + (un ? ' ' + un : '');
+    var cls = 'chamado-mat-results__saldo' + (saldo <= 0 ? ' chamado-mat-results__saldo--baixo' : '');
+    return { text: text, cls: cls, saldo: saldo };
+  }
+
   function clearPickSelection() {
     if (!pickInpItemId || !pickPreview || !pickPreviewNome || !pickPreviewMeta) return;
     pickInpItemId.value = '';
     pickPreview.hidden = true;
     pickPreviewNome.textContent = '';
-    pickPreviewMeta.textContent = '';
+    pickPreviewMeta.innerHTML = '';
   }
 
   function selectPickItem(it) {
@@ -2325,7 +2344,12 @@ if ($ch_viz_scripts_ativo) {
     parts.push('Tipo: ' + (it.tipo || '—'));
     if (it.codigo) parts.push('Cód.: ' + String(it.codigo));
     if (it.unidade) parts.push('Un.: ' + it.unidade);
-    pickPreviewMeta.textContent = parts.join(' · ');
+    if (it.valor_unitario != null && Number(it.valor_unitario) > 0) {
+      parts.push('V. unit.: R$ ' + Number(it.valor_unitario).toFixed(2).replace('.', ','));
+    }
+    var s = saldoLabel(it);
+    pickPreviewMeta.innerHTML = escHtml(parts.join(' · ')) +
+      '<div class="chamado-mat-preview__saldo">' + escHtml(s.text) + '</div>';
   }
 
   function renderPickResults(q) {
@@ -2352,9 +2376,14 @@ if ($ch_viz_scripts_ativo) {
       b.type = 'button';
       b.className = 'chamado-mat-results__opt';
       b.setAttribute('role', 'option');
-      b.innerHTML = '<span class="chamado-mat-results__nome">' + escHtml(it.nome || '') + '</span>' +
-        '<span class="chamado-mat-results__sub muted">' + escHtml(it.codigo ? String(it.codigo) : '—') +
-        (it.unidade ? ' · Un.: ' + escHtml(String(it.unidade)) : '') + '</span>';
+      var s = saldoLabel(it);
+      b.innerHTML =
+        '<span class="chamado-mat-results__main">' +
+          '<span class="chamado-mat-results__nome">' + escHtml(it.nome || '') + '</span>' +
+          '<span class="chamado-mat-results__sub muted">' + escHtml(it.codigo ? String(it.codigo) : '—') +
+          (it.unidade ? ' · Un.: ' + escHtml(String(it.unidade)) : '') + '</span>' +
+        '</span>' +
+        '<span class="' + s.cls + '">' + escHtml(s.text) + '</span>';
       b.addEventListener('click', function () {
         pickResults.querySelectorAll('.chamado-mat-results__opt.is-active').forEach(function (x) {
           x.classList.remove('is-active');

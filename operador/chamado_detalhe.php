@@ -489,14 +489,15 @@ foreach ($servicos as $ci) {
     $cat   = $tipo === 'produto' ? 'Produto' : ($tipo === 'servico' ? 'Serviço' : ucfirst($tipo));
     $hay   = mb_strtolower($nome . ' ' . $label . ' ' . $cod . ' ' . $cat . ' ' . $tipo . ' ' . $un . ' #' . $iid, 'UTF-8');
     $opCatalogoItensJs[] = [
-        'id'        => $iid,
-        'nome'      => $nome,
-        'label'     => $label,
-        'tipo'      => $tipo,
-        'categoria' => $cat,
-        'codigo'    => $cod,
-        'unidade'   => $un,
-        'hay'       => $hay,
+        'id'            => $iid,
+        'nome'          => $nome,
+        'label'         => $label,
+        'tipo'          => $tipo,
+        'categoria'     => $cat,
+        'codigo'        => $cod,
+        'unidade'       => $un,
+        'estoque_saldo' => (float) ($ci['estoque_saldo'] ?? 0),
+        'hay'           => $hay,
     ];
 }
 
@@ -616,6 +617,8 @@ $topbarHideTitle = true;
     .op-item-combo__opt-main{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px}
     .op-item-combo__opt-name{font-size:14px;font-weight:700;color:var(--text,#0f172a);line-height:1.3;flex:1;min-width:0}
     .op-item-combo__opt-meta{font-size:12px;color:var(--muted,#64748b);line-height:1.35}
+    .op-item-combo__saldo{flex-shrink:0;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;background:rgba(83,74,183,.1);color:var(--primary,#534ab7);border:1px solid rgba(83,74,183,.18)}
+    .op-item-combo__saldo--baixo{background:rgba(220,38,38,.1);color:#b91c1c;border-color:rgba(220,38,38,.22)}
     .op-item-combo__empty{padding:12px;font-size:13px;color:var(--muted)}
     .op-mat-panel{margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:#faf8f5}
     .chamado-materiais-op-add{margin-bottom:16px;padding:0;border:0;background:transparent}

@@ -78,6 +78,28 @@ function chamados_periodo_anexos_stream_pdf(string $html, ?string $downloadUtf8 
     $dompdf->setPaper('A4', 'portrait');
     $dompdf->render();
 
+    // counter(pages) no CSS fica em 0 no Dompdf — numeração via canvas.
+    try {
+        $canvas = $dompdf->getCanvas();
+        $fontMetrics = $dompdf->getFontMetrics();
+        $font = $fontMetrics->getFont('DejaVu Sans');
+        if ($font && $canvas) {
+            $w = (float) $canvas->get_width();
+            $h = (float) $canvas->get_height();
+            // A4: texto centrado na faixa do rodapé (acima da margem inferior)
+            $canvas->page_text(
+                max(0.0, ($w / 2.0) - 32.0),
+                $h - 20.0,
+                'Pág. {PAGE_NUM} de {PAGE_COUNT}',
+                $font,
+                7.0,
+                [0.42, 0.45, 0.50]
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('[crm_prefeitura] Dompdf page numbers: ' . $e->getMessage());
+    }
+
     $binary = $dompdf->output();
     if ($pdfAnexoPaths !== [] && chamados_pdf_fpdi_disponivel()) {
         try {

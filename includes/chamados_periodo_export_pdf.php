@@ -116,6 +116,104 @@ function chamados_pdf_pack_pages(array $items, callable $anexoEhImagem): array
 }
 
 /**
+ * Separa imagens e outros anexos de um pack.
+ *
+ * @param array{chamado?: array<string,mixed>, anexos?: list<array<string,mixed>>} $pack
+ * @param callable(array<string,mixed>): bool $anexoEhImagem
+ * @return array{imgs: list<array<string,mixed>>, outros: list<array<string,mixed>>}
+ */
+function chamados_pdf_pack_split_anexos(array $pack, callable $anexoEhImagem): array
+{
+    $imgs = [];
+    $outros = [];
+    foreach ($pack['anexos'] ?? [] as $a) {
+        if ($anexoEhImagem($a)) {
+            $imgs[] = $a;
+        } else {
+            $outros[] = $a;
+        }
+    }
+
+    return ['imgs' => $imgs, 'outros' => $outros];
+}
+
+/**
+ * Empacota folhas renderizáveis do relatório fotográfico.
+ * ≤2 fotos/chamado → até 2 chamados na mesma folha;
+ * >2 fotos → 1 chamado por folha, fotos em chunks de no máximo 4 (2×2).
+ *
+ * @param list<array{chamado: array<string,mixed>, anexos: list<array<string,mixed>>}> $items
+ * @param callable(array<string,mixed>): bool $anexoEhImagem
+ * @return list<list<array{
+ *   chamado: array<string,mixed>,
+ *   imgs: list<array<string,mixed>>,
+ *   outros: list<array<string,mixed>>,
+ *   continuation: bool
+ * }>>
+ */
+function chamados_pdf_pack_photo_pages(array $items, callable $anexoEhImagem): array
+{
+    $pages = [];
+    $i = 0;
+    $n = count($items);
+    $maxPerPage = 4;
+
+    while ($i < $n) {
+        $cur = $items[$i];
+        $curSplit = chamados_pdf_pack_split_anexos($cur, $anexoEhImagem);
+        $curImgs = $curSplit['imgs'];
+        $curCount = count($curImgs);
+
+        if ($curCount <= 2 && ($i + 1) < $n) {
+            $next = $items[$i + 1];
+            $nextSplit = chamados_pdf_pack_split_anexos($next, $anexoEhImagem);
+            if (count($nextSplit['imgs']) <= 2) {
+                $pages[] = [
+                    [
+                        'chamado'      => $cur['chamado'] ?? [],
+                        'imgs'         => $curImgs,
+                        'outros'       => $curSplit['outros'],
+                        'continuation' => false,
+                    ],
+                    [
+                        'chamado'      => $next['chamado'] ?? [],
+                        'imgs'         => $nextSplit['imgs'],
+                        'outros'       => $nextSplit['outros'],
+                        'continuation' => false,
+                    ],
+                ];
+                $i += 2;
+                continue;
+            }
+        }
+
+        if ($curCount <= $maxPerPage) {
+            $pages[] = [[
+                'chamado'      => $cur['chamado'] ?? [],
+                'imgs'         => $curImgs,
+                'outros'       => $curSplit['outros'],
+                'continuation' => false,
+            ]];
+            $i++;
+            continue;
+        }
+
+        $chunks = array_chunk($curImgs, $maxPerPage);
+        foreach ($chunks as $idx => $chunk) {
+            $pages[] = [[
+                'chamado'      => $cur['chamado'] ?? [],
+                'imgs'         => $chunk,
+                'outros'       => $idx === 0 ? $curSplit['outros'] : [],
+                'continuation' => $idx > 0,
+            ]];
+        }
+        $i++;
+    }
+
+    return $pages;
+}
+
+/**
  * Caminho legível do ficheiro de anexo (para getimagesize / Dompdf).
  *
  * @param array<string,mixed> $a
@@ -241,8 +339,8 @@ function chamados_pdf_fit_box(int $iw, int $ih, int $maxW, int $maxH): array
  */
 function chamados_pdf_photo_slot_size(): array
 {
-    // px @96dpi — meia largura A4; 2×2 cabe numa folha com cabeçalho.
-    return ['w' => 340, 'h' => 400];
+    // px @96dpi — meia largura A4; 2×2 + ch-card cabem numa folha com rodapé.
+    return ['w' => 340, 'h' => 355];
 }
 
 /**
@@ -328,7 +426,6 @@ function chamados_pdf_photo_quadrants_html(
     if ($imgs === []) {
         return '';
     }
-    $n = count($imgs);
     unset($compact); // tamanho da foto é sempre o mesmo (slot fixo)
     $slot = chamados_pdf_photo_slot_size();
     $cellW = (int) $slot['w'];
@@ -358,11 +455,11 @@ function chamados_pdf_photo_quadrants_html(
     };
 
     $rows = array_chunk($imgs, 2);
-    $keep = $n <= 4;
+    // Páginas já vêm com ≤4 fotos; manter bloco íntegro no Dompdf.
 
     ob_start();
     ?>
-<table class="photo-quad-shell<?= $keep ? ' photo-quad-shell--keep' : '' ?>" width="100%" cellspacing="0" cellpadding="0">
+<table class="photo-quad-shell photo-quad-shell--keep" width="100%" cellspacing="0" cellpadding="0">
   <tr>
     <td class="photo-quad-shell__cell">
     <?php foreach ($rows as $row): ?>
@@ -614,7 +711,8 @@ function chamados_periodo_anexos_export_html(
     }
     @page {
       size: A4 portrait;
-      margin: 12mm 11mm 20mm 11mm;
+      /* Folga inferior para o rodapé fixed não cobrir linhas da tabela/índice */
+      margin: 12mm 11mm 28mm 11mm;
     }
     table { border-collapse: collapse; }
     @media print {
@@ -641,13 +739,13 @@ function chamados_periodo_anexos_export_html(
     }
     .sheet { padding: 0 0 6mm; }
 
-    /* Rodapé institucional (todas as páginas) */
+    /* Rodapé institucional (todas as páginas) — centrado, fora da área útil */
     .pdf-run-footer {
       position: fixed;
       left: 11mm;
       right: 11mm;
-      bottom: 5mm;
-      height: 14mm;
+      bottom: 4mm;
+      height: 16mm;
       font-size: 8px;
       color: var(--bm-muted);
       text-align: center;
@@ -659,13 +757,15 @@ function chamados_periodo_anexos_export_html(
     .pdf-run-footer__doc {
       font-weight: 600;
       color: var(--bm-text);
+      text-align: center;
     }
-    .pdf-run-footer__pag::before {
-      content: "Pág. " counter(page) " de " counter(pages) " · ";
+    .pdf-run-footer__legal {
+      margin-top: 1px;
     }
 
     .pdf-cover {
       page-break-after: always;
+      page-break-inside: auto;
     }
     .hero {
       background: var(--bm-brand);
@@ -676,25 +776,39 @@ function chamados_periodo_anexos_export_html(
       padding-left: calc(11mm + 18px);
       padding-right: calc(11mm + 18px);
       padding-top: 14px;
+      text-align: center;
     }
     .hero__top {
       width: 100%;
       margin-bottom: 10px;
     }
-    .hero__top td { vertical-align: middle; }
-    .doc-logo-svg--hero { width: 44px; height: 44px; display: block; filter: brightness(0) invert(1); opacity: 0.95; }
+    .hero__top td { vertical-align: middle; text-align: center; }
+    .hero__logo-wrap {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .doc-logo-svg--hero {
+      width: 44px;
+      height: 44px;
+      display: inline-block;
+      filter: brightness(0) invert(1);
+      opacity: 0.95;
+      margin: 0 auto;
+    }
     .hero__title {
       font-size: 19px;
       font-weight: 700;
       margin: 0 0 4px;
       letter-spacing: -0.02em;
       line-height: 1.15;
+      text-align: center;
     }
     .hero__sub {
       margin: 0;
       font-size: 10.5px;
       opacity: 0.92;
       font-weight: 500;
+      text-align: center;
     }
     .hero__meta {
       margin-top: 12px;
@@ -703,6 +817,7 @@ function chamados_periodo_anexos_export_html(
       opacity: 0.95;
       border-top: 1px solid rgba(255,255,255,0.25);
       padding-top: 10px;
+      text-align: center;
     }
     .hero__meta strong { font-weight: 700; }
 
@@ -760,15 +875,34 @@ function chamados_periodo_anexos_export_html(
       font-size: 9px;
       color: var(--bm-muted);
     }
-    .status-mini table { width: 100%; font-size: 9px; }
-    .status-mini th {
+    .status-mini table,
+    .pdf-index-table {
+      width: 100%;
+      font-size: 9px;
+      border-collapse: collapse;
+    }
+    /* Dompdf: thead em table-header-group repete o cabeçalho em cada página */
+    .pdf-index-table thead {
+      display: table-header-group;
+    }
+    .pdf-index-table tbody {
+      display: table-row-group;
+    }
+    .pdf-index-table tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .status-mini th,
+    .pdf-index-table th {
       text-align: center;
       padding: 4px 2px;
       background: var(--bm-bg-soft);
       border: 1px solid var(--bm-line);
       font-weight: 600;
+      color: var(--bm-muted);
     }
-    .status-mini td {
+    .status-mini td,
+    .pdf-index-table td {
       text-align: center;
       padding: 5px 2px;
       border: 1px solid var(--bm-line);
@@ -797,9 +931,10 @@ function chamados_periodo_anexos_export_html(
       border-bottom: 1px solid var(--bm-line);
     }
 
-    /* Folhas de fotos (após a capa): ≤2 fotos → 2 chamados; >2 → 1 chamado. */
+    /* Folhas de fotos: máx. 4 fotos/folha (2×2); paginação feita em PHP. */
     .chamado-page {
       page-break-after: always;
+      page-break-inside: avoid;
     }
     .chamado-page:last-child {
       page-break-after: auto;
@@ -808,10 +943,6 @@ function chamados_periodo_anexos_export_html(
     .chamado-doc {
       page-break-before: auto;
       page-break-inside: avoid;
-    }
-    /* >4 fotos: permite continuar noutra folha entre linhas. */
-    .chamado-doc--solo {
-      page-break-inside: auto;
     }
     .chamado-doc + .chamado-doc {
       margin-top: 10px;
@@ -824,29 +955,42 @@ function chamados_periodo_anexos_export_html(
       border-left: 4px solid var(--bm-brand);
       border-radius: 6px;
       background: var(--bm-bg-alt);
-      padding: 6px 8px;
-      margin-bottom: 4px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
       page-break-inside: avoid;
+      text-align: center;
     }
     .ch-card__head {
       display: table;
       width: 100%;
       margin-bottom: 0;
+      text-align: center;
     }
     .ch-card__id {
       font-size: 11px;
       font-weight: 700;
       color: var(--bm-brand);
       margin: 0;
+      text-align: center;
+    }
+    .ch-card__cont {
+      display: block;
+      margin-top: 2px;
+      font-size: 8.5px;
+      font-weight: 600;
+      color: var(--bm-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     .ch-card__meta {
       font-size: 9px;
       line-height: 1.35;
       color: var(--bm-text);
-      margin: 2px 0 0;
+      margin: 4px 0 0;
+      text-align: center;
     }
     .ch-card__meta .muted { color: var(--bm-muted); }
-    .ch-card__badges { margin-bottom: 6px; }
+    .ch-card__badges { margin-bottom: 6px; text-align: center; }
 
     .badge {
       display: inline-block;
@@ -991,28 +1135,22 @@ function chamados_periodo_anexos_export_html(
   <div class="pdf-run-footer">
     <div class="pdf-run-footer__doc"><?= $h($brand) ?> · <?= $h($docTitle) ?></div>
     <div>Período: <?= $h($periodoLabel) ?> · Gerado em <?= $h($emitidoEm) ?> · Uso institucional e auditoria.</div>
-    <div><span class="pdf-run-footer__pag"></span> Documento não substitui registos oficiais sem validação interna.</div>
+    <div class="pdf-run-footer__legal">Documento não substitui registos oficiais sem validação interna.</div>
   </div>
 
   <div class="sheet">
     <!-- Capa + resumo (página 1) -->
     <div class="pdf-cover">
       <div class="hero">
-        <table class="hero__top" width="100%">
-          <tr>
-            <td width="52">
-              <?php if ($logoInline !== ''): ?>
-                <?= $logoInline ?>
-              <?php else: ?>
-                <div class="doc-logo-svg doc-logo-svg--hero" style="width:44px;height:44px;background:rgba(255,255,255,0.2);border-radius:10px;"></div>
-              <?php endif; ?>
-            </td>
-            <td>
-              <h1 class="hero__title"><?= $h($docTitle) ?></h1>
-              <p class="hero__sub"><?= $h($orgao) ?><?php if ($tagline !== ''): ?> · <?= $h($tagline) ?><?php endif; ?></p>
-            </td>
-          </tr>
-        </table>
+        <div class="hero__logo-wrap">
+          <?php if ($logoInline !== ''): ?>
+            <?= $logoInline ?>
+          <?php else: ?>
+            <div class="doc-logo-svg doc-logo-svg--hero" style="width:44px;height:44px;background:rgba(255,255,255,0.2);border-radius:10px;"></div>
+          <?php endif; ?>
+        </div>
+        <h1 class="hero__title"><?= $h($docTitle) ?></h1>
+        <p class="hero__sub"><?= $h($orgao) ?><?php if ($tagline !== ''): ?> · <?= $h($tagline) ?><?php endif; ?></p>
         <div class="hero__meta">
           <strong>Período (filtro):</strong> <?= $h($periodoLabel) ?><br />
           <strong>Emissão:</strong> <?= $h($emitidoEm) ?> · <strong>Total no período:</strong> <?= (int) $totalR ?> chamados
@@ -1022,24 +1160,28 @@ function chamados_periodo_anexos_export_html(
 
       <p class="section-title" style="margin-top:16px;">Chamados neste relatório</p>
       <div class="status-mini">
-        <table width="100%">
-          <tr>
-            <th style="width:12%;">#</th>
-            <th style="width:22%;">Data</th>
-            <th>Endereço / local</th>
-          </tr>
+        <table class="pdf-index-table" width="100%">
+          <thead>
+            <tr>
+              <th style="width:12%;">#</th>
+              <th style="width:22%;">Data</th>
+              <th>Endereço / local</th>
+            </tr>
+          </thead>
+          <tbody>
           <?php foreach ($items as $packCapa):
               $chCapa = $packCapa['chamado'];
               $cidCapa = (int) ($chCapa['id'] ?? 0);
               $dataCapa = trim((string) ($chCapa['data'] ?? ''));
               $endCapa = trim((string) ($chCapa['endereco_completo'] ?? ''));
               ?>
-          <tr>
-            <td><strong><?= $h((string) $cidCapa) ?></strong></td>
-            <td><?= $h($dataCapa !== '' ? $dataCapa : '—') ?></td>
-            <td><?= $h($endCapa !== '' ? $endCapa : '—') ?></td>
-          </tr>
+            <tr>
+              <td><strong><?= $h((string) $cidCapa) ?></strong></td>
+              <td><?= $h($dataCapa !== '' ? $dataCapa : '—') ?></td>
+              <td><?= $h($endCapa !== '' ? $endCapa : '—') ?></td>
+            </tr>
           <?php endforeach; ?>
+          </tbody>
         </table>
       </div>
 
@@ -1056,34 +1198,29 @@ function chamados_periodo_anexos_export_html(
     <?php endif; ?>
 
     <?php
-    $paginasChamados = $items !== [] ? chamados_pdf_pack_pages($items, $anexoEhImagem) : [];
+    $paginasChamados = $items !== [] ? chamados_pdf_pack_photo_pages($items, $anexoEhImagem) : [];
     foreach ($paginasChamados as $packPagina):
         $compactPage = count($packPagina) > 1;
         ?>
     <div class="chamado-page">
         <?php
         foreach ($packPagina as $pack):
-        $ch     = $pack['chamado'];
-        $anexos = $pack['anexos'];
-        $cid    = (int) ($ch['id'] ?? 0);
-        $dataCh   = trim((string) ($ch['data'] ?? ''));
-        $endereco = trim((string) ($ch['endereco_completo'] ?? ''));
-        $tecnico  = trim((string) ($ch['tecnico_nome'] ?? ''));
-        $imgs = [];
-        $outros = [];
-        foreach ($anexos as $a) {
-            if ($anexoEhImagem($a)) {
-                $imgs[] = $a;
-            } else {
-                $outros[] = $a;
-            }
-        }
-        $soloClass = count($imgs) > 4 ? ' chamado-doc--solo' : '';
+        $ch           = $pack['chamado'] ?? [];
+        $imgs         = $pack['imgs'] ?? [];
+        $outros       = $pack['outros'] ?? [];
+        $continuation = !empty($pack['continuation']);
+        $cid          = (int) ($ch['id'] ?? 0);
+        $dataCh       = trim((string) ($ch['data'] ?? ''));
+        $endereco     = trim((string) ($ch['endereco_completo'] ?? ''));
+        $tecnico      = trim((string) ($ch['tecnico_nome'] ?? ''));
         ?>
-    <section class="chamado-doc<?= $soloClass ?>">
+    <section class="chamado-doc">
       <div class="ch-card">
         <div class="ch-card__head">
           <div class="ch-card__id">Chamado #<?= $h((string) $cid) ?></div>
+          <?php if ($continuation): ?>
+          <span class="ch-card__cont">Fotos (cont.)</span>
+          <?php endif; ?>
         </div>
         <p class="ch-card__meta">
           <?php if ($dataCh !== ''): ?><span><?= $h($dataCh) ?></span><?php endif; ?>
@@ -1097,9 +1234,9 @@ function chamados_periodo_anexos_export_html(
         </p>
       </div>
 
-      <?php if ($anexos === []): ?>
-      <p class="muted" style="font-size:8px;font-style:italic;margin:2px 0 0;">Sem fotos.</p>
-      <?php else: ?>
+      <?php if ($imgs === [] && !$continuation): ?>
+      <p class="muted" style="font-size:8px;font-style:italic;margin:2px 0 0;text-align:center;">Sem fotos.</p>
+      <?php elseif ($imgs !== []): ?>
         <?php
         echo chamados_pdf_photo_quadrants_html(
             $imgs,
@@ -1111,7 +1248,7 @@ function chamados_periodo_anexos_export_html(
             $anexoUrl,
             $compactPage
         );
-        if ($outros !== []) {
+        if ($outros !== [] && !$continuation) {
             $nOut = count($outros);
             echo '<p class="chamado-doc__outros">' . $h(
                 $nOut === 1

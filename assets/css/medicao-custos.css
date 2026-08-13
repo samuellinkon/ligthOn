@@ -583,7 +583,193 @@
   font-weight: 700;
 }
 
+/* ---------- Modal detalhe (somente leitura) ---------- */
+
+.medicao-custo-ver-modal__container.chamado-mat-modal__box {
+  width: min(100%, 560px);
+  max-height: min(92vh, 760px);
+}
+
+.medicao-custo-ver-modal__section {
+  margin-bottom: 0;
+}
+
+.medicao-custo-ver-modal__section--last {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.medicao-custo-ver-modal__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.medicao-custo-ver-modal__top-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.medicao-custo-ver-modal__code-label,
+.medicao-custo-ver-modal__field-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #6b7280);
+}
+
+.medicao-custo-ver-modal__code {
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--primary, #534ab7);
+  font-variant-numeric: tabular-nums;
+}
+
+.medicao-custo-ver-modal__status {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.medicao-custo-ver-modal__status .badge {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  font-weight: 600;
+}
+
+.medicao-custo-ver-modal__desc-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft, #ececf3);
+  background: linear-gradient(180deg, #fafafe 0%, #fff 100%);
+}
+
+.medicao-custo-ver-modal__desc {
+  margin: 6px 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--text, #1a1a2e);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.medicao-custo-ver-modal__values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.medicao-custo-ver-modal__metric {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft, #ececf3);
+  background: #fff;
+  min-width: 0;
+}
+
+.medicao-custo-ver-modal__metric-val {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text, #1a1a2e);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.medicao-custo-ver-modal__total-card {
+  grid-column: 1 / -1;
+  min-height: auto;
+  padding: 16px 18px;
+}
+
+.medicao-custo-ver-modal__obs-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft, #ececf3);
+  background: #fff;
+}
+
+.medicao-custo-ver-modal__obs {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--text, #1a1a2e);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.medicao-custo-ver-modal__obs--empty {
+  color: var(--muted, #6b7280);
+  font-style: italic;
+}
+
+.medicao-custo-ver-modal__meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-soft, #ececf3);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.medicao-custo-ver-modal__meta-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft, #f1f5f9);
+  align-items: start;
+}
+
+.medicao-custo-ver-modal__meta-row:last-child {
+  border-bottom: none;
+}
+
+.medicao-custo-ver-modal__meta-row--block {
+  grid-template-columns: 1fr;
+}
+
+.medicao-custo-ver-modal__meta-row dt {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7280);
+}
+
+.medicao-custo-ver-modal__meta-row dd {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text, #1a1a2e);
+  word-break: break-word;
+}
+
+.medicao-custo-ver-modal__meta-row--block dd {
+  margin-top: 4px;
+}
+
 @media (max-width: 768px) {
+  .medicao-custo-ver-modal__values {
+    grid-template-columns: 1fr;
+  }
+
+  .medicao-custo-ver-modal__meta-row:not(.medicao-custo-ver-modal__meta-row--block) {
+    grid-template-columns: 1fr;
+  }
+
   .medicao-custo-modal.chamado-mat-modal {
     padding: 12px;
     align-items: flex-end;
