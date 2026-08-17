@@ -141,6 +141,19 @@ $catalogoHrefAplicadoItem = static function (string $baseHref, int $itemId): str
     return $baseHref . $sep . 'item_id=' . $itemId;
 };
 
+$catalogoListagemHref = $catalogoPainelUrl(
+    $catalogoPainelHiddenQuery,
+    'catalogo.php',
+    $tipoFiltro,
+    $statusFiltro,
+    $q,
+    $codFiltro,
+    $estoqueBaixoFiltro
+);
+$catalogoReturnQs = 'return=' . rawurlencode($catalogoListagemHref);
+$catalogoPainelHrefAplicadoChamados .= (strpos($catalogoPainelHrefAplicadoChamados, '?') === false ? '?' : '&') . $catalogoReturnQs;
+$catalogoPainelHrefDevolvidos .= (strpos($catalogoPainelHrefDevolvidos, '?') === false ? '?' : '&') . $catalogoReturnQs;
+
 $filtroMetricAtivos   = $statusFiltro === 'ativo' && $tipoFiltro === '' && !$estoqueBaixoFiltro;
 $filtroMetricProdutos = $tipoFiltro === 'produto' && !$estoqueBaixoFiltro;
 $filtroMetricServicos = $tipoFiltro === 'servico' && !$estoqueBaixoFiltro;
@@ -224,7 +237,7 @@ $metricCardClass = static function (bool $active): string {
         <div><div class="metric-label">Estoque baixo</div><div class="metric-value"><?= (int) $totalEstoqueBaixo ?></div></div>
         <div class="icon-box red">!</div>
       </div>
-      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo abaixo de 10% do estoque — clique para filtrar</div>
+      <div class="metric-change muted"<?= $totalEstoqueBaixo > 0 ? ' style="color:#dc2626;"' : '' ?>>Saldo abaixo de 10% do estoque ou negativo — clique para filtrar</div>
     </a>
     <?php endif; ?>
   </div>
@@ -248,6 +261,7 @@ $metricCardClass = static function (bool $active): string {
           <?php foreach ($catalogoPainelHiddenQuery as $hk => $hv): ?>
           <input type="hidden" name="<?= htmlspecialchars((string) $hk) ?>" value="<?= htmlspecialchars((string) $hv) ?>">
           <?php endforeach; ?>
+          <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoListagemHref, ENT_QUOTES) ?>">
           <input type="hidden" name="acao" value="recalcular_saldos">
           <button type="submit" class="btn btn-secondary btn-sm" title="Ajusta a coluna Saldo: estoque de referência menos utilizado nos chamados, mais devolvido">Recalcular saldos</button>
         </form>
@@ -376,7 +390,7 @@ $metricCardClass = static function (bool $active): string {
                     $limiarBaixoUi = $catalogoTemCapacidade ? catalogo_estoque_limiar_baixo($it) : 0.0;
                     $tituloBaixo   = $limiarBaixoUi > 0
                         ? sprintf('Saldo %.4g ≤ 10%% do estoque (limiar %.4g %s)', $estSaldo, $limiarBaixoUi, (string) ($it['unidade'] ?? ''))
-                        : 'Saldo abaixo de 10% do estoque';
+                        : 'Saldo negativo sem estoque de referência';
                   ?>
                   <span class="badge catalogo-badge-estoque-baixo" title="<?= htmlspecialchars($tituloBaixo, ENT_QUOTES) ?>">Estoque baixo</span>
                 <?php endif; ?>
@@ -434,6 +448,7 @@ $metricCardClass = static function (bool $active): string {
               <form method="post" style="display:inline;" data-confirm="Excluir este item do catálogo?" data-confirm-danger>
                 <input type="hidden" name="acao" value="item_excluir">
                 <input type="hidden" name="item_id" value="<?= $itemId ?>">
+                <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoListagemHref, ENT_QUOTES) ?>">
                 <button type="submit" class="action danger">Excluir</button>
               </form>
               <?php else: ?>
@@ -482,6 +497,7 @@ $metricCardClass = static function (bool $active): string {
   <form method="post" action="<?= htmlspecialchars($catalogoPainelFormAction) ?>" class="kb-modal-card" style="max-width:680px;">
     <input type="hidden" name="acao" value="item_salvar">
     <input type="hidden" name="item_id" id="modal_item_id" value="0">
+    <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoListagemHref, ENT_QUOTES) ?>">
     <header class="kb-modal-head">
       <h4 id="item-modal-title">Novo produto</h4>
       <button type="button" class="kb-close" data-close-item-modal>×</button>

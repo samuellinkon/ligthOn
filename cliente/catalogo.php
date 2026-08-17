@@ -83,7 +83,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: catalogo.php');
+    $redir = catalogo_listagem_voltar_href_seguro((string) ($_POST['return'] ?? ''));
+    header('Location: ' . ($redir ?? 'catalogo.php'));
     exit;
 }
 

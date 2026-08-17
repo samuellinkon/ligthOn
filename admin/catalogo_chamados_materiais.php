@@ -83,6 +83,10 @@ $catalogoAplicadoSidebar = $CRM_CATALOGO_APLICADO_PORTAL ? 'sidebar-cliente.php'
 $catalogoAplicadoVoltarHref = $CRM_CATALOGO_APLICADO_PORTAL
     ? 'catalogo.php'
     : ('catalogo.php?cliente_id=' . (int) $clienteId);
+$catalogoReturnSeguro = catalogo_listagem_voltar_href_seguro((string) ($_GET['return'] ?? ''));
+if ($catalogoReturnSeguro !== null) {
+    $catalogoAplicadoVoltarHref = $catalogoReturnSeguro;
+}
 
 $today      = date('Y-m-d');
 $defaultDe  = date('Y-m-01');
@@ -193,6 +197,9 @@ if ($catalogoMedicaoOrigemQs !== []) {
     $filtrosLimparQs = array_merge($filtrosLimparQs, $catalogoMedicaoOrigemQs);
 }
 $limparHref = 'catalogo_chamados_materiais.php';
+if ($catalogoReturnSeguro !== null) {
+    $filtrosLimparQs['return'] = $catalogoReturnSeguro;
+}
 if ($filtrosLimparQs !== []) {
     $limparHref .= '?' . http_build_query($filtrosLimparQs);
 }
@@ -248,6 +255,9 @@ include __DIR__ . '/../includes/head.php';
         <?php foreach ($catalogoMedicaoOrigemQs as $mqKey => $mqVal): ?>
         <input type="hidden" name="<?= htmlspecialchars((string) $mqKey, ENT_QUOTES) ?>" value="<?= htmlspecialchars((string) $mqVal, ENT_QUOTES) ?>">
         <?php endforeach; ?>
+        <?php if ($catalogoReturnSeguro !== null): ?>
+        <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoReturnSeguro, ENT_QUOTES) ?>">
+        <?php endif; ?>
         <div class="catalogo-aplicado-filters-row catalogo-aplicado-filters-row--top">
         <div class="form-group">
           <label for="data_de">Período — de</label>

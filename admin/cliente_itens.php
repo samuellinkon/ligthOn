@@ -122,7 +122,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: ' . $catalogoAdminScript . '?cliente_id=' . $clienteId);
+    $redir = catalogo_listagem_voltar_href_seguro((string) ($_POST['return'] ?? ''));
+    if ($redir === null) {
+        $redir = $catalogoAdminScript . '?cliente_id=' . $clienteId;
+    }
+    header('Location: ' . $redir);
     exit;
 }
 

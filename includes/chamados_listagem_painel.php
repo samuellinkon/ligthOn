@@ -508,7 +508,13 @@ $chamadosListagemHref = static function (int $p, string $filtro, string $busca, 
 $chHrefMetricTotal = adm_chamados_url(1, '', $q, $chMetricsPeriodoCtx);
 $chHrefMetricAtivos = adm_chamados_url(1, 'ativos', $q, $chMetricsPeriodoCtx);
 $chHrefMetricUrgentes = adm_chamados_url(1, 'urgentes', $q, $chMetricsPeriodoCtx);
-$chHrefMetricRes7d = adm_chamados_url(1, 'resolvidos', $q, $chMetricsPeriodoCtx);
+$res7dHoje = new DateTimeImmutable('today');
+$chHrefMetricRes7d = adm_chamados_url(1, 'resolvidos', $q, array_merge($chMetricsPeriodoCtx, [
+    'periodo_limpar' => false,
+    'medicao_mes'    => '',
+    'periodo_de'     => $res7dHoje->modify('-6 days')->format('Y-m-d'),
+    'periodo_ate'    => $res7dHoje->format('Y-m-d'),
+]));
 
 $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
 if ($CRM_CHAMADOS_IS_OPERADOR && $exportFmt !== '') {
@@ -1180,7 +1186,11 @@ $activePage = 'chamados';
 $topTitle    = $CRM_CHAMADOS_IS_CLIENTE ? 'Meus chamados' : 'Chamados';
 $topSubtitle = $CRM_CHAMADOS_IS_OPERADOR
     ? ''
-    : ($CRM_CHAMADOS_IS_CLIENTE ? 'Lista dos chamados da sua prefeitura.' : 'Lista filtrada pela data de abertura (por defeito: mês atual).');
+    : ($CRM_CHAMADOS_IS_CLIENTE
+        ? 'Lista dos chamados da sua prefeitura.'
+        : ($f === 'resolvidos'
+            ? 'Resolvidos filtrados pela data de conclusão (não pela abertura).'
+            : 'Lista filtrada pela data de abertura (por defeito: mês atual).'));
 $topSearch   = $CRM_CHAMADOS_IS_OPERADOR
     ? 'Buscar por ID ou assunto...'
     : 'Buscar por ID, título ou prefeitura...';
@@ -1494,12 +1504,12 @@ include __DIR__ . '/head.php';
       </div>
       <div class="metric-change metric-change--admin">Prioridade alta</div>
     </a>
-    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricRes7d, ENT_QUOTES, 'UTF-8') ?>" title="Filtrar chamados resolvidos">
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricRes7d, ENT_QUOTES, 'UTF-8') ?>" title="Chamados resolvidos nos últimos 7 dias (pela data de conclusão)">
       <div class="metric-top">
         <div><div class="metric-label">Resolvidos 7d</div><div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true))) ?></div></div>
         <div class="icon-box">OK</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? 'Últimos 7 dias' : 'Todos (mock)' ?></div>
+      <div class="metric-change metric-change--admin"><?= $dash ? 'Concluídos nos últimos 7 dias' : 'Todos (mock)' ?></div>
     </a>
   </div>
   </div>
@@ -1597,11 +1607,11 @@ include __DIR__ . '/head.php';
           </select>
         </div>
         <div class="form-group" style="margin:0;flex:0 0 142px;min-width:0;">
-          <label for="periodo_de" style="font-size:12px;">De</label>
+          <label for="periodo_de" style="font-size:12px;"><?= $f === 'resolvidos' ? 'Conclusão de' : 'De' ?></label>
           <input type="date" id="periodo_de" name="periodo_de" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoDe) ?>">
         </div>
         <div class="form-group" style="margin:0;flex:0 0 142px;min-width:0;">
-          <label for="periodo_ate" style="font-size:12px;">Até</label>
+          <label for="periodo_ate" style="font-size:12px;"><?= $f === 'resolvidos' ? 'Conclusão até' : 'Até' ?></label>
           <input type="date" id="periodo_ate" name="periodo_ate" class="input" value="<?= $periodoLimpar ? '' : htmlspecialchars((string) $periodoAte) ?>">
         </div>
         <div class="form-group" style="margin:0;flex:1 1 0;min-width:140px;">

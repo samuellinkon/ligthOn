@@ -601,6 +601,30 @@ function repo_chamados_sql_data_ref_medicao_bm(string $alias = 'ch'): string
 }
 
 /**
+ * Data de conclusão do chamado (quando passou a Resolvido / foi executado).
+ * Prefere aprovação do gestor; senão finalização do técnico; senão abertura (legado).
+ */
+function repo_chamados_sql_data_conclusao(string $alias = 'ch'): string
+{
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias);
+    $p = $a !== '' ? $a . '.' : '';
+
+    return "COALESCE({$p}aprovado_gestor_em, {$p}finalizado_operador_em, {$p}aberto_em)";
+}
+
+/**
+ * Condição SQL: resolvidos/fechados cuja conclusão cai nos últimos 7 dias civis (inclusive hoje).
+ */
+function repo_chamados_sql_resolvidos_ultimos_7d(string $alias = 'ch'): string
+{
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias);
+    $p = $a !== '' ? $a . '.' : '';
+
+    return "{$p}status IN ('Resolvido','Fechado')
+          AND DATE(" . repo_chamados_sql_data_conclusao($a) . ") BETWEEN DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND CURDATE()";
+}
+
+/**
  * Condição SQL legada — preferir {@see repo_chamados_status_sql_medicao_bm()} na medição oficial e no BM completo (detalhe).
  */
 function repo_chamados_status_sql_medicao_bm_completo(): string
@@ -3719,7 +3743,7 @@ function repo_dashboard_operador_stats(int $empresaRaizId, int $operadorUserId):
         return null;
     }
     $res = repo_chamados_operador_list($empresaRaizId, '', '', 1, 5000, $operadorUserId);
-    $abertos = $andamento = $urgentes = $res7d = 0;
+    $abertos = $andamento = $urgentes = 0;
     foreach ($res['rows'] as $ch) {
         $st = (string) ($ch['status'] ?? '');
         if ($st === 'Aberto') {
@@ -3731,9 +3755,31 @@ function repo_dashboard_operador_stats(int $empresaRaizId, int $operadorUserId):
             && in_array((string) ($ch['prioridade'] ?? ''), ['Alta', 'Urgente'], true)) {
             $urgentes++;
         }
-        if (in_array($st, ['Resolvido', 'Fechado'], true)) {
-            $res7d++;
+    }
+
+    $res7d = 0;
+    $pdo = db();
+    if ($pdo) {
+        $chAtivo = _repo_chamados_sql_apenas_ativos('ch');
+        $temTecnicosTabela = repo_chamado_tecnicos_table_exists();
+        $sqlAtrib = $temTecnicosTabela
+            ? '(ch.tecnico_user_id = ? OR EXISTS (
+                    SELECT 1 FROM chamado_tecnicos ctf
+                    WHERE ctf.chamado_id = ch.id AND ctf.usuario_id = ?
+                ))'
+            : 'ch.tecnico_user_id = ?';
+        $sql = '
+            SELECT COUNT(*) FROM chamados ch
+            WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+              AND ' . $sqlAtrib . '
+              AND ' . repo_chamados_sql_resolvidos_ultimos_7d('ch') . $chAtivo;
+        $st = $pdo->prepare($sql);
+        $params = [$empresaRaizId, $empresaRaizId, $operadorUserId];
+        if ($temTecnicosTabela) {
+            $params[] = $operadorUserId;
         }
+        $st->execute($params);
+        $res7d = (int) $st->fetchColumn();
     }
 
     return [
@@ -4098,6 +4144,10 @@ function _repo_chamados_admin_sql_where(
         } elseif ($filtro === 'resolvido_bm') {
             // Listagem a partir da medição: período pelo mês de validação (BM).
             $where[]  = 'DATE(' . repo_chamados_sql_data_ref_medicao_bm('ch') . ') BETWEEN ? AND ?';
+            $params[] = $dataAbertaDe;
+            $params[] = $dataAbertaAte;
+        } elseif ($filtro === 'resolvidos') {
+            $where[]  = 'DATE(' . repo_chamados_sql_data_conclusao('ch') . ') BETWEEN ? AND ?';
             $params[] = $dataAbertaDe;
             $params[] = $dataAbertaAte;
         } else {
@@ -4764,6 +4814,7 @@ function repo_medicao_chamados_relatorio(int $empresaRaizId, string $dataDe, str
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(" . repo_chamados_sql_data_ref_medicao_bm('ch') . ") BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
+          " . _repo_chamados_sql_apenas_ativos('ch') . "
         ORDER BY " . repo_chamados_sql_data_ref_medicao_bm('ch') . " ASC, ch.id ASC
     ";
     $st = $pdo->prepare($sql);
@@ -4835,6 +4886,7 @@ function repo_chamados_itens_utilizados_periodo_linhas(int $empresaRaizId, strin
           AND ci.movimento = \'utilizado\'
           AND DATE(' . $dataRef . ') BETWEEN ? AND ?
           AND ' . repo_chamados_status_sql_medicao_bm() . '
+          ' . _repo_chamados_sql_apenas_ativos('ch') . '
         ORDER BY ref_mes ASC, ch.id ASC, ci.id ASC
     ';
     $st = $pdo->prepare($sql);
@@ -4917,6 +4969,7 @@ function repo_catalogo_chamados_itens_periodo(int $empresaRaizId, string $dataDe
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(' . $dataRef . ') BETWEEN ? AND ?
           AND ' . repo_chamados_status_sql_medicao_bm() . '
+          ' . _repo_chamados_sql_apenas_ativos('ch') . '
         ' . $movimentoSql . '
         ORDER BY ' . $dataRef . ' DESC, ch.id DESC, FIELD(ci.movimento, \'utilizado\', \'devolvido\'), ci.id ASC
     ';
@@ -5180,6 +5233,7 @@ function repo_catalogo_chamados_itens_linhas_filtradas(int $empresaRaizId, strin
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(ch.aberto_em) BETWEEN ? AND ?
           AND ch.status <> \'Cancelado\'
+          ' . _repo_chamados_sql_apenas_ativos('ch') . '
         ' . $extra . '
         ORDER BY ch.aberto_em DESC, ch.id DESC, ci.id ASC
     ';
@@ -5275,6 +5329,7 @@ function repo_medicao_itens_movimento_resumo(int $empresaRaizId, string $dataDe,
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(" . repo_chamados_sql_data_ref_medicao_bm('ch') . ") BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
+          " . _repo_chamados_sql_apenas_ativos('ch') . "
         GROUP BY ci.movimento, it.tipo, it.codigo, it.nome, it.unidade, it.id
         ORDER BY FIELD(ci.movimento, 'utilizado', 'devolvido'), it.tipo ASC, it.nome ASC
     ";
@@ -5344,6 +5399,7 @@ function repo_medicao_bm_utilizado_quantidades_por_item(int $empresaRaizId, stri
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(" . repo_chamados_sql_data_ref_medicao_bm('ch') . ") BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
+          " . _repo_chamados_sql_apenas_ativos('ch') . "
           AND " . repo_chamados_sql_movimento_medicao_custo('ci') . "
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0
@@ -5406,6 +5462,7 @@ function repo_medicao_bm_utilizado_por_item_periodo_lancamento(int $empresaRaizI
         WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
           AND DATE(" . repo_chamados_sql_data_ref_medicao_bm('ch') . ") BETWEEN ? AND ?
           AND " . repo_chamados_status_sql_medicao_bm() . "
+          " . _repo_chamados_sql_apenas_ativos('ch') . "
           AND " . repo_chamados_sql_movimento_medicao_custo('ci') . "
         GROUP BY it.id
         HAVING SUM(ci.quantidade) <> 0 OR SUM(ci.subtotal) <> 0
@@ -6086,6 +6143,7 @@ function repo_delete_chamado(int $id): bool
         ');
         $ok = $st->execute([$uid, $id]);
         if ($ok && $st->rowCount() > 0) {
+            repo_chamado_estornar_estoque_itens($id);
             audit_log_registar('chamado.inativar', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
                 'titulo'        => function_exists('mb_substr') ? mb_substr((string) ($ch['titulo'] ?? ''), 0, 200, 'UTF-8') : substr((string) ($ch['titulo'] ?? ''), 0, 200),
                 'status'        => (string) ($ch['status'] ?? ''),
@@ -6162,6 +6220,10 @@ function repo_chamados_excluir_todos_ativos(?int $clienteIdEscopo = null): int
     $sqlWhere = implode(' AND ', $where);
 
     if (repo_chamados_tem_exclusao_logica()) {
+        $stIds = $pdo->prepare("SELECT DISTINCT ch.cliente_id FROM chamados ch WHERE $sqlWhere");
+        $stIds->execute($params);
+        $clienteIdsAfetados = array_values(array_filter(array_map('intval', $stIds->fetchAll(PDO::FETCH_COLUMN) ?: [])));
+
         $uid = repo_usuario_sessao_id();
         $st  = $pdo->prepare("
             UPDATE chamados ch
@@ -6173,6 +6235,16 @@ function repo_chamados_excluir_todos_ativos(?int $clienteIdEscopo = null): int
         $st->execute(array_merge([$uid], $params));
         $n = $st->rowCount();
         if ($n > 0) {
+            $catalogos = [];
+            foreach ($clienteIdsAfetados as $cidAfetado) {
+                $dono = repo_cliente_catalogo_dono_id($cidAfetado);
+                if ($dono > 0) {
+                    $catalogos[$dono] = true;
+                }
+            }
+            foreach (array_keys($catalogos) as $catalogoId) {
+                repo_catalogo_recalcular_estoque_saldo((int) $catalogoId);
+            }
             audit_log_registar('chamados.excluir_todos', 'chamado', null, $clienteIdEscopo > 0 ? $clienteIdEscopo : null, [
                 'total'           => $n,
                 'exclusao_tipo'   => 'logica',
@@ -6399,8 +6471,7 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             $urgentes = (int) $st->fetchColumn();
             $st = $pdo->prepare("
                 SELECT COUNT(*) FROM chamados
-                WHERE status IN ('Resolvido','Fechado')
-                  AND aberto_em >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                WHERE " . repo_chamados_sql_resolvidos_ultimos_7d('') . "
                   AND $chF" . $chAtivo . '
             ');
             $st->execute([$cid, $cid]);
@@ -6430,8 +6501,7 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             $urgentes = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE prioridade IN ('Alta','Urgente') AND status NOT IN ('Resolvido','Fechado','Cancelado')" . $chAtivo)->fetchColumn();
             $res7d = (int) $pdo->query("
                 SELECT COUNT(*) FROM chamados
-                WHERE status IN ('Resolvido','Fechado')
-                  AND aberto_em >= DATE_SUB(NOW(), INTERVAL 7 DAY)" . $chAtivo . '
+                WHERE " . repo_chamados_sql_resolvidos_ultimos_7d('') . $chAtivo . '
             ')->fetchColumn();
 
             $pendContas = 0;
@@ -7449,20 +7519,76 @@ function catalogo_estoque_limiar_baixo(array $it): float
     return $cap * 0.10;
 }
 
-/** Estoque baixo quando saldo atual ≤ 10% do estoque cadastrado. */
+/** Estoque baixo: saldo ≤ 10% da capacidade, ou saldo negativo sem estoque de referência. */
 function catalogo_item_estoque_baixo(array $it): bool
 {
     if (empty($it['ativo']) || !repo_cliente_itens_estoque_saldo_column_exists()) {
         return false;
     }
-    $cap = catalogo_estoque_referencia($it);
-    if ($cap <= 0) {
-        return false;
-    }
     $saldo = (float) ($it['estoque_saldo'] ?? 0);
+    $cap   = catalogo_estoque_referencia($it);
+    if ($cap <= 0) {
+        return $saldo < 0;
+    }
     $limiar = $cap * 0.10;
 
     return $saldo <= $limiar + 1e-9;
+}
+
+/**
+ * Valida href relativo de volta à listagem do catálogo (filtros GET).
+ * Aceita apenas catalogo.php com chaves conhecidas.
+ */
+function catalogo_listagem_voltar_href_seguro(?string $raw): ?string
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return null;
+    }
+    if (str_contains($raw, '://') || str_starts_with($raw, '//') || str_contains($raw, "\n") || str_contains($raw, '..')) {
+        return null;
+    }
+    $path  = $raw;
+    $query = '';
+    $qPos  = strpos($raw, '?');
+    if ($qPos !== false) {
+        $path  = substr($raw, 0, $qPos);
+        $query = substr($raw, $qPos + 1);
+    }
+    $path = ltrim(str_replace('\\', '/', $path), '/');
+    if ($path !== 'catalogo.php') {
+        return null;
+    }
+    parse_str($query, $qs);
+    if (!is_array($qs)) {
+        return 'catalogo.php';
+    }
+    $clean = [];
+    $tipo  = strtolower(trim((string) ($qs['tipo'] ?? '')));
+    if ($tipo === 'produto' || $tipo === 'servico') {
+        $clean['tipo'] = $tipo;
+    }
+    $status = strtolower(trim((string) ($qs['status'] ?? '')));
+    if ($status === 'ativo' || $status === 'inativo') {
+        $clean['status'] = $status;
+    }
+    $cod = trim((string) ($qs['cod'] ?? ''));
+    if ($cod !== '') {
+        $clean['cod'] = mb_substr($cod, 0, 64);
+    }
+    $q = trim((string) ($qs['q'] ?? ''));
+    if ($q !== '') {
+        $clean['q'] = mb_substr($q, 0, 200);
+    }
+    if ((string) ($qs['estoque_baixo'] ?? '') === '1') {
+        $clean['estoque_baixo'] = '1';
+    }
+    $cid = trim((string) ($qs['cliente_id'] ?? ''));
+    if ($cid !== '' && ctype_digit($cid) && (int) $cid > 0) {
+        $clean['cliente_id'] = $cid;
+    }
+
+    return $clean === [] ? 'catalogo.php' : ('catalogo.php?' . http_build_query($clean));
 }
 
 function repo_cliente_itens_estoque_saldo_column_exists(): bool
@@ -7555,6 +7681,40 @@ function repo_cliente_item_aplicar_estoque_delta(PDO $pdo, int $itemId, float $d
     }
     $st = $pdo->prepare('UPDATE cliente_itens SET estoque_saldo = estoque_saldo + ? WHERE id = ? LIMIT 1');
     $st->execute([$delta, $itemId]);
+}
+
+/**
+ * Estorna o efeito de estoque dos lançamentos de um chamado (exclusão lógica).
+ * Não apaga chamado_itens — o histórico permanece no detalhe.
+ */
+function repo_chamado_estornar_estoque_itens(int $chamadoId): void
+{
+    if (!repo_cliente_itens_estoque_saldo_column_exists() || $chamadoId <= 0) {
+        return;
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return;
+    }
+    try {
+        $st = $pdo->prepare('
+            SELECT ci.item_id, ci.quantidade, ci.movimento
+            FROM chamado_itens ci
+            WHERE ci.chamado_id = ?
+        ');
+        $st->execute([$chamadoId]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $itemId = (int) ($row['item_id'] ?? 0);
+            $qtd    = (float) ($row['quantidade'] ?? 0);
+            $mov    = (string) ($row['movimento'] ?? 'utilizado');
+            $delta  = -repo_cliente_item_estoque_delta_por_movimento($mov, $qtd);
+            repo_cliente_item_aplicar_estoque_delta($pdo, $itemId, $delta);
+        }
+    } catch (Throwable $e) {
+        if (function_exists('app_debug_mode') && app_debug_mode()) {
+            error_log('repo_chamado_estornar_estoque_itens: ' . $e->getMessage());
+        }
+    }
 }
 
 /**
@@ -7748,8 +7908,10 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
                 {$devolvExpr} AS qtd_devolvido
             FROM chamado_itens ci
             INNER JOIN cliente_itens i ON i.id = ci.item_id
+            INNER JOIN chamados ch ON ch.id = ci.chamado_id
             WHERE (i.cliente_id = ? OR i.empresa_id = ?)
             {$itemFilterI}
+              " . _repo_chamados_sql_apenas_ativos('ch') . "
             GROUP BY ci.item_id
         ";
         $stAgg = $pdo->prepare($sqlAgg);
@@ -7775,18 +7937,8 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
             $dev      = (float) ($aggPorItem[$iid]['dev'] ?? 0);
             $ret['itens_processados']++;
 
-            if ($cap > 0) {
-                $baseRef = $cap;
-            } else {
-                $baseRef = $saldoAt + $util - $dev;
-                if ($baseRef < 0) {
-                    $baseRef = 0.0;
-                }
-            }
+            $baseRef   = $temCap ? $cap : ($saldoAt + $util - $dev);
             $saldoNovo = $baseRef - $util + $dev;
-            if ($saldoNovo < 0) {
-                $saldoNovo = 0.0;
-            }
 
             if (abs($saldoAt - $saldoNovo) > 1e-9) {
                 $up->execute([$saldoNovo, $iid, $catalogoClienteId, $catalogoClienteId]);

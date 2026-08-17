@@ -83,6 +83,10 @@ $catalogoDevSidebar = $CRM_CATALOGO_DEVOLVIDOS_PORTAL ? 'sidebar-cliente.php' : 
 $catalogoDevVoltarHref = $CRM_CATALOGO_DEVOLVIDOS_PORTAL
     ? 'catalogo.php'
     : ('catalogo.php?cliente_id=' . (int) $clienteId);
+$catalogoReturnSeguro = catalogo_listagem_voltar_href_seguro((string) ($_GET['return'] ?? ''));
+if ($catalogoReturnSeguro !== null) {
+    $catalogoDevVoltarHref = $catalogoReturnSeguro;
+}
 
 $today      = date('Y-m-d');
 $defaultDe  = date('Y-m-01');
@@ -232,6 +236,9 @@ include __DIR__ . '/../includes/head.php';
 
 <?php
 $qsBase = !$CRM_CATALOGO_DEVOLVIDOS_PORTAL ? ['cliente_id' => (int) $clienteId] : [];
+if ($catalogoReturnSeguro !== null) {
+    $qsBase['return'] = $catalogoReturnSeguro;
+}
 $hrefPeriodo = static function (string $de, string $ate) use ($qsBase): string {
     return 'catalogo_itens_devolvidos.php?' . http_build_query(array_merge($qsBase, [
         'data_de'  => $de,
@@ -289,6 +296,9 @@ $exportHref = 'catalogo_itens_devolvidos.php?' . http_build_query($exportQs);
         <?php endif; ?>
         <?php if ($filtroTecId > 0): ?>
         <input type="hidden" name="tecnico_user_id" value="<?= (int) $filtroTecId ?>">
+        <?php endif; ?>
+        <?php if ($catalogoReturnSeguro !== null): ?>
+        <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoReturnSeguro, ENT_QUOTES) ?>">
         <?php endif; ?>
         <div class="form-group" style="margin:0;flex:0 0 142px;min-width:0;">
           <label for="data_de" style="font-size:12px;">De</label>
