@@ -508,13 +508,7 @@ $chamadosListagemHref = static function (int $p, string $filtro, string $busca, 
 $chHrefMetricTotal = adm_chamados_url(1, '', $q, $chMetricsPeriodoCtx);
 $chHrefMetricAtivos = adm_chamados_url(1, 'ativos', $q, $chMetricsPeriodoCtx);
 $chHrefMetricUrgentes = adm_chamados_url(1, 'urgentes', $q, $chMetricsPeriodoCtx);
-$res7dHoje = new DateTimeImmutable('today');
-$chHrefMetricRes7d = adm_chamados_url(1, 'resolvidos', $q, array_merge($chMetricsPeriodoCtx, [
-    'periodo_limpar' => false,
-    'medicao_mes'    => '',
-    'periodo_de'     => $res7dHoje->modify('-6 days')->format('Y-m-d'),
-    'periodo_ate'    => $res7dHoje->format('Y-m-d'),
-]));
+$chHrefMetricRes7d = adm_chamados_url(1, 'resolvidos', $q, $chMetricsPeriodoCtx);
 
 $exportFmt = strtolower(trim((string) ($_GET['export'] ?? '')));
 if ($CRM_CHAMADOS_IS_OPERADOR && $exportFmt !== '') {
@@ -1504,12 +1498,12 @@ include __DIR__ . '/head.php';
       </div>
       <div class="metric-change metric-change--admin">Prioridade alta</div>
     </a>
-    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricRes7d, ENT_QUOTES, 'UTF-8') ?>" title="Chamados resolvidos nos últimos 7 dias (pela data de conclusão)">
+    <a class="card metric metric--link" href="<?= htmlspecialchars($chHrefMetricRes7d, ENT_QUOTES, 'UTF-8') ?>" title="Filtrar todos os chamados resolvidos">
       <div class="metric-top">
-        <div><div class="metric-label">Resolvidos 7d</div><div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true))) ?></div></div>
+        <div><div class="metric-label">Resolvidos</div><div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : count(array_filter($MOCK_CHAMADOS, fn ($c) => in_array($c['status'] ?? '', ['Resolvido', 'Fechado'], true))) ?></div></div>
         <div class="icon-box">OK</div>
       </div>
-      <div class="metric-change metric-change--admin"><?= $dash ? 'Concluídos nos últimos 7 dias' : 'Todos (mock)' ?></div>
+      <div class="metric-change metric-change--admin"><?= $dash ? 'Todos os resolvidos' : 'Todos (mock)' ?></div>
     </a>
   </div>
   </div>

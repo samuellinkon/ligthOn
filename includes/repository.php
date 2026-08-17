@@ -613,18 +613,6 @@ function repo_chamados_sql_data_conclusao(string $alias = 'ch'): string
 }
 
 /**
- * Condição SQL: resolvidos/fechados cuja conclusão cai nos últimos 7 dias civis (inclusive hoje).
- */
-function repo_chamados_sql_resolvidos_ultimos_7d(string $alias = 'ch'): string
-{
-    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias);
-    $p = $a !== '' ? $a . '.' : '';
-
-    return "{$p}status IN ('Resolvido','Fechado')
-          AND DATE(" . repo_chamados_sql_data_conclusao($a) . ") BETWEEN DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND CURDATE()";
-}
-
-/**
  * Condição SQL legada — preferir {@see repo_chamados_status_sql_medicao_bm()} na medição oficial e no BM completo (detalhe).
  */
 function repo_chamados_status_sql_medicao_bm_completo(): string
@@ -3772,7 +3760,7 @@ function repo_dashboard_operador_stats(int $empresaRaizId, int $operadorUserId):
             SELECT COUNT(*) FROM chamados ch
             WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
               AND ' . $sqlAtrib . '
-              AND ' . repo_chamados_sql_resolvidos_ultimos_7d('ch') . $chAtivo;
+              AND ch.status IN (\'Resolvido\',\'Fechado\')' . $chAtivo;
         $st = $pdo->prepare($sql);
         $params = [$empresaRaizId, $empresaRaizId, $operadorUserId];
         if ($temTecnicosTabela) {
@@ -6471,7 +6459,7 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             $urgentes = (int) $st->fetchColumn();
             $st = $pdo->prepare("
                 SELECT COUNT(*) FROM chamados
-                WHERE " . repo_chamados_sql_resolvidos_ultimos_7d('') . "
+                WHERE status IN ('Resolvido','Fechado')
                   AND $chF" . $chAtivo . '
             ');
             $st->execute([$cid, $cid]);
@@ -6501,7 +6489,7 @@ function repo_dashboard_admin_stats(?int $clienteIdEscopo = null): ?array
             $urgentes = (int) $pdo->query("SELECT COUNT(*) FROM chamados WHERE prioridade IN ('Alta','Urgente') AND status NOT IN ('Resolvido','Fechado','Cancelado')" . $chAtivo)->fetchColumn();
             $res7d = (int) $pdo->query("
                 SELECT COUNT(*) FROM chamados
-                WHERE " . repo_chamados_sql_resolvidos_ultimos_7d('') . $chAtivo . '
+                WHERE status IN ('Resolvido','Fechado')" . $chAtivo . '
             ')->fetchColumn();
 
             $pendContas = 0;

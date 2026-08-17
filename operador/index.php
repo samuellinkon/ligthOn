@@ -118,12 +118,12 @@ include __DIR__ . '/../includes/head.php';
         <div class="card metric">
           <div class="metric-top">
             <div>
-              <div class="metric-label">Resolvidos 7d</div>
+              <div class="metric-label">Resolvidos</div>
               <div class="metric-value"><?= $dash ? (int) $dash['ch_resolvidos_7d'] : 0 ?></div>
             </div>
             <div class="icon-box">OK</div>
           </div>
-          <div class="metric-change metric-change--admin"><?= $dash ? 'Últimos 7 dias' : '—' ?></div>
+          <div class="metric-change metric-change--admin"><?= $dash ? 'Todos os resolvidos' : '—' ?></div>
         </div>
       </div>
     </div>
