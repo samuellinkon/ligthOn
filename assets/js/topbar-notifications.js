@@ -125,7 +125,13 @@
     }
     if (type === 'approved') return 'Chamado ' + idPart + ' aprovado pelo gestor';
     if (type === 'validated') return 'Chamado ' + idPart + ' validado pelo cliente';
-    if (type === 'reopened') return 'Chamado ' + idPart + ' reaberto pelo cliente';
+    if (type === 'reopened') {
+      var tLow = titulo.toLowerCase();
+      if (tLow.indexOf('cancelou a validação') !== -1 || tLow.indexOf('cancelou a validacao') !== -1) {
+        return 'Chamado ' + idPart + ': cliente cancelou a validação';
+      }
+      return 'Chamado ' + idPart + ' reaberto pelo cliente';
+    }
     if (type === 'message') return 'Nova mensagem no chamado ' + idPart;
     if (/nova importação bm/i.test(titulo) || /nova importacao bm/i.test(titulo)) {
       return titulo;
@@ -154,6 +160,10 @@
       return 'O cliente validou o chamado.';
     }
     if (type === 'reopened') {
+      var tLow = String((n && n.titulo) || '').toLowerCase();
+      if (tLow.indexOf('cancelou a validação') !== -1 || tLow.indexOf('cancelou a validacao') !== -1) {
+        return 'O cliente cancelou a validação. O chamado voltou para Aguardando Aprovação.';
+      }
       return 'O chamado voltou ao status Aberto para novo atendimento.';
     }
     if (type === 'message') {

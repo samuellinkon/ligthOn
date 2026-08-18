@@ -114,7 +114,10 @@ function notificacao_ui_titulo(array $n): string
             : 'Chamado ' . $idPart . ' finalizado pelo técnico',
         'approved'  => 'Chamado ' . $idPart . ' aprovado pelo gestor',
         'validated' => 'Chamado ' . $idPart . ' validado pelo cliente',
-        'reopened'  => 'Chamado ' . $idPart . ' reaberto pelo cliente',
+        'reopened'  => (str_contains(mb_strtolower($titulo, 'UTF-8'), 'cancelou a validação')
+            || str_contains(mb_strtolower($titulo, 'UTF-8'), 'cancelou a validacao'))
+            ? 'Chamado ' . $idPart . ': cliente cancelou a validação'
+            : 'Chamado ' . $idPart . ' reaberto pelo cliente',
         'message'   => 'Nova mensagem no chamado ' . $idPart,
         default     => $titulo !== '' ? $titulo : 'Notificação',
     };
@@ -133,7 +136,10 @@ function notificacao_ui_descricao(array $n): string
         'finalized' => 'O técnico finalizou o atendimento. O chamado aguarda aprovação do gestor.',
         'approved'  => 'O gestor aprovou o atendimento. O chamado aguarda validação do cliente.',
         'validated' => 'O cliente validou o chamado.',
-        'reopened'  => 'O chamado voltou ao status Aberto para novo atendimento.',
+        'reopened'  => (str_contains(mb_strtolower((string) ($n['titulo'] ?? ''), 'UTF-8'), 'cancelou a validação')
+            || str_contains(mb_strtolower((string) ($n['titulo'] ?? ''), 'UTF-8'), 'cancelou a validacao'))
+            ? 'O cliente cancelou a validação. O chamado voltou para Aguardando Aprovação.'
+            : 'O chamado voltou ao status Aberto para novo atendimento.',
         'message'   => 'Há uma nova mensagem neste chamado. Abra para ler e responder.',
         'bm'        => 'Uma nova medição BM foi importada. Abra o mês para conferir os dados.',
         'custo'     => 'Há um custo pendente de aprovação na medição.',

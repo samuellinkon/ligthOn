@@ -1497,6 +1497,14 @@ form.info-row {
 .chamado-materiais-table--uso td:nth-child(6),
 .chamado-materiais-table--dev th:nth-child(6),
 .chamado-materiais-table--dev td:nth-child(6) {
+  width: 10%;
+  white-space: nowrap;
+}
+
+.chamado-materiais-table--uso th:nth-child(7),
+.chamado-materiais-table--uso td:nth-child(7),
+.chamado-materiais-table--dev th:nth-child(7),
+.chamado-materiais-table--dev td:nth-child(7) {
   width: auto;
   min-width: 9.5rem;
 }

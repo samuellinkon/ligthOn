@@ -264,7 +264,8 @@ function medicao_relatorio_import_criar_chamados(
                     'utilizado',
                     'Importação relatório BM',
                     $vu > 0 ? $vu : null,
-                    $vtot > 0 ? $vtot : null
+                    $vtot > 0 ? $vtot : null,
+                    true
                 );
                 if (!$add['ok']) {
                     throw new RuntimeException('Chamado ' . $chId . ' item ' . $cod . ': ' . ($add['err'] ?? ''));

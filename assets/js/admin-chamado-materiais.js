@@ -84,6 +84,19 @@
     var tipo = esc(item.tipo || '');
     var vu = moneyFmt(item.valor_unitario);
     var vt = moneyFmt(item.subtotal);
+    var saldoTxt = '—';
+    var saldoCls = '';
+    if (item.estoque_saldo != null && item.estoque_saldo !== '') {
+      var saldoN = parseFloat(String(item.estoque_saldo).replace(',', '.'));
+      if (!isNaN(saldoN)) {
+        saldoTxt = esc(qtdFmt(saldoN));
+        var un = (item.unidade || '').trim();
+        if (un) {
+          saldoTxt += ' <span class="td-mute" style="font-size:12px;"> ' + esc(un) + '</span>';
+        }
+        if (saldoN < 0) saldoCls = ' catalogo-estoque--negativo';
+      }
+    }
     var mov = item.movimento === 'devolvido' ? 'devolvido' : 'utilizado';
     var obsAttr = esc(item.observacao || '');
     var lblAttr = esc(item.nome || '');
@@ -127,6 +140,11 @@
       '</td>' +
       '<td class="text-right">' +
       qtd +
+      '</td>' +
+      '<td class="text-right' +
+      saldoCls +
+      '">' +
+      saldoTxt +
       '</td>' +
       acts +
       '</tr>'

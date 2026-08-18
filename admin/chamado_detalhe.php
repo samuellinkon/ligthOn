@@ -63,6 +63,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $acao             = (string) ($_POST['acao'] ?? '');
         $silentAutosave   = isset($_POST['silent_autosave']) && (string) $_POST['silent_autosave'] === '1';
 
+        if (!$CRM_CHAMADO_PORTAL
+            && chamado_gestao_edicao_bloqueada_por_validado($__chInativoPost ?: [], (string) ($user['perfil'] ?? ''))
+            && $acao !== 'responder') {
+            $msgLock = chamado_msg_edicao_bloqueada_validado();
+            if (function_exists('op_chamado_detalhe_is_ajax') && op_chamado_detalhe_is_ajax()) {
+                if (in_array($acao, ['anexos_painel', 'excluir_anexo'], true)
+                    && function_exists('chamado_anexos_json_send')) {
+                    chamado_anexos_json_send(['ok' => false, 'err' => $msgLock], 403);
+                }
+                op_chamado_mat_json_send(['ok' => false, 'err' => $msgLock], 403);
+            }
+            flash_set('err', $msgLock);
+            header('Location: chamado_detalhe.php?id=' . $id);
+            exit;
+        }
+
         if ($CRM_CHAMADO_PORTAL) {
             $trLeg = trim((string) ($_POST['resposta'] ?? ''));
             $temLeg = !empty($_FILES['anexos']['name'][0]);
@@ -226,7 +242,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($stCancel === 'Aberto') {
                     flash_set('err', 'Este chamado já está com status Aberto.');
                 } elseif (repo_chamado_cliente_reabrir($id, $chamadoPortalMatrizId)) {
-                    flash_set('ok', 'Chamado reaberto e voltou para o status Aberto.');
+                    if ($stCancel === 'Validado') {
+                        flash_set('ok', 'Validação cancelada. O chamado voltou para Aguardando Aprovação para o gestor revisar.');
+                    } else {
+                        flash_set('ok', 'Chamado reaberto e voltou para o status Aberto.');
+                    }
                 } else {
                     flash_set('err', 'Não foi possível reabrir o chamado.');
                 }
@@ -770,6 +790,12 @@ if (empty($tecnicoNomesSelecionados) && !empty($chamado['tecnico_nome'])) {
 $portalClientePodeEditarOs = $CRM_CHAMADO_PORTAL
     && is_array($chamado)
     && chamado_portal_cliente_pode_editar_os($chamado);
+$chamadoGestaoBloqueadaValidado = !$CRM_CHAMADO_PORTAL
+    && is_array($chamado)
+    && chamado_gestao_edicao_bloqueada_por_validado($chamado, (string) ($user['perfil'] ?? ''));
+$chamadoOsSomenteLeitura = ($CRM_CHAMADO_PORTAL && !$portalClientePodeEditarOs)
+    || $chamadoGestaoBloqueadaValidado;
+$chamadoPodeEditarMateriaisGestao = !$CRM_CHAMADO_PORTAL && !$chamadoGestaoBloqueadaValidado;
 
 /* agrupa anexos por resposta para exibir junto da mensagem (e os "soltos" no painel) */
 $anexosPorResposta = [];
@@ -1295,16 +1321,26 @@ include __DIR__ . '/../includes/head.php';
   <div class="ticket-body">
     <div class="flex-col" style="gap:18px;">
 
+      <?php if (!empty($chamadoGestaoBloqueadaValidado)): ?>
+      <div class="card" style="border-color:var(--border-soft);">
+        <div class="panel-body" style="padding:14px 18px;">
+          <p style="margin:0;line-height:1.5;"><?= htmlspecialchars(chamado_msg_edicao_bloqueada_validado()) ?></p>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <?php if (db_ok()): ?>
       <?php
         $ch_os_use_visualizacao_mapa_component = $chVizMapaAtivo;
         $ch_viz_mapa['geocode_api'] = $chamadoGeocodeApiUrl;
       ?>
-      <?php if ($CRM_CHAMADO_PORTAL && !$portalClientePodeEditarOs): ?>
+      <?php if ($chamadoOsSomenteLeitura): ?>
       <div class="card" style="overflow:hidden;">
         <div class="panel-head">
           <h4>Ordem de serviço</h4>
-          <span class="panel-sub">Somente leitura — a edição fica disponível enquanto o chamado estiver Aberto e sem técnico atribuído</span>
+          <span class="panel-sub"><?= $chamadoGestaoBloqueadaValidado
+            ? 'Somente leitura — chamado validado pelo cliente'
+            : 'Somente leitura — a edição fica disponível enquanto o chamado estiver Aberto e sem técnico atribuído' ?></span>
         </div>
         <fieldset disabled class="chamado-os-portal-readonly" style="border:0;margin:0;padding:0;min-width:0;">
         <div class="form" style="padding: 0 24px 20px;">
@@ -1443,7 +1479,7 @@ include __DIR__ . '/../includes/head.php';
           <section class="chamado-materiais-block chamado-materiais-block--uso" aria-labelledby="ch-mat-uso-title">
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-mat-uso-title" class="chamado-materiais-block__title">Itens utilizados</h5>
-              <?php if (!$CRM_CHAMADO_PORTAL): ?>
+              <?php if ($chamadoPodeEditarMateriaisGestao): ?>
               <div class="chamado-materiais-block__actions">
                 <button type="button" class="btn btn-primary btn-sm js-cham-mat-open-pick" data-pick-mov="utilizado" data-catalog-tipo="produto"
                   <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo da empresa"' : '' ?>>Novo item</button>
@@ -1465,7 +1501,8 @@ include __DIR__ . '/../includes/head.php';
                     <th class="text-right">V. unit.</th>
                     <th class="text-right">V. total</th>
                     <th class="text-right">Qtd</th>
-                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <th class="text-right" title="Saldo atual no catálogo">Saldo</th>
+                    <?php if ($chamadoPodeEditarMateriaisGestao): ?>
                     <th class="text-right td-actions">Ações</th>
                     <?php endif; ?>
                   </tr>
@@ -1480,6 +1517,9 @@ include __DIR__ . '/../includes/head.php';
                     $tipLm = $descLm !== '' ? $lblItem . ' — ' . $descLm : $lblItem;
                     $vuLm = (float) ($lm['valor_unitario'] ?? 0);
                     $vtLm = (float) ($lm['subtotal'] ?? 0);
+                    $saldoLm = $lm['estoque_saldo'] ?? null;
+                    $unLm = trim((string) ($lm['catalogo_unidade'] ?? ''));
+                    $saldoClasse = ($saldoLm !== null && (float) $saldoLm < 0) ? ' catalogo-estoque--negativo' : '';
                   ?>
                   <tr>
                     <td class="chamado-mat-col-item"<?= $tipLm !== '' ? ' title="' . htmlspecialchars($tipLm, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
@@ -1492,7 +1532,8 @@ include __DIR__ . '/../includes/head.php';
                     <td class="text-right td-mute"><?= $vuLm > 0 ? 'R$ ' . number_format($vuLm, 2, ',', '.') : '—' ?></td>
                     <td class="text-right"><?= $vtLm > 0 ? 'R$ ' . number_format($vtLm, 2, ',', '.') : '—' ?></td>
                     <td class="text-right"><?= $qDisp ?></td>
-                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <td class="text-right<?= $saldoClasse ?>"><?= op_chamado_mat_saldo_cell_html($saldoLm, $unLm) ?></td>
+                    <?php if ($chamadoPodeEditarMateriaisGestao): ?>
                     <td class="text-right td-actions">
                       <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
                         data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
@@ -1513,7 +1554,7 @@ include __DIR__ . '/../includes/head.php';
           <section class="chamado-materiais-block chamado-materiais-block--dev" aria-labelledby="ch-mat-dev-title">
             <div class="chamado-materiais-block__bar">
               <h5 id="ch-mat-dev-title" class="chamado-materiais-block__title">Devolvidos / recolhidos</h5>
-              <?php if (!$CRM_CHAMADO_PORTAL): ?>
+              <?php if ($chamadoPodeEditarMateriaisGestao): ?>
               <div class="chamado-materiais-block__actions chamado-materiais-block__actions--stack">
                 <button type="button" class="btn btn-primary btn-sm js-cham-mat-open-pick" data-pick-mov="devolvido" data-catalog-tipo="produto"
                   <?= $nCatalogoProduto < 1 ? 'disabled title="Sem produtos no catálogo para recolhimento"' : '' ?>>Recolher produto</button>
@@ -1534,7 +1575,8 @@ include __DIR__ . '/../includes/head.php';
                     <th class="text-right">V. unit.</th>
                     <th class="text-right">V. total</th>
                     <th class="text-right">Qtd</th>
-                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <th class="text-right" title="Saldo atual no catálogo">Saldo</th>
+                    <?php if ($chamadoPodeEditarMateriaisGestao): ?>
                     <th class="text-right td-actions">Ações</th>
                     <?php endif; ?>
                   </tr>
@@ -1549,6 +1591,9 @@ include __DIR__ . '/../includes/head.php';
                     $tipLmD = $descLmD !== '' ? $lblItemD . ' — ' . $descLmD : $lblItemD;
                     $vuLmD = (float) ($lm['valor_unitario'] ?? 0);
                     $vtLmD = (float) ($lm['subtotal'] ?? 0);
+                    $saldoLmD = $lm['estoque_saldo'] ?? null;
+                    $unLmD = trim((string) ($lm['catalogo_unidade'] ?? ''));
+                    $saldoClasseD = ($saldoLmD !== null && (float) $saldoLmD < 0) ? ' catalogo-estoque--negativo' : '';
                   ?>
                   <tr>
                     <td class="chamado-mat-col-item"<?= $tipLmD !== '' ? ' title="' . htmlspecialchars($tipLmD, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
@@ -1561,7 +1606,8 @@ include __DIR__ . '/../includes/head.php';
                     <td class="text-right td-mute"><?= $vuLmD > 0 ? 'R$ ' . number_format($vuLmD, 2, ',', '.') : '—' ?></td>
                     <td class="text-right"><?= $vtLmD > 0 ? 'R$ ' . number_format($vtLmD, 2, ',', '.') : '—' ?></td>
                     <td class="text-right"><?= $qDispD ?></td>
-                    <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                    <td class="text-right<?= $saldoClasseD ?>"><?= op_chamado_mat_saldo_cell_html($saldoLmD, $unLmD) ?></td>
+                    <?php if ($chamadoPodeEditarMateriaisGestao): ?>
                     <td class="text-right td-actions">
                       <button type="button" class="btn btn-secondary btn-sm js-cham-mat-open-edit"
                         data-linha-id="<?= (int) ($lm['id'] ?? 0) ?>"
@@ -1585,7 +1631,7 @@ include __DIR__ . '/../includes/head.php';
         </div>
       </div>
 
-      <?php if (!$CRM_CHAMADO_PORTAL): ?>
+      <?php if ($chamadoPodeEditarMateriaisGestao): ?>
       <div id="chamado-mat-modal-pick" class="chamado-mat-modal" hidden aria-hidden="true">
         <button type="button" class="chamado-mat-modal__scrim" data-cham-mat-pick-close tabindex="-1" aria-label="Fechar"></button>
         <div class="chamado-mat-modal__box chamado-mat-modal__box--pick" role="dialog" aria-modal="true" aria-labelledby="chamado-mat-pick-title">
@@ -1761,7 +1807,7 @@ include __DIR__ . '/../includes/head.php';
             <span>Prioridade</span>
             <span class="info-edit-value">
               <select name="prioridade" class="select" data-chamado-autosave="prioridade"
-                <?= $CRM_CHAMADO_PORTAL ? ' disabled title="A prioridade é definida pela equipe de atendimento."' : '' ?>>
+                <?= ($CRM_CHAMADO_PORTAL || $chamadoGestaoBloqueadaValidado) ? ' disabled title="' . htmlspecialchars($chamadoGestaoBloqueadaValidado ? chamado_msg_edicao_bloqueada_validado() : 'A prioridade é definida pela equipe de atendimento.', ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
                 <?php foreach (['Baixa', 'Normal', 'Alta', 'Urgente'] as $p): ?>
                   <option value="<?= htmlspecialchars($p) ?>" <?= ($chamado['prioridade'] ?? '') === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
                 <?php endforeach; ?>
@@ -1790,14 +1836,14 @@ include __DIR__ . '/../includes/head.php';
                 }
             }
           ?>
-          <?php if ($CRM_CHAMADO_PORTAL): ?>
+          <?php if ($CRM_CHAMADO_PORTAL || $chamadoGestaoBloqueadaValidado): ?>
           <div class="info-row">
             <span>Status</span>
             <span class="info-edit-value">
               <span class="badge <?= status_class($stAtual) ?>"><?= htmlspecialchars($stAtual !== '' ? $stAtual : '—') ?></span>
             </span>
           </div>
-          <?php if ($cliPodeValidar || $cliPodeCancelar): ?>
+          <?php if ($CRM_CHAMADO_PORTAL && ($cliPodeValidar || $cliPodeCancelar)): ?>
           <div class="info-row">
             <span>Ações</span>
             <span class="info-edit-value" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
@@ -1809,8 +1855,13 @@ include __DIR__ . '/../includes/head.php';
               </form>
               <?php endif; ?>
               <?php if ($cliPodeCancelar): ?>
+              <?php
+                $confirmCancel = $stAtual === 'Validado'
+                    ? 'A validação será cancelada. O chamado voltará para Aguardando Aprovação para o gestor revisar e, em seguida, precisará ser validado de novo. Deseja continuar?'
+                    : 'O chamado voltará ao status Aberto para ser tratado novamente pela equipe. Deseja continuar?';
+              ?>
               <form method="post"
-                    data-confirm="O chamado voltará ao status Aberto para ser tratado novamente pela equipe. Deseja continuar?">
+                    data-confirm="<?= htmlspecialchars($confirmCancel, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="acao" value="cancelar">
                 <button type="submit" class="btn btn-secondary btn-sm">Cancelar</button>
               </form>
@@ -1951,7 +2002,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <?php endif; ?>
 
-      <?php if (db_ok() && !$CRM_CHAMADO_PORTAL && !$chamadoImportadoBm): ?>
+      <?php if (db_ok() && !$CRM_CHAMADO_PORTAL && !$chamadoImportadoBm && !$chamadoGestaoBloqueadaValidado): ?>
       <?php
         $equipeN = count($tecnicoIdsSelecionados);
         $equipeCountLabel = $equipeN === 0
@@ -2089,7 +2140,7 @@ include __DIR__ . '/../includes/head.php';
           <span class="panel-sub" id="chamado-anexos-count"><?= count($anexos) ?> arquivo(s)</span>
         </div>
         <div class="panel-body flex-col" id="chamado-anexos-body" style="gap:10px;">
-          <?php if (db_ok() && !$CRM_CHAMADO_PORTAL): ?>
+          <?php if (db_ok() && $chamadoPodeEditarMateriaisGestao): ?>
           <div class="chamado-anexos-painel-upload" data-chamado-anexos-ajax="1" style="padding-bottom:10px;border-bottom:1px solid var(--border-soft);margin-bottom:6px;">
             <div class="form-group full" style="margin:0;">
               <label for="chamado_anexos_painel_input">Adicionar arquivos</label>
@@ -2141,7 +2192,7 @@ include __DIR__ . '/../includes/head.php';
               </span>
               <div class="file-item-actions">
                 <a class="btn btn-primary btn-sm" href="<?= htmlspecialchars($urlAnexoDl) ?>">Baixar</a>
-                <?php if (!$CRM_CHAMADO_PORTAL): ?>
+                <?php if ($chamadoPodeEditarMateriaisGestao): ?>
                 <button type="button" class="btn btn-danger btn-sm"
                         data-chamado-anexo-delete
                         data-anexo-id="<?= (int) $a['id'] ?>"
@@ -2488,7 +2539,7 @@ if ($ch_viz_scripts_ativo) {
 
 })();
 </script>
-<?php if (db_ok()): ?>
+<?php if (db_ok() && !$chamadoGestaoBloqueadaValidado): ?>
 <script src="<?= htmlspecialchars($basePath) ?>assets/js/admin-chamado-autosave.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/admin-chamado-autosave.js') ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -2498,7 +2549,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 <?php endif; ?>
-<?php if (!$CRM_CHAMADO_PORTAL && db_ok()): ?>
+<?php if (!$CRM_CHAMADO_PORTAL && db_ok() && !$chamadoGestaoBloqueadaValidado): ?>
 <script src="<?= htmlspecialchars($basePath) ?>assets/js/admin-chamado-equipe.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/admin-chamado-equipe.js') ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -2507,6 +2558,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 </script>
+<?php endif; ?>
+<?php if (!$CRM_CHAMADO_PORTAL && db_ok()): ?>
 <script src="<?= htmlspecialchars($basePath) ?>assets/js/admin-chamado-anexos.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/admin-chamado-anexos.js') ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -2521,10 +2574,10 @@ $devolutivoModalId        = 'ch-solicitar-devolutivo-modal';
 $devolutivoModalOpenAttr  = 'data-ch-solicitar-devolutivo-open';
 $devolutivoModalCloseAttr = 'data-ch-solicitar-devolutivo-close';
 $devolutivoFieldPrefix    = 'ch';
-$devolutivoModoGestor     = !$CRM_CHAMADO_PORTAL;
+$devolutivoModoGestor     = $chamadoPodeEditarMateriaisGestao;
 require __DIR__ . '/../includes/partials/chamado_solicitar_devolutivo_modal.php';
 ?>
-<?php if (!$CRM_CHAMADO_PORTAL): ?>
+<?php if ($chamadoPodeEditarMateriaisGestao): ?>
 <script src="<?= htmlspecialchars($basePath) ?>assets/js/admin-chamado-materiais.js?v=<?= (int) @filemtime(__DIR__ . '/../assets/js/admin-chamado-materiais.js') ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {

@@ -276,8 +276,8 @@ $html = <<<'HTML'
   <span class="step-num">6</span>
   <strong class="titulo">Cliente reabre</strong>
   <span class="badge">chamado_reaberto</span>
-  <p class="note"><strong>Gatilho:</strong> reabertura pelo cliente (<code>repo_chamado_cliente_reabrir</code>) → status <em>Aberto</em>.</p>
-  <p><strong>Título:</strong> Chamado #ID reaberto pelo cliente</p>
+  <p class="note"><strong>Gatilho:</strong> reabertura pelo cliente (<code>repo_chamado_cliente_reabrir</code>). Se o status era <em>Validado</em>, volta para <em>Aguardando Aprovação</em>; nos demais casos, para <em>Aberto</em>.</p>
+  <p><strong>Título:</strong> Chamado #ID reaberto pelo cliente (ou «cliente cancelou a validação» quando vinha de Validado)</p>
   <ul>
     <li><span class="sim">Recebe:</span> Admin, Gestor</li>
     <li><span class="nao">Não recebe:</span> Cliente (autor), Técnico</li>

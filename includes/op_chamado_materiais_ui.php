@@ -17,6 +17,21 @@ function op_chamado_mat_qtd_fmt(float $q): string
     return $s === '' ? '0' : $s;
 }
 
+function op_chamado_mat_saldo_cell_html($saldo, string $unidade = ''): string
+{
+    if ($saldo === null || $saldo === '') {
+        return '—';
+    }
+    $n = (float) $saldo;
+    $txt = htmlspecialchars(op_chamado_mat_qtd_fmt($n));
+    $un  = trim($unidade);
+    if ($un !== '') {
+        $txt .= ' <span class="td-mute" style="font-size:12px;">' . htmlspecialchars($un) . '</span>';
+    }
+
+    return $txt;
+}
+
 /**
  * @param array<string, mixed> $lm
  * @return array<string, mixed>
@@ -36,6 +51,9 @@ function op_chamado_mat_linha_payload(array $lm): array
         'subtotal'        => (float) ($lm['subtotal'] ?? 0),
         'movimento'       => repo_chamado_item_movimento_efetivo($lm),
         'observacao'      => trim((string) ($lm['observacao'] ?? '')),
+        'estoque_saldo'   => array_key_exists('estoque_saldo', $lm) && $lm['estoque_saldo'] !== null
+            ? (float) $lm['estoque_saldo']
+            : null,
     ];
 }
 

@@ -6116,6 +6116,9 @@ function repo_delete_chamado(int $id): bool
         return false;
     }
     $cidLog = (int) ($ch['cliente_id'] ?? 0);
+    if (chamado_bloqueado_apos_validado($ch)) {
+        return false;
+    }
 
     if (repo_chamados_tem_exclusao_logica()) {
         if (isset($ch['ativo']) && (int) $ch['ativo'] === 0) {
@@ -7192,7 +7195,9 @@ function repo_update_chamado_localizacao(int $id, ?string $enderecoCompleto, ?fl
 }
 
 /**
- * Portal cliente: «Cancelar» reabre o chamado (status Aberto) para novo fluxo com a gestão.
+ * Portal cliente: «Cancelar» reabre o chamado.
+ * Validado → Aguardando Aprovação (gestor revisa e o cliente valida de novo).
+ * Outros status → Aberto.
  */
 function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
 {
@@ -7214,15 +7219,28 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
     if ($stAnt === 'Aberto') {
         return false;
     }
-    $stmt = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
-    $ok   = $stmt->execute(['Aberto', $id]);
+    $deValidado = $stAnt === 'Validado';
+    $statusNovo = $deValidado ? 'Aguardando Aprovação' : 'Aberto';
+    if ($deValidado) {
+        $sets = ['status = ?', 'aprovado_gestor_em = NULL', 'aprovado_gestor_user_id = NULL'];
+        $params = [$statusNovo];
+        if (repo_chamados_validado_em_column_exists()) {
+            $sets[] = 'validado_em = NULL';
+        }
+        $params[] = $id;
+        $stmt = $pdo->prepare('UPDATE chamados SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        $ok   = $stmt->execute($params);
+    } else {
+        $stmt = $pdo->prepare('UPDATE chamados SET status = ? WHERE id = ?');
+        $ok   = $stmt->execute([$statusNovo, $id]);
+    }
     if (!$ok) {
         return false;
     }
     $cidLog = (int) ($antes['cliente_id'] ?? 0);
     audit_log_registar('chamado.cliente_reabrir', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
         'status_anterior' => $stAnt,
-        'status_novo'     => 'Aberto',
+        'status_novo'     => $statusNovo,
     ]);
     require_once __DIR__ . '/notificacoes.php';
     $actorUid = 0;
@@ -7230,7 +7248,7 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
         $cu = current_user();
         $actorUid = (int) ($cu['id'] ?? 0);
     }
-    notificar_chamado_reaberto($id, $actorUid);
+    notificar_chamado_reaberto($id, $actorUid, $stAnt);
     if ($cidLog > 0) {
         require_once __DIR__ . '/pontos_mapa_cache.php';
         pontos_mapa_cache_invalidate_cliente($cidLog);
@@ -7266,6 +7284,10 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     if (!$antes) {
         return false;
     }
+    $stAnterior = trim((string) ($antes['status'] ?? ''));
+    if ($stAnterior === 'Validado' && $status !== 'Validado' && !$gestaoPlena) {
+        return false;
+    }
     if ($status === 'Resolvido' && !$gestaoOperacional) {
         $pontoSt = null;
         $pidSt = (int) ($antes['ponto_iluminacao_id'] ?? 0);
@@ -7277,12 +7299,10 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
         }
     }
     if ($status === 'Validado' && !$gestaoPlena) {
-        $stAnt = trim((string) ($antes['status'] ?? ''));
-        if (!in_array($stAnt, ['Resolvido', 'Fechado'], true)) {
+        if (!in_array($stAnterior, ['Resolvido', 'Fechado'], true)) {
             return false;
         }
     }
-    $stAnterior = trim((string) ($antes['status'] ?? ''));
     $temValidadoEm = repo_chamados_validado_em_column_exists();
     $actorUid = 0;
     if (function_exists('current_user')) {
@@ -7648,7 +7668,7 @@ function repo_cliente_item_set_catalogo_fluxo_status(int $itemId, ?string $statu
  */
 function repo_cliente_item_estoque_delta_por_movimento(string $movimento, float $quantidade): float
 {
-    if ($quantidade <= 0) {
+    if (abs($quantidade) < 1e-9) {
         return 0.0;
     }
     $movimento = strtolower(trim($movimento));
@@ -7660,6 +7680,19 @@ function repo_cliente_item_estoque_delta_por_movimento(string $movimento, float 
     }
 
     return 0.0;
+}
+
+function repo_chamado_status_eh_validado(?array $ch): bool
+{
+    return trim((string) ($ch['status'] ?? '')) === 'Validado';
+}
+
+function repo_cliente_item_sincronizar_estoque_saldo(int $clienteId, int $itemId): void
+{
+    if ($clienteId <= 0 || $itemId <= 0) {
+        return;
+    }
+    repo_catalogo_recalcular_estoque_saldo($clienteId, [$itemId]);
 }
 
 function repo_cliente_item_aplicar_estoque_delta(PDO $pdo, int $itemId, float $delta): void
@@ -7691,12 +7724,21 @@ function repo_chamado_estornar_estoque_itens(int $chamadoId): void
             WHERE ci.chamado_id = ?
         ');
         $st->execute([$chamadoId]);
+        $itemIds = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
             $itemId = (int) ($row['item_id'] ?? 0);
             $qtd    = (float) ($row['quantidade'] ?? 0);
             $mov    = (string) ($row['movimento'] ?? 'utilizado');
             $delta  = -repo_cliente_item_estoque_delta_por_movimento($mov, $qtd);
             repo_cliente_item_aplicar_estoque_delta($pdo, $itemId, $delta);
+            if ($itemId > 0) {
+                $itemIds[] = $itemId;
+            }
+        }
+        $chEst = repo_chamado($chamadoId);
+        $cidEst = (int) ($chEst['cliente_id'] ?? 0);
+        if ($cidEst > 0 && $itemIds !== []) {
+            repo_catalogo_recalcular_estoque_saldo($cidEst, array_values(array_unique($itemIds)));
         }
     } catch (Throwable $e) {
         if (function_exists('app_debug_mode') && app_debug_mode()) {
@@ -8377,6 +8419,9 @@ function repo_chamado_item_devolutivo_criar_direto(
     if (!$ch) {
         return ['ok' => false, 'err' => 'Chamado não encontrado.', 'item_id' => null, 'linha_id' => null];
     }
+    if (chamado_bloqueado_apos_validado($ch)) {
+        return ['ok' => false, 'err' => chamado_msg_edicao_bloqueada_validado(), 'item_id' => null, 'linha_id' => null];
+    }
     $clienteId = (int) ($ch['cliente_id'] ?? 0);
     if ($clienteId <= 0) {
         return ['ok' => false, 'err' => 'Cliente do chamado inválido.', 'item_id' => null, 'linha_id' => null];
@@ -8705,11 +8750,14 @@ function repo_chamado_itens_list(int $chamadoId): array
     $colDescSimp = repo_cliente_itens_descricao_simplificada_column_exists()
         ? 'i.descricao_simplificada'
         : 'NULL AS descricao_simplificada';
+    $colSaldo = repo_cliente_itens_estoque_saldo_column_exists()
+        ? 'i.estoque_saldo'
+        : 'NULL AS estoque_saldo';
     $st = $pdo->prepare("
         SELECT ci.id, ci.chamado_id, ci.item_id, ci.movimento, ci.quantidade, ci.valor_unitario, ci.subtotal, ci.observacao,
                i.nome AS item_nome, i.tipo AS item_tipo, i.codigo AS item_codigo, i.unidade AS catalogo_unidade,
                i.descricao AS item_descricao, {$colDescSimp}, i.valor_unitario AS catalogo_valor_unitario,
-               {$colFluxo}
+               {$colFluxo}, {$colSaldo}
         FROM chamado_itens ci
         INNER JOIN cliente_itens i ON i.id = ci.item_id
         WHERE ci.chamado_id = ?
@@ -8735,6 +8783,9 @@ function repo_chamado_itens_list(int $chamadoId): array
         $r['subtotal']       = $sub;
         $simp = trim((string) ($r['descricao_simplificada'] ?? ''));
         $r['item_nome_exibir'] = $simp !== '' ? $simp : (string) ($r['item_nome'] ?? '');
+        $r['estoque_saldo'] = array_key_exists('estoque_saldo', $r) && $r['estoque_saldo'] !== null
+            ? (float) $r['estoque_saldo']
+            : null;
         unset($r['catalogo_valor_unitario']);
     }
     unset($r);
@@ -8768,7 +8819,8 @@ function repo_chamado_item_adicionar(
     string $movimento = 'utilizado',
     ?string $observacao = null,
     ?float $valorUnitarioInformado = null,
-    ?float $subtotalInformado = null
+    ?float $subtotalInformado = null,
+    bool $permitirChamadoValidado = false
 ): array
 {
     $pdo = db();
@@ -8782,6 +8834,9 @@ function repo_chamado_item_adicionar(
     $ch = repo_chamado($chamadoId);
     if (!$ch) {
         return ['ok' => false, 'err' => 'Chamado não encontrado.'];
+    }
+    if (!$permitirChamadoValidado && chamado_bloqueado_apos_validado($ch)) {
+        return ['ok' => false, 'err' => chamado_msg_edicao_bloqueada_validado()];
     }
     $cid = (int) $ch['cliente_id'];
     $it  = repo_cliente_item_por_id($itemId, $cid);
@@ -8842,6 +8897,7 @@ function repo_chamado_item_adicionar(
             repo_cliente_item_estoque_delta_por_movimento($movimento, $quantidade)
         );
         $pdo->commit();
+        repo_cliente_item_sincronizar_estoque_saldo($cid, $itemId);
         audit_log_registar('chamado.item.adicionar', 'chamado', $chamadoId, $cid > 0 ? $cid : null, [
             'linha_id'   => $linhaId,
             'item_id'    => $itemId,
@@ -8866,6 +8922,9 @@ function repo_chamado_item_atualizar_quantidade(int $linhaId, int $chamadoId, fl
 {
     $pdo = db();
     if (!$pdo || $linhaId <= 0 || $chamadoId <= 0 || $quantidade <= 0) {
+        return false;
+    }
+    if (chamado_bloqueado_apos_validado(repo_chamado($chamadoId))) {
         return false;
     }
     $st = $pdo->prepare('
@@ -8911,6 +8970,7 @@ function repo_chamado_item_atualizar_quantidade(int $linhaId, int $chamadoId, fl
         return false;
     }
     $cid = (int) ($row['cliente_id'] ?? 0);
+    repo_cliente_item_sincronizar_estoque_saldo($cid, $itemId);
     audit_log_registar('chamado.item.alterar', 'chamado', $chamadoId, $cid > 0 ? $cid : null, [
         'linha_id'   => $linhaId,
         'item_nome'  => (string) ($row['item_nome'] ?? ''),
@@ -8928,6 +8988,9 @@ function repo_chamado_item_atualizar_linha(int $linhaId, int $chamadoId, float $
 {
     $pdo = db();
     if (!$pdo || $linhaId <= 0 || $chamadoId <= 0 || $quantidade <= 0) {
+        return false;
+    }
+    if (chamado_bloqueado_apos_validado(repo_chamado($chamadoId))) {
         return false;
     }
     $st = $pdo->prepare('
@@ -8974,6 +9037,7 @@ function repo_chamado_item_atualizar_linha(int $linhaId, int $chamadoId, float $
         return false;
     }
     $cid = (int) ($row['cliente_id'] ?? 0);
+    repo_cliente_item_sincronizar_estoque_saldo($cid, $itemId);
     audit_log_registar('chamado.item.alterar', 'chamado', $chamadoId, $cid > 0 ? $cid : null, [
         'linha_id'   => $linhaId,
         'item_nome'  => (string) ($row['item_nome'] ?? ''),
@@ -8988,6 +9052,9 @@ function repo_chamado_item_remover(int $linhaId, int $chamadoId): bool
 {
     $pdo = db();
     if (!$pdo || $linhaId <= 0 || $chamadoId <= 0) {
+        return false;
+    }
+    if (chamado_bloqueado_apos_validado(repo_chamado($chamadoId))) {
         return false;
     }
     $st = $pdo->prepare('
@@ -9026,6 +9093,7 @@ function repo_chamado_item_remover(int $linhaId, int $chamadoId): bool
         return false;
     }
     $cid = (int) ($row['cliente_id'] ?? 0);
+    repo_cliente_item_sincronizar_estoque_saldo($cid, $itemId);
     audit_log_registar('chamado.item.remover', 'chamado', $chamadoId, $cid > 0 ? $cid : null, [
         'linha_id'  => $linhaId,
         'item_nome' => (string) ($row['item_nome'] ?? ''),

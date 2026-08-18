@@ -114,6 +114,35 @@ function chamado_eh_origem_importacao_bm(?array $chamado): bool
 }
 
 /**
+ * Chamado Validado: bloqueado para todos, exceto admin.
+ */
+function chamado_bloqueado_apos_validado(?array $chamado, ?string $perfil = null): bool
+{
+    if (!$chamado || trim((string) ($chamado['status'] ?? '')) !== 'Validado') {
+        return false;
+    }
+    if ($perfil === null && function_exists('current_user')) {
+        $cu = current_user();
+        $perfil = is_array($cu) ? (string) ($cu['perfil'] ?? '') : '';
+    }
+
+    return strtolower(trim((string) $perfil)) !== 'admin';
+}
+
+/**
+ * Gestão não-admin não altera chamado Validado — só o admin edita, ou o cliente cancela a validação.
+ */
+function chamado_gestao_edicao_bloqueada_por_validado(?array $chamado, ?string $perfil = null): bool
+{
+    return chamado_bloqueado_apos_validado($chamado, $perfil);
+}
+
+function chamado_msg_edicao_bloqueada_validado(): string
+{
+    return 'Chamado validado pelo cliente. Só o administrador pode alterar. Para o gestor editar, o cliente deve cancelar a validação — o chamado volta para Aguardando Aprovação e passa de novo pelo fluxo de validação.';
+}
+
+/**
  * Portal do cliente: pode editar a ficha OS enquanto status é Aberto e ainda não há técnico atribuído.
  */
 function chamado_portal_cliente_pode_editar_os(?array $chamado): bool

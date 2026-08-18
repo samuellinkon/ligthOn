@@ -241,16 +241,21 @@ function notificar_chamado_validado_cliente(int $chamadoId, int $autorUsuarioId 
 /**
  * Cliente reabriu o chamado → gestão.
  */
-function notificar_chamado_reaberto(int $chamadoId, int $autorUsuarioId = 0): void
+function notificar_chamado_reaberto(int $chamadoId, int $autorUsuarioId = 0, string $statusAnterior = ''): void
 {
     if ($chamadoId <= 0) {
         return;
     }
+    $deValidado = $statusAnterior === 'Validado';
     _notificar_chamado_enviar(
         $chamadoId,
         repo_notificacao_destinatarios_chamado($chamadoId, true),
-        sprintf('Chamado #%d reaberto pelo cliente', $chamadoId),
-        'O chamado voltou ao status Aberto para novo atendimento.',
+        $deValidado
+            ? sprintf('Chamado #%d: cliente cancelou a validação', $chamadoId)
+            : sprintf('Chamado #%d reaberto pelo cliente', $chamadoId),
+        $deValidado
+            ? 'O cliente cancelou a validação. O chamado voltou para Aguardando Aprovação.'
+            : 'O chamado voltou ao status Aberto para novo atendimento.',
         'chamado_reaberto',
         $autorUsuarioId
     );

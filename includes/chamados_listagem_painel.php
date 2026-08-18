@@ -18,6 +18,7 @@ $CRM_CHAMADOS_IS_OPERADOR = ($CRM_CHAMADOS_PANEL_ROLE === 'operador');
 require_once __DIR__ . '/medicao_helpers.php';
 require_once __DIR__ . '/chamados_list_urls.php';
 require_once __DIR__ . '/audit_log.php';
+require_once __DIR__ . '/chamado_os_fields.php';
 
 if ($CRM_CHAMADOS_IS_OPERADOR) {
     require_once __DIR__ . '/auth.php';
@@ -181,7 +182,9 @@ if (!$CRM_CHAMADOS_IS_CLIENTE && !$CRM_CHAMADOS_IS_OPERADOR && $_SERVER['REQUEST
         if ($chDel) {
             gestor_assert_escopo_cliente((int) ($chDel['cliente_id'] ?? 0), 'chamados.php');
         }
-        if (repo_delete_chamado($delId)) {
+        if ($chDel && chamado_bloqueado_apos_validado($chDel, (string) ($me['perfil'] ?? ''))) {
+            flash_set('err', chamado_msg_edicao_bloqueada_validado());
+        } elseif (repo_delete_chamado($delId)) {
             flash_set('ok', 'Chamado #' . $delId . ' marcado como inativo (exclusão lógica).');
         } else {
             flash_set('err', 'Não foi possível inativar o chamado.');
@@ -1877,7 +1880,7 @@ include __DIR__ . '/head.php';
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               </a>
               <?php endif; ?>
-              <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$chInativo): ?>
+              <?php if (!$CRM_CHAMADOS_IS_CLIENTE && !$chInativo && (($c['status'] ?? '') !== 'Validado')): ?>
               <form method="post" action="chamados.php" style="display:inline;" data-confirm="Excluir chamado #<?= (int) $c['id'] ?>? O registo permanece no sistema (exclusão lógica) e poderá ser consultado em «Excluídos / inativos»." data-confirm-danger>
                 <input type="hidden" name="acao" value="excluir">
                 <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
