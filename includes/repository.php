@@ -7664,7 +7664,8 @@ function repo_cliente_item_set_catalogo_fluxo_status(int $itemId, ?string $statu
 }
 
 /**
- * Variação do estoque saldo conforme movimento no chamado (utilizado = saída, devolvido = entrada).
+ * Variação do estoque saldo conforme movimento no chamado.
+ * Utilizado = saída; recolhido/sucata (devolvido) não altera o saldo.
  */
 function repo_cliente_item_estoque_delta_por_movimento(string $movimento, float $quantidade): float
 {
@@ -7674,9 +7675,6 @@ function repo_cliente_item_estoque_delta_por_movimento(string $movimento, float 
     $movimento = strtolower(trim($movimento));
     if ($movimento === 'utilizado') {
         return -$quantidade;
-    }
-    if ($movimento === 'devolvido') {
-        return $quantidade;
     }
 
     return 0.0;
@@ -7863,7 +7861,8 @@ function repo_catalogo_sync_saldo_from_bm_linhas(int $clienteId, array $linhas):
 }
 
 /**
- * Recalcula estoque_saldo a partir de estoque_capacidade (referência) e lançamentos em chamados.
+ * Recalcula estoque_saldo a partir de estoque_capacidade (referência) menos itens usados nos chamados.
+ * Recolhidos/sucata (movimento devolvido) não entram no saldo.
  *
  * @param list<int>|null $itemIds se informado, limita aos IDs; senão todo o catálogo da matriz
  * @return array{ok: bool, err: string, itens_processados: int, itens_alterados: int}
@@ -7892,12 +7891,10 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
     $temCap      = repo_cliente_itens_estoque_capacidade_column_exists();
     $temFluxo    = repo_cliente_itens_catalogo_fluxo_status_column_exists();
     $colCap      = $temCap ? 'it.estoque_capacidade' : 'CAST(0 AS DECIMAL(14,4))';
+    // Recolhido/sucata (devolvido) e itens de fluxo «Criado» não entram no saldo.
     $utilExpr    = $temFluxo
         ? "SUM(CASE WHEN ci.movimento = 'utilizado' AND (i.catalogo_fluxo_status IS NULL OR TRIM(i.catalogo_fluxo_status) <> 'Criado') THEN ci.quantidade ELSE 0 END)"
         : "SUM(CASE WHEN ci.movimento = 'utilizado' THEN ci.quantidade ELSE 0 END)";
-    $devolvExpr  = $temFluxo
-        ? "SUM(CASE WHEN ci.movimento = 'devolvido' OR (ci.movimento = 'utilizado' AND TRIM(i.catalogo_fluxo_status) = 'Criado') THEN ci.quantidade ELSE 0 END)"
-        : "SUM(CASE WHEN ci.movimento = 'devolvido' THEN ci.quantidade ELSE 0 END)";
 
     $itemFilterIt = '';
     $itemFilterI  = '';
@@ -7934,8 +7931,7 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
         $sqlAgg = "
             SELECT
                 ci.item_id,
-                {$utilExpr} AS qtd_utilizado,
-                {$devolvExpr} AS qtd_devolvido
+                {$utilExpr} AS qtd_utilizado
             FROM chamado_itens ci
             INNER JOIN cliente_itens i ON i.id = ci.item_id
             INNER JOIN chamados ch ON ch.id = ci.chamado_id
@@ -7950,10 +7946,7 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
         foreach ($stAgg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
             $iid = (int) ($row['item_id'] ?? 0);
             if ($iid > 0) {
-                $aggPorItem[$iid] = [
-                    'util' => (float) ($row['qtd_utilizado'] ?? 0),
-                    'dev'  => (float) ($row['qtd_devolvido'] ?? 0),
-                ];
+                $aggPorItem[$iid] = (float) ($row['qtd_utilizado'] ?? 0);
             }
         }
 
@@ -7963,12 +7956,10 @@ function repo_catalogo_recalcular_estoque_saldo(int $clienteId, ?array $itemIds 
             $iid      = (int) ($it['id'] ?? 0);
             $saldoAt  = (float) ($it['estoque_saldo'] ?? 0);
             $cap      = $temCap ? (float) ($it['estoque_capacidade'] ?? 0) : 0.0;
-            $util     = (float) ($aggPorItem[$iid]['util'] ?? 0);
-            $dev      = (float) ($aggPorItem[$iid]['dev'] ?? 0);
+            $util     = (float) ($aggPorItem[$iid] ?? 0);
             $ret['itens_processados']++;
 
-            $baseRef   = $temCap ? $cap : ($saldoAt + $util - $dev);
-            $saldoNovo = $baseRef - $util + $dev;
+            $saldoNovo = $temCap ? ($cap - $util) : $saldoAt;
 
             if (abs($saldoAt - $saldoNovo) > 1e-9) {
                 $up->execute([$saldoNovo, $iid, $catalogoClienteId, $catalogoClienteId]);

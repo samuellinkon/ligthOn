@@ -263,7 +263,7 @@ $metricCardClass = static function (bool $active): string {
           <?php endforeach; ?>
           <input type="hidden" name="return" value="<?= htmlspecialchars($catalogoListagemHref, ENT_QUOTES) ?>">
           <input type="hidden" name="acao" value="recalcular_saldos">
-          <button type="submit" class="btn btn-secondary btn-sm" title="Ajusta a coluna Saldo: estoque de referência menos utilizado nos chamados, mais devolvido">Recalcular saldos</button>
+          <button type="submit" class="btn btn-secondary btn-sm" title="Ajusta a coluna Saldo: estoque de referência menos itens usados nos chamados">Recalcular saldos</button>
         </form>
         <?php endif; ?>
         <?php else: ?>
