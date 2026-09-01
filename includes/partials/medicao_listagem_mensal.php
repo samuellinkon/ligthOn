@@ -39,8 +39,9 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
         $ym = (string) ($row['ym'] ?? '');
         $bmPrimeiroDia   = $ym . '-01';
         $bmPeriodoAte    = medicao_bm_export_v2_periodo_ate($ym);
+        $bmPeriodoAteMax = medicao_bm_export_v2_periodo_ate_max($ym);
         $bmPeriodoDeMin  = medicao_bm_export_v2_periodo_de_min($ym);
-        $bmPeriodoAteFmt = date('d/m/Y', strtotime($bmPeriodoAte));
+        $bmPeriodoAteFmt = date('d/m/Y', strtotime($bmPeriodoAteMax));
         $bmIdYm          = htmlspecialchars(preg_replace('/\W/', '_', $ym), ENT_QUOTES, 'UTF-8');
         $bmFormId        = 'bm-export-' . preg_replace('/[^A-Za-z0-9_-]+/', '-', $ym);
         $periodoResolvido = medicao_resolve_periodo_filtro($ym, $bmPrimeiroDia, $bmPeriodoAte);
@@ -125,7 +126,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
             class="medicao-periodo-de medicao-mes-card__period-input"
             value="<?= htmlspecialchars($periodoDeAtual) ?>"
             min="<?= htmlspecialchars($bmPeriodoDeMin) ?>"
-            max="<?= htmlspecialchars($bmPeriodoAte) ?>"
+            max="<?= htmlspecialchars($bmPeriodoAteMax) ?>"
             title="<?= $dateTitle ?>"
             tabindex="-1"
             aria-hidden="true"
@@ -136,7 +137,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
             class="medicao-periodo-ate medicao-mes-card__period-input"
             value="<?= htmlspecialchars($periodoAteAtual) ?>"
             min="<?= htmlspecialchars($bmPeriodoDeMin) ?>"
-            max="<?= htmlspecialchars($bmPeriodoAte) ?>"
+            max="<?= htmlspecialchars($bmPeriodoAteMax) ?>"
             title="<?= $dateTitle ?>"
             tabindex="-1"
             aria-hidden="true"
@@ -174,7 +175,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
                     class="input medicao-mes-card__period-field-de"
                     value="<?= htmlspecialchars($periodoDeAtual) ?>"
                     min="<?= htmlspecialchars($bmPeriodoDeMin) ?>"
-                    max="<?= htmlspecialchars($bmPeriodoAte) ?>"
+                    max="<?= htmlspecialchars($bmPeriodoAteMax) ?>"
                     title="<?= $dateTitle ?>"
                   >
                 </label>
@@ -185,7 +186,7 @@ $bmExcluirMapa          = is_array($bmExcluirMapa ?? null) ? $bmExcluirMapa : []
                     class="input medicao-mes-card__period-field-ate"
                     value="<?= htmlspecialchars($periodoAteAtual) ?>"
                     min="<?= htmlspecialchars($bmPeriodoDeMin) ?>"
-                    max="<?= htmlspecialchars($bmPeriodoAte) ?>"
+                    max="<?= htmlspecialchars($bmPeriodoAteMax) ?>"
                     title="<?= $dateTitle ?>"
                   >
                 </label>

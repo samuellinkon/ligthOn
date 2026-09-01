@@ -266,18 +266,40 @@ function medicao_bm_needle_periodo_planilha(string $refYm): ?string
 }
 
 /**
- * Data final efectiva ao exportar o boletim BM v2 dentro do mesmo mês civil (`AAAA-MM`): hoje até o fim do mês, ou sempre o último dia em meses passados.
+ * Último dia civil do mês de referência (`AAAA-MM`).
  */
-function medicao_bm_export_v2_periodo_ate(string $refYm): string
+function medicao_bm_export_v2_ultimo_dia(string $refYm): string
 {
     $primeiro = $refYm . '-01';
     $ts       = strtotime($primeiro);
     if ($ts === false) {
         return $refYm . '-01';
     }
-    $last = date('Y-m-t', $ts);
+
+    return date('Y-m-t', $ts);
+}
+
+/**
+ * Data final por omissão do boletim BM v2: hoje até o fim do mês civil, ou o último dia em meses passados.
+ */
+function medicao_bm_export_v2_periodo_ate(string $refYm): string
+{
+    $last = medicao_bm_export_v2_ultimo_dia($refYm);
 
     return date('Y-m') === $refYm ? min(date('Y-m-d'), $last) : $last;
+}
+
+/**
+ * Data final máxima permitida no período do BM: 1.º dia do mês seguinte
+ * (folga para validações feitas no dia após o fecho civil), sem ultrapassar hoje.
+ */
+function medicao_bm_export_v2_periodo_ate_max(string $refYm): string
+{
+    $ultimo = medicao_bm_export_v2_ultimo_dia($refYm);
+    $ts     = strtotime($ultimo . ' +1 day');
+    $folga  = $ts !== false ? date('Y-m-d', $ts) : $ultimo;
+
+    return min(date('Y-m-d'), $folga);
 }
 
 /**
@@ -388,11 +410,20 @@ function medicao_resolve_periodo_filtro(string $mesRef, string $dataInicio = '',
 
     $deDefault  = $mesRef . '-01';
     $ateDefault = medicao_bm_export_v2_periodo_ate($mesRef);
+    $ateMax     = medicao_bm_export_v2_periodo_ate_max($mesRef);
+    $deMin      = medicao_bm_export_v2_periodo_de_min($mesRef);
     $dataInicio = trim($dataInicio);
     $dataFim    = trim($dataFim);
 
     $de  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataInicio) ? $dataInicio : $deDefault;
     $ate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataFim) ? $dataFim : $ateDefault;
+
+    if ($de < $deMin) {
+        $de = $deMin;
+    }
+    if ($ate > $ateMax) {
+        $ate = $ateMax;
+    }
 
     if ($de > $ate) {
         return [

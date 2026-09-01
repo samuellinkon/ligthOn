@@ -132,7 +132,7 @@ $periodoTxt = $periodoResolvido['label_curto'];
 $mesLabel   = medicao_mes_label_pt($mesRef);
 
 $bmPrimeiroDia   = $mesRef . '-01';
-$bmPeriodoAteMax = medicao_bm_export_v2_periodo_ate($mesRef);
+$bmPeriodoAteMax = medicao_bm_export_v2_periodo_ate_max($mesRef);
 $bmPeriodoDeMin  = medicao_bm_export_v2_periodo_de_min($mesRef);
 $bmPeriodoAteFmt = date('d/m/Y', strtotime($bmPeriodoAteMax));
 $bmIdYm          = htmlspecialchars(preg_replace('/\W/', '_', $mesRef), ENT_QUOTES, 'UTF-8');

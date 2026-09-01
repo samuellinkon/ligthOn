@@ -5533,6 +5533,76 @@ function repo_medicao_bm_imports_totals_before_ym(int $clienteMatrizId, string $
 }
 
 /**
+ * Somas CRM (itens utilizados em chamados da medição) em meses anteriores a $refYm
+ * que não tenham BM importado para a mesma matriz — evita duplicar meses já oficiais.
+ *
+ * @return array<string, array{qtd:float,valor:float}>
+ */
+function repo_medicao_bm_crm_totals_before_ym(int $clienteMatrizId, string $refYm): array
+{
+    if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        return [];
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return [];
+    }
+    $limite = $refYm . '-01';
+    $dataRef = repo_chamados_sql_data_ref_medicao_bm('ch');
+    try {
+        $sql = '
+            SELECT
+                it.id AS item_id,
+                MAX(COALESCE(NULLIF(TRIM(it.codigo), \'\'), \'\')) AS item_codigo,
+                SUM(ci.quantidade) AS quantidade,
+                SUM(ci.subtotal) AS valor_subtotal
+            FROM chamado_itens ci
+            INNER JOIN chamados ch ON ch.id = ci.chamado_id
+            INNER JOIN cliente_itens it ON it.id = ci.item_id
+            WHERE ch.cliente_id IN (SELECT id FROM clientes WHERE id = ? OR empresa_id = ?)
+              AND DATE(' . $dataRef . ') < ?
+              AND ' . repo_chamados_status_sql_medicao_bm() . '
+              ' . _repo_chamados_sql_apenas_ativos('ch') . '
+              AND ' . repo_chamados_sql_movimento_medicao_custo('ci') . '
+              AND NOT EXISTS (
+                  SELECT 1 FROM medicao_imports mi
+                  WHERE mi.cliente_matriz_id = ?
+                    AND mi.ref_ym < ?
+                    AND mi.ref_ym = DATE_FORMAT(DATE(' . $dataRef . '), \'%Y-%m\')
+              )
+            GROUP BY it.id
+            HAVING SUM(ci.quantidade) <> 0 OR SUM(ci.subtotal) <> 0
+        ';
+        $st = $pdo->prepare($sql);
+        $st->execute([$clienteMatrizId, $clienteMatrizId, $limite, $clienteMatrizId, $refYm]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    if (!function_exists('medicao_bm_boletim_key_from_cod')) {
+        require_once __DIR__ . '/medicao_helpers.php';
+    }
+
+    $out = [];
+    foreach ($rows as $r) {
+        $itemId = (int) ($r['item_id'] ?? 0);
+        $cod    = trim((string) ($r['item_codigo'] ?? ''));
+        $key    = medicao_bm_boletim_key_from_cod($cod, $itemId);
+        if ($key === '') {
+            continue;
+        }
+        if (!isset($out[$key])) {
+            $out[$key] = ['qtd' => 0.0, 'valor' => 0.0];
+        }
+        $out[$key]['qtd']   += (float) ($r['quantidade'] ?? 0);
+        $out[$key]['valor'] += (float) ($r['valor_subtotal'] ?? 0);
+    }
+
+    return $out;
+}
+
+/**
  * Dados consolidados por item para o boletim BM v2: saldo + unitário (catálogo) por código normalizado.
  *
  * @return array<string, array{item_id:int, item_codigo:string, item_nome:string, unidade:string, valor_unitario:float, estoque_saldo:float, estoque_capacidade:float}>

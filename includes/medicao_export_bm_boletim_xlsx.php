@@ -1285,11 +1285,22 @@ function medicao_bm_boletim_v2_compor_linhas(
     }
 
     $priorBmRaw = repo_medicao_bm_imports_totals_before_ym($matrizId, $refYm);
+    $priorCrmRaw = repo_medicao_bm_crm_totals_before_ym($matrizId, $refYm);
     $priorBm    = [];
-    foreach ($priorBmRaw as $c => $vals) {
-        $bk = medicao_bm_boletim_v2_key_from_cod((string) $c);
-        if ($bk !== '') {
-            $priorBm[$bk] = $vals;
+    foreach ([$priorBmRaw, $priorCrmRaw] as $src) {
+        foreach ($src as $c => $vals) {
+            $bk = medicao_bm_boletim_v2_key_from_cod((string) $c);
+            if ($bk === '') {
+                $bk = medicao_bm_boletim_v2_key_string($c);
+            }
+            if ($bk === '') {
+                continue;
+            }
+            if (!isset($priorBm[$bk])) {
+                $priorBm[$bk] = ['qtd' => 0.0, 'valor' => 0.0];
+            }
+            $priorBm[$bk]['qtd']   += (float) ($vals['qtd'] ?? 0);
+            $priorBm[$bk]['valor'] += (float) ($vals['valor'] ?? 0);
         }
     }
 
@@ -1489,11 +1500,13 @@ function medicao_export_bm_boletim_v2_xlsx_send(
         exit;
     }
     $mesIni = strtotime($refYm . '-01 12:00:00');
-    $ultDiaRef = $mesIni !== false ? date('Y-m-t', $mesIni) : ($refYm . '-28');
+    $ateMax = function_exists('medicao_bm_export_v2_periodo_ate_max')
+        ? medicao_bm_export_v2_periodo_ate_max($refYm)
+        : ($mesIni !== false ? date('Y-m-t', $mesIni) : ($refYm . '-28'));
     if ($mesIni === false
         || $periodoDe > $periodoAte
         || $periodoAte < ($refYm . '-01')
-        || $periodoAte > $ultDiaRef
+        || $periodoAte > $ateMax
     ) {
         http_response_code(400);
         header('Content-Type: text/plain; charset=UTF-8');
