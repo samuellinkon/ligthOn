@@ -529,7 +529,7 @@ function chamados_periodo_anexos_export_html(
 
     $adminBase = chamados_pdf_admin_base_url();
 
-    $h = static function (?string $s): string {
+    $h = static function (mixed $s): string {
         return htmlspecialchars((string) ($s ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     };
 

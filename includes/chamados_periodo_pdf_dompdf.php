@@ -72,7 +72,7 @@ function chamados_periodo_anexos_stream_pdf(string $html, ?string $downloadUtf8 
     chamados_dompdf_apply_writable_options($options);
 
     $dompdf = new \Dompdf\Dompdf($options);
-    @ini_set('memory_limit', '512M');
+    @ini_set('memory_limit', '2048M');
     $html = chamados_dompdf_strip_empty_resource_uris($html);
     $dompdf->loadHtml($html, 'UTF-8');
     $dompdf->setPaper('A4', 'portrait');

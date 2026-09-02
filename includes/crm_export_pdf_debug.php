@@ -19,7 +19,7 @@ function crm_export_pdf_debug_enabled(): bool
 }
 
 /**
- * Escreve no error_log do PHP e, com CRM_EXPORT_PDF_DEBUG, anexa stack em writable/pdf_export_debug.log
+ * Escreve no error_log do PHP e anexa o stack em writable/pdf_export_debug.log.
  */
 function crm_export_pdf_log_failure(Throwable $e, array $context = []): void
 {
@@ -30,10 +30,6 @@ function crm_export_pdf_log_failure(Throwable $e, array $context = []): void
         $e->getLine()
     );
     error_log($line);
-
-    if (!crm_export_pdf_debug_enabled()) {
-        return;
-    }
 
     $root = dirname(__DIR__);
     $dir  = $root . '/writable';

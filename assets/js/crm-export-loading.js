@@ -131,6 +131,8 @@
       var exp = u.searchParams.get('export') || '';
       if (exp === 'pdf_anexos' || exp === 'pdf') {
         base = 'relatorio.pdf';
+      } else if (exp === 'xlsx_detalhes') {
+        base = 'boletim_medicao_com_detalhes.xlsx';
       } else if (exp.indexOf('xlsx') !== -1 || exp === 'relatorio_xlsx') {
         base = 'exportacao.xlsx';
       } else if (u.pathname.indexOf('boletim_bm') !== -1) {
@@ -227,7 +229,14 @@
         }
 
         if (!response.ok) {
-          throw new Error('Falha na exportação (HTTP ' + response.status + ').');
+          return response.text().then(function (txt) {
+            var extra = '';
+            var pre = /<pre[^>]*>([\s\S]*?)<\/pre>/i.exec(txt || '');
+            if (pre && pre[1]) {
+              extra = ' ' + String(pre[1]).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+            }
+            throw new Error('Falha na exportação (HTTP ' + response.status + ').' + extra);
+          });
         }
 
         // HTML de impressão (export=pdf do chamado): respeita target="_blank".

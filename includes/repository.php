@@ -4269,6 +4269,9 @@ function repo_chamados_admin_list(
             GROUP BY ct.chamado_id
         ) tecs ON tecs.chamado_id = ch.id"
         : '';
+    $dataExpr = $filtro === 'resolvido_bm'
+        ? repo_chamados_sql_data_ref_medicao_bm('ch')
+        : 'ch.aberto_em';
     $sql = "
         SELECT
             ch.id, ch.cliente_id, ch.titulo, ch.descricao,
@@ -4276,7 +4279,7 @@ function repo_chamados_admin_list(
             ch.tecnico_user_id, ch.finalizado_operador_em, ch.aprovado_gestor_em,
             ch.prioridade, ch.status, ch.responsavel,
             ch.ponto_iluminacao_id,
-            DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
+            DATE_FORMAT($dataExpr, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
             $tecnicoSelect
             " . (repo_chamados_tem_exclusao_logica() ? ",
@@ -4398,6 +4401,9 @@ function repo_chamados_admin_list_export(
             NULL AS ponto_referencia, NULL AS os_cep, NULL AS os_logradouro, NULL AS os_numero,
             NULL AS os_complemento, NULL AS os_bairro, NULL AS os_cidade, NULL AS os_uf,";
 
+    $dataExprExport = $filtro === 'resolvido_bm'
+        ? repo_chamados_sql_data_ref_medicao_bm('ch')
+        : 'ch.aberto_em';
     $sql = "
         SELECT
             ch.id, ch.cliente_id, ch.titulo, ch.descricao,
@@ -4411,7 +4417,7 @@ function repo_chamados_admin_list_export(
             ch.aprovado_gestor_user_id,
             ch.checklist_realizado,
             ch.prioridade, ch.status, ch.responsavel,
-            DATE_FORMAT(ch.aberto_em, '%Y-%m-%d %H:%i') AS data,
+            DATE_FORMAT($dataExprExport, '%Y-%m-%d %H:%i') AS data,
             c.empresa AS cliente,
             ua.nome AS aprovado_gestor_nome,
             s.nome AS servico_nome,
@@ -5132,6 +5138,7 @@ function repo_catalogo_chamados_itens_periodo_por_data_lancamento(
         $r['tecnico_nomes']  = (string) ($r['tecnico_nomes'] ?? '');
         $r['movimento']      = (string) ($r['movimento'] ?? '');
         $r['observacao']    = isset($r['observacao']) ? (string) $r['observacao'] : '';
+        $r['chamado_aberto_em'] = isset($r['chamado_aberto_em']) && $r['chamado_aberto_em'] !== null ? (string) $r['chamado_aberto_em'] : '';
         $r['item_criado_em'] = isset($r['item_criado_em']) && $r['item_criado_em'] !== null ? (string) $r['item_criado_em'] : '';
         $r['ch_os_bairro']   = isset($r['ch_os_bairro']) ? (string) $r['ch_os_bairro'] : '';
         $r['ch_os_logradouro'] = isset($r['ch_os_logradouro']) ? (string) $r['ch_os_logradouro'] : '';

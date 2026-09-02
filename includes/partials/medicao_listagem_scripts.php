@@ -112,6 +112,9 @@ $medicaoJsClienteId = (int) ($medicaoJsClienteId ?? 0);
       a.addEventListener('click', function (ev) {
         ev.stopPropagation();
         var kind = a.getAttribute('data-link-kind') || '';
+        if (window.CrmExportLoading && (kind === 'xlsx_detalhes' || kind === 'pdf_anexos')) {
+          return;
+        }
         var href = hrefForCard(card, kind);
         if (!href) {
           return;

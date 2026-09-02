@@ -258,7 +258,7 @@ function bm_med_tipo_item_pt(?string $raw): string
     };
 }
 
-/** Data do lançamento (coluna DATA institucional), só dia `dd/mm/yyyy`. */
+/** Data (coluna DATA institucional), só dia `dd/mm/yyyy`. */
 function bm_med_data_dia_br(?string $raw): string
 {
     if ($raw === null || $raw === '') {
@@ -267,6 +267,22 @@ function bm_med_data_dia_br(?string $raw): string
     $t = strtotime(substr(trim($raw), 0, 16));
 
     return $t ? date('d/m/Y', $t) : trim($raw);
+}
+
+/**
+ * Data da coluna DATA: validação do chamado (alterável). Fallback: lançamento do item
+ * (linhas sintéticas de importação BM / custos sem chamado).
+ *
+ * @param array<string,mixed> $ln
+ */
+function bm_med_data_coluna_inst(array $ln): string
+{
+    $v = trim((string) ($ln['chamado_aberto_em'] ?? ''));
+    if ($v === '') {
+        $v = trim((string) ($ln['item_criado_em'] ?? ''));
+    }
+
+    return bm_med_data_dia_br($v);
 }
 
 /** Cabeçalhos exactos do layout institucional (colunas A–P). Coluna B: ID do chamado. */
@@ -367,7 +383,7 @@ function bm_med_linha_institucional(
 ): void {
     $cidTxt = $chamadoId > 0 ? (string) $chamadoId : '';
     $nomeItem = trim((string) ($ln['item_nome'] ?? ''));
-    $sheet->setCellValue('A' . $r, bm_med_data_dia_br((string) ($ln['item_criado_em'] ?? '')));
+    $sheet->setCellValue('A' . $r, bm_med_data_coluna_inst($ln));
     $sheet->setCellValue('B' . $r, $cidTxt);
     $lat = bm_med_coord_s($ln);
     $lon = bm_med_coord_w($ln);
@@ -416,7 +432,7 @@ function bm_med_agrupar_detalhamento_chamados_consolidado(array $det): array
             ];
             $cidSeq[] = $cid;
         }
-        $cre = trim((string) ($linha['item_criado_em'] ?? ''));
+        $cre = trim((string) ($linha['chamado_aberto_em'] ?? $linha['item_criado_em'] ?? ''));
         if ($cre !== '') {
             $prev = $byCid[$cid]['ultimo_lancamento_em'];
             if ($prev === '' || strcmp($cre, $prev) > 0) {
@@ -463,6 +479,10 @@ function bm_med_agrupar_detalhamento_chamados_consolidado(array $det): array
             $tpl['subtotal']       = $g['subtotal'];
             $tpl['valor_unitario'] = (float) ($tpl['valor_unitario'] ?? 0);
             $tpl['observacao']     = $obsStr;
+            $dataVal = trim((string) ($bucket['meta']['chamado_aberto_em'] ?? ''));
+            if ($dataVal !== '') {
+                $tpl['chamado_aberto_em'] = $dataVal;
+            }
             $itens[]               = $tpl;
         }
         usort($itens, 'medicao_bm_boletim_cmp_detalhe_linha');
@@ -566,6 +586,7 @@ function bm_med_detalhe_linhas_from_bm_import(array $bmLinhas, string $refYm = '
         $out[] = [
             'chamado_id'            => 0,
             'chamado_item_id'       => (int) ($il['linha_id'] ?? 0),
+            'chamado_aberto_em'     => $dataRef,
             'item_criado_em'        => $dataRef,
             'item_codigo'           => trim((string) ($il['item_codigo'] ?? '')),
             'item_nome'             => trim((string) ($il['descricao'] ?? '')),
@@ -625,6 +646,7 @@ function bm_med_detalhe_linhas_from_custos_aprovados(int $matrizId, string $refY
         $out[] = [
             'chamado_id'             => 0,
             'chamado_item_id'        => (int) ($c['id'] ?? 0),
+            'chamado_aberto_em'      => $dataRef,
             'item_criado_em'         => $dataRef,
             'item_codigo'            => $cod,
             'item_nome'              => $nome,
@@ -1293,7 +1315,8 @@ function chamados_medicao_export_xlsx_send(
 }
 
 /**
- * Monta o workbook do boletim institucional: capa A–P + tabela A–P por lançamentos consolidados.
+ * Monta o workbook do BM Completo: folha «MEDIÇÃO» com detalhe por chamado (DATA, ID, itens).
+ * O boletim consolidado (botão BM) é gerado em medicao_export_bm_boletim_v2_xlsx_send.
  *
  * @param array<string,mixed> $ctx
  *
@@ -1357,14 +1380,6 @@ function bm_med_workbook_build(array $ctx): array
     $kpis              = isset($ctx['kpis']) && is_array($ctx['kpis']) ? $ctx['kpis'] : [];
     if ($valorTotalPeriodo <= 0.0 && isset($kpis['valor_utilizado'])) {
         $valorTotalPeriodo = round(max(0.0, (float) $kpis['valor_utilizado']), 2);
-    }
-
-    $bmCompAcum = null;
-    $pDeBm = $periodoCrmDe !== '' ? $periodoCrmDe : trim((string) ($ctx['periodo_de'] ?? ''));
-    $pAteBm = $periodoCrmAte !== '' ? $periodoCrmAte : trim((string) ($ctx['periodo_ate'] ?? ''));
-    if ($matrizIdCustos > 0 && $refYm !== '' && $pDeBm !== '' && $pAteBm !== ''
-        && function_exists('medicao_bm_boletim_v2_compor_linhas')) {
-        $bmCompAcum = medicao_bm_boletim_v2_compor_linhas($matrizIdCustos, $refYm, $pDeBm, $pAteBm);
     }
 
     $c0 = bm_med_capa_boletim_montar(
@@ -1468,18 +1483,7 @@ function bm_med_workbook_build(array $ctx): array
     );
     $sheet->getPageMargins()->setLeft(0.25)->setRight(0.25)->setTop(0.3)->setBottom(0.3);
     $sheet->getHeaderFooter()->setOddFooter('&C&P / &N · ' . $brand);
-
-    if (is_array($bmCompAcum) && function_exists('medicao_bm_boletim_v2_preencher_aba')) {
-        $abaBm = $ss->createSheet(0);
-        medicao_bm_boletim_v2_preencher_aba($abaBm, $bmCompAcum, [
-            'cliente_matriz_id' => $matrizIdCustos,
-            'ref_ym'            => $refYm,
-            'empresa'           => $matrizLb,
-            'periodo_de'        => $pDeBm,
-            'periodo_ate'       => $pAteBm,
-        ]);
-        $ss->setActiveSheetIndex(0);
-    }
+    $ss->setActiveSheetIndex(0);
 
     return [
         'ss'            => $ss,

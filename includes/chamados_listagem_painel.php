@@ -526,6 +526,8 @@ $maxExportRows = 20000;
 if ($exportFmt === 'pdf_anexos') {
     // Mesma regra da medição/BM: só Validado com validado_em no período.
     $fExportMedicao = 'resolvido_bm';
+    @ini_set('memory_limit', '2048M');
+    @ini_set('max_execution_time', '600');
     require_once __DIR__ . '/crm_export_pdf_debug.php';
     crm_export_pdf_flush_output_buffers();
     ob_start();
@@ -549,6 +551,10 @@ if ($exportFmt === 'pdf_anexos') {
         header('Location: ' . $redirPosExport);
         exit;
     }
+    $htmlPdfBin = '';
+    $items = [];
+    $pdfDownloadName = 'Chamados e anexos.pdf';
+    try {
     $totalPeriodo = repo_chamados_admin_list($fExportMedicao, $q, 1, 1, $escopoLista, $periodoDeListagem, $periodoAteListagem, null, $envolvidoRepo, $tecnicoRepo, $localQRepo, false)['total'];
     $rowsEx       = adm_chamados_collect_export_rows(
         false,
@@ -564,9 +570,8 @@ if ($exportFmt === 'pdf_anexos') {
         $localQRepo,
         false
     );
-    $listaTruncada = false;
     $crmRows = array_values(array_filter($rowsEx, static fn ($r) => empty($r['medicao_bm'])));
-    $items   = [];
+    $listaTruncada = false;
     foreach ($crmRows as $row) {
         $cid = (int) ($row['id'] ?? 0);
         if ($cid <= 0) {
@@ -595,8 +600,8 @@ if ($exportFmt === 'pdf_anexos') {
         $fExportMedicao,
         $q,
         $escopoLista,
-        $periodoDe,
-        $periodoAte,
+        $periodoDeListagem,
+        $periodoAteListagem,
         $envolvidoRepo,
         $tecnicoRepo,
         $localQRepo,
@@ -645,7 +650,6 @@ if ($exportFmt === 'pdf_anexos') {
         'total_listagem_periodo' => $totalPeriodo,
         'lista_truncada'         => $listaTruncada,
     ]);
-    try {
         crm_export_pdf_flush_output_buffers();
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();
@@ -817,7 +821,7 @@ if (in_array($exportFmt, ['xlsx', 'xlsx_detalhes'], true)) {
         }
     }
 
-    /** Detalhamento CRM: período pela data em que o item foi registrado em chamado_itens.criado_em */
+    /** Detalhamento CRM (BM Completo): período e coluna DATA pela data de validação do chamado. */
     $bmExportCompleto   = ($exportFmt === 'xlsx_detalhes');
     $detalheLinhasBoletim = [];
     if ($matrizItensId > 0 && $pDeItDet !== '' && $pAtItDet !== '') {

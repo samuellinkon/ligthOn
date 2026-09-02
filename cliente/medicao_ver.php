@@ -515,6 +515,9 @@ include __DIR__ . '/../includes/head.php';
   toolbar.querySelectorAll('.js-medicao-periodo-link').forEach(function (a) {
     a.addEventListener('click', function (ev) {
       var kind = a.getAttribute('data-link-kind') || '';
+      if (window.CrmExportLoading && (kind === 'xlsx_detalhes' || kind === 'pdf_anexos')) {
+        return;
+      }
       var href = hrefForLink(kind);
       if (!href) {
         return;
