@@ -1286,8 +1286,11 @@ function medicao_bm_boletim_v2_compor_linhas(
 
     $priorBmRaw = repo_medicao_bm_imports_totals_before_ym($matrizId, $refYm);
     $priorCrmRaw = repo_medicao_bm_crm_totals_before_ym($matrizId, $refYm);
+    $priorCustosRaw = function_exists('repo_medicao_bm_custos_totals_before_ym')
+        ? repo_medicao_bm_custos_totals_before_ym($matrizId, $refYm)
+        : [];
     $priorBm    = [];
-    foreach ([$priorBmRaw, $priorCrmRaw] as $src) {
+    foreach ([$priorBmRaw, $priorCrmRaw, $priorCustosRaw] as $src) {
         foreach ($src as $c => $vals) {
             $bk = medicao_bm_boletim_v2_key_from_cod((string) $c);
             if ($bk === '') {
@@ -1486,49 +1489,39 @@ function medicao_bm_boletim_v2_compor_linhas(
     ];
 }
 
-function medicao_export_bm_boletim_v2_xlsx_send(
-    int $clienteMatrizId,
-    string $refYm,
-    array $clienteMatriz,
-    string $periodoDe,
-    string $periodoAte
-): void {
-    if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
-        http_response_code(400);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo 'Parâmetros inválidos.';
-        exit;
-    }
-    $mesIni = strtotime($refYm . '-01 12:00:00');
-    $ateMax = function_exists('medicao_bm_export_v2_periodo_ate_max')
-        ? medicao_bm_export_v2_periodo_ate_max($refYm)
-        : ($mesIni !== false ? date('Y-m-t', $mesIni) : ($refYm . '-28'));
-    if ($mesIni === false
-        || $periodoDe > $periodoAte
-        || $periodoAte < ($refYm . '-01')
-        || $periodoAte > $ateMax
-    ) {
-        http_response_code(400);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo 'Datas do período inválidas para o mês de referência.';
-        exit;
-    }
+/**
+ * Preenche a aba do boletim BM v2 (inclui acumulado dos BMs anteriores).
+ *
+ * @param array{rows?: list<array<string,mixed>>, valor_medido_total?: float} $comp
+ * @param array{cliente_matriz_id:int, ref_ym:string, empresa?:string, periodo_de:string, periodo_ate:string} $meta
+ */
+function medicao_bm_boletim_v2_preencher_aba(Worksheet $sheet, array $comp, array $meta): void
+{
+    $clienteMatrizId = (int) ($meta['cliente_matriz_id'] ?? 0);
+    $refYm           = (string) ($meta['ref_ym'] ?? '');
+    $periodoDe       = (string) ($meta['periodo_de'] ?? '');
+    $periodoAte      = (string) ($meta['periodo_ate'] ?? '');
+    $empresa         = trim((string) ($meta['empresa'] ?? ''));
+    $linhasRows      = isset($comp['rows']) && is_array($comp['rows']) ? $comp['rows'] : [];
+    $valorMedido     = (float) ($comp['valor_medido_total'] ?? 0);
 
-    $comp = medicao_bm_boletim_v2_compor_linhas($clienteMatrizId, $refYm, $periodoDe, $periodoAte);
-    $linhasRows = $comp['rows'];
-
-    $spreadsheet = new Spreadsheet();
-    $sheet       = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Boletim BM');
+    $sheet->setShowGridlines(false);
 
     $lastColLetter = 'M';
     $st            = medicao_bm_boletim_style_arrays_tipografia();
-    $seq           = medicao_bm_boletim_numero_sequencia($clienteMatrizId, $refYm);
+    $seq           = $clienteMatrizId > 0 && preg_match('/^\d{4}-\d{2}$/', $refYm)
+        ? medicao_bm_boletim_numero_sequencia($clienteMatrizId, $refYm)
+        : '—';
+
+    $valorAcumAnt = 0.0;
+    foreach ($linhasRows as $lr) {
+        $valorAcumAnt += (float) ($lr['_val_acum_ant'] ?? 0);
+    }
 
     $sheet->mergeCells('A1:' . $lastColLetter . '1');
     $sheet->setCellValue('A1', 'BOLETIM DE MEDIÇÃO Nº ' . $seq);
     $sheet->mergeCells('A2:' . $lastColLetter . '2');
-    $empresa = trim((string) ($clienteMatriz['empresa'] ?? ''));
     $rotuloM = medicao_mes_label_pt($refYm);
     $periodoLbl = function_exists('medicao_periodo_export_label')
         ? medicao_periodo_export_label($periodoDe, $periodoAte, $refYm)
@@ -1542,8 +1535,9 @@ function medicao_export_bm_boletim_v2_xlsx_send(
     $sheet->mergeCells('A3:' . $lastColLetter . '3');
     $sheet->setCellValue(
         'A3',
-        'VALOR TOTAL DA MEDIÇÃO NO PERÍODO (CRM): R$ '
-        . number_format((float) ($comp['valor_medido_total'] ?? 0), 2, ',', '.')
+        'VALOR NO PERÍODO: R$ ' . number_format($valorMedido, 2, ',', '.')
+        . '  ·  ACUMULADO BMs ANTERIORES: R$ ' . number_format($valorAcumAnt, 2, ',', '.')
+        . '  ·  ACUMULADO TOTAL: R$ ' . number_format($valorMedido + $valorAcumAnt, 2, ',', '.')
     );
     $sheet->getStyle('A3:' . $lastColLetter . '3')->applyFromArray([
         'font'      => medicao_bm_boletim_style_font(true, MEDICAO_BM_XLSX_SIZE_TOTAL + 1, MEDICAO_BM_BRAND_PRIMARY),
@@ -1636,9 +1630,6 @@ function medicao_export_bm_boletim_v2_xlsx_send(
         $sheet->getStyle('A' . $r0 . ':' . $lastColLetter . $lastDataRow)->applyFromArray($st['body_block_border']);
     }
 
-    $defFont = $spreadsheet->getDefaultStyle()->getFont();
-    $defFont->setName(MEDICAO_BM_XLSX_FONT)->setSize(MEDICAO_BM_XLSX_SIZE_BASE);
-
     $titleV2Purple = $st['title_main'];
     $titleV2Purple['fill'] = medicao_bm_boletim_style_fill_solid(MEDICAO_BM_BRAND_PRIMARY);
     $sheet->getStyle('A1:' . $lastColLetter . '1')->applyFromArray($titleV2Purple);
@@ -1657,11 +1648,54 @@ function medicao_export_bm_boletim_v2_xlsx_send(
         'left_cols'      => ['A', 'B', 'C'],
     ]);
     medicao_bm_boletim_aplicar_alturas_linhas_compactas($sheet, $ultimaLinha, $headerRow, $r0, $lastDataRow);
+}
 
+function medicao_export_bm_boletim_v2_xlsx_send(
+    int $clienteMatrizId,
+    string $refYm,
+    array $clienteMatriz,
+    string $periodoDe,
+    string $periodoAte
+): void {
+    if ($clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Parâmetros inválidos.';
+        exit;
+    }
+    $mesIni = strtotime($refYm . '-01 12:00:00');
+    $ateMax = function_exists('medicao_bm_export_v2_periodo_ate_max')
+        ? medicao_bm_export_v2_periodo_ate_max($refYm)
+        : ($mesIni !== false ? date('Y-m-t', $mesIni) : ($refYm . '-28'));
+    if ($mesIni === false
+        || $periodoDe > $periodoAte
+        || $periodoAte < ($refYm . '-01')
+        || $periodoAte > $ateMax
+    ) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Datas do período inválidas para o mês de referência.';
+        exit;
+    }
+
+    $comp = medicao_bm_boletim_v2_compor_linhas($clienteMatrizId, $refYm, $periodoDe, $periodoAte);
+
+    $spreadsheet = new Spreadsheet();
+    $spreadsheet->getDefaultStyle()->getFont()->setName(MEDICAO_BM_XLSX_FONT)->setSize(MEDICAO_BM_XLSX_SIZE_BASE);
+    $sheet = $spreadsheet->getActiveSheet();
+    medicao_bm_boletim_v2_preencher_aba($sheet, $comp, [
+        'cliente_matriz_id' => $clienteMatrizId,
+        'ref_ym'            => $refYm,
+        'empresa'           => trim((string) ($clienteMatriz['empresa'] ?? '')),
+        'periodo_de'        => $periodoDe,
+        'periodo_ate'       => $periodoAte,
+    ]);
+
+    $seq      = medicao_bm_boletim_numero_sequencia($clienteMatrizId, $refYm);
     $stampAte = date('d.m.Y', strtotime($periodoAte));
     $tag      = medicao_bm_boletim_mes_arquivo($refYm);
     $suffixDe = preg_replace('/[^A-Za-z0-9_-]+/', '_', $periodoDe);
-    $fn       = 'BM_' . $seq . '__' . $tag . '_' . trim($suffixDe, '_') . '_v' . $stampAte . '.xlsx';
+    $fn       = 'BM_' . $seq . '__' . $tag . '_' . trim((string) $suffixDe, '_') . '_v' . $stampAte . '.xlsx';
 
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     header('Content-Disposition: attachment; filename="' . $fn . '"');

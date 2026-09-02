@@ -601,6 +601,52 @@ function repo_chamados_sql_data_ref_medicao_bm(string $alias = 'ch'): string
 }
 
 /**
+ * Extrai Y-m-d de um valor de data/hora (DATETIME, DATE_FORMAT ou ISO).
+ */
+function repo_chamado_ymd_de_datetime(?string $raw): string
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return '';
+    }
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $raw, $m)) {
+        return $m[1];
+    }
+    $dt = date_create($raw);
+
+    return $dt ? $dt->format('Y-m-d') : '';
+}
+
+/**
+ * Normaliza a data de validação (referência do chamado no BM).
+ * Qualquer data de calendário válida é aceita (sem mínimo nem máximo).
+ *
+ * @param string|null $abertoEm Mantido por compatibilidade; não restringe a data.
+ * @return array{ok: bool, err: string, datetime: ?string, ymd: ?string}
+ */
+function repo_chamado_normalizar_data_validacao(string $ymd, ?string $abertoEm = null): array
+{
+    $ymd = trim($ymd);
+    if ($ymd === '') {
+        return ['ok' => false, 'err' => 'Informe a data de validação.', 'datetime' => null, 'ymd' => null];
+    }
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $ymd, $m)) {
+        $ymd = $m[1];
+    }
+    $dt = DateTime::createFromFormat('!Y-m-d', $ymd);
+    if (!$dt || $dt->format('Y-m-d') !== $ymd) {
+        return ['ok' => false, 'err' => 'Data de validação inválida.', 'datetime' => null, 'ymd' => null];
+    }
+
+    return [
+        'ok'       => true,
+        'err'      => '',
+        'datetime' => $ymd . ' 12:00:00',
+        'ymd'      => $ymd,
+    ];
+}
+
+/**
  * Data de conclusão do chamado (quando passou a Resolvido / foi executado).
  * Prefere aprovação do gestor; senão finalização do técnico; senão abertura (legado).
  */
@@ -7327,7 +7373,7 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
     return true;
 }
 
-function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null): bool
+function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null, ?string $validadoEmYmd = null): bool
 {
     static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
     if (!in_array($status, $allowed, true)) {
@@ -7380,12 +7426,31 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
         $actorUid = (int) ($cu['id'] ?? 0);
     }
 
+    $validadoEmDt = null;
+    if ($temValidadoEm && $status === 'Validado') {
+        $ymdIn = $validadoEmYmd !== null ? trim($validadoEmYmd) : '';
+        if ($ymdIn !== '') {
+            $normVal = repo_chamado_normalizar_data_validacao($ymdIn, (string) ($antes['data'] ?? ''));
+            if (!$normVal['ok']) {
+                return false;
+            }
+            $validadoEmDt = (string) $normVal['datetime'];
+        }
+    }
+
     if ($temValidadoEm && $status === 'Validado') {
         // Data de validação = referência do chamado no BM (não a de abertura).
-        $stmt = $pdo->prepare(
-            'UPDATE chamados SET status = ?, validado_em = COALESCE(validado_em, NOW()) WHERE id = ?'
-        );
-        $ok = $stmt->execute([$status, $id]);
+        if ($validadoEmDt !== null) {
+            $stmt = $pdo->prepare(
+                'UPDATE chamados SET status = ?, validado_em = ? WHERE id = ?'
+            );
+            $ok = $stmt->execute([$status, $validadoEmDt, $id]);
+        } else {
+            $stmt = $pdo->prepare(
+                'UPDATE chamados SET status = ?, validado_em = COALESCE(validado_em, NOW()) WHERE id = ?'
+            );
+            $ok = $stmt->execute([$status, $id]);
+        }
     } elseif ($temValidadoEm && $stAnterior === 'Validado' && $status !== 'Validado') {
         $stmt = $pdo->prepare('UPDATE chamados SET status = ?, validado_em = NULL WHERE id = ?');
         $ok   = $stmt->execute([$status, $id]);
@@ -7405,10 +7470,14 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     }
     if ($ok && $antes) {
         $cidLog = (int) ($antes['cliente_id'] ?? 0);
-        audit_log_registar('chamado.status', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
+        $auditStatus = [
             'status_anterior' => (string) ($antes['status'] ?? ''),
             'status_novo'     => $status,
-        ]);
+        ];
+        if ($validadoEmDt !== null) {
+            $auditStatus['validado_em'] = $validadoEmDt;
+        }
+        audit_log_registar('chamado.status', 'chamado', $id, $cidLog > 0 ? $cidLog : null, $auditStatus);
         if ((string) ($antes['status'] ?? '') !== $status) {
             require_once __DIR__ . '/notificacoes.php';
             if ($status === 'Resolvido') {
@@ -7424,6 +7493,55 @@ function repo_update_chamado_status(int $id, string $status, ?string $perfilActo
     }
 
     return $ok;
+}
+
+/**
+ * Altera a data de validação de um chamado já Validado (referência no BM).
+ *
+ * @return array{ok: bool, err: string, validado_em?: string}
+ */
+function repo_update_chamado_validado_em(int $id, string $ymd, string $perfilActor): array
+{
+    $p = strtolower(trim($perfilActor));
+    if (!in_array($p, ['cliente', 'admin'], true)) {
+        return ['ok' => false, 'err' => 'Sem permissão para alterar a data de validação.'];
+    }
+    if (!repo_chamados_validado_em_column_exists()) {
+        return ['ok' => false, 'err' => 'Data de validação não disponível.'];
+    }
+    $ch = repo_chamado($id);
+    if (!$ch) {
+        return ['ok' => false, 'err' => 'Chamado não encontrado.'];
+    }
+    if (trim((string) ($ch['status'] ?? '')) !== 'Validado') {
+        return ['ok' => false, 'err' => 'Só é possível alterar a data em chamado Validado.'];
+    }
+    $norm = repo_chamado_normalizar_data_validacao($ymd, (string) ($ch['data'] ?? ''));
+    if (!$norm['ok']) {
+        return ['ok' => false, 'err' => (string) $norm['err']];
+    }
+    $antesRaw = (string) ($ch['validado_em'] ?? '');
+    $antesYmd = repo_chamado_ymd_de_datetime($antesRaw);
+    $novoYmd  = (string) $norm['ymd'];
+    if ($antesYmd === $novoYmd) {
+        return ['ok' => true, 'err' => '', 'validado_em' => $novoYmd];
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return ['ok' => false, 'err' => 'Banco indisponível.'];
+    }
+    $stmt = $pdo->prepare('UPDATE chamados SET validado_em = ? WHERE id = ?');
+    $ok   = $stmt->execute([(string) $norm['datetime'], $id]);
+    if (!$ok) {
+        return ['ok' => false, 'err' => 'Não foi possível atualizar a data de validação.'];
+    }
+    $cidLog = (int) ($ch['cliente_id'] ?? 0);
+    audit_log_registar('chamado.alterar_validado_em', 'chamado', $id, $cidLog > 0 ? $cidLog : null, [
+        'antes'  => $antesYmd !== '' ? $antesYmd : $antesRaw,
+        'depois' => $novoYmd,
+    ]);
+
+    return ['ok' => true, 'err' => '', 'validado_em' => $novoYmd];
 }
 
 function repo_update_chamado_responsavel(int $id, string $responsavel): bool

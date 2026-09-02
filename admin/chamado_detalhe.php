@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($acao === '' && ($trLeg !== '' || $temLeg)) {
                 $acao = 'responder';
             }
-            $acoesPortalCliente = ['responder', 'status', 'cancelar', 'validar', 'os_dados'];
+            $acoesPortalCliente = ['responder', 'status', 'cancelar', 'validar', 'validado_em', 'os_dados'];
             if (!in_array($acao, $acoesPortalCliente, true)) {
                 flash_set('err', 'Esta ação não está disponível no portal do cliente.');
                 header('Location: chamado_detalhe.php?id=' . $id);
@@ -256,14 +256,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$CRM_CHAMADO_PORTAL) {
                 flash_set('err', 'Ação não permitida.');
             } else {
-                $stVal = trim((string) (repo_chamado($id)['status'] ?? ''));
+                $chVal = repo_chamado($id);
+                $stVal = trim((string) ($chVal['status'] ?? ''));
                 if (!in_array($stVal, ['Resolvido', 'Fechado'], true)) {
                     flash_set('err', 'Este chamado ainda não pode ser validado.');
-                } elseif (repo_update_chamado_status($id, 'Validado', 'cliente')) {
-                    flash_set('ok', 'Atendimento validado com sucesso.');
                 } else {
-                    flash_set('err', 'Não foi possível validar o chamado.');
+                    $ymdPost = trim((string) ($_POST['validado_em'] ?? ''));
+                    if ($ymdPost === '') {
+                        $ymdPost = date('Y-m-d');
+                    }
+                    $normVal = repo_chamado_normalizar_data_validacao($ymdPost, (string) ($chVal['data'] ?? ''));
+                    if (!$normVal['ok']) {
+                        flash_set('err', (string) $normVal['err']);
+                    } elseif (repo_update_chamado_status($id, 'Validado', 'cliente', (string) $normVal['ymd'])) {
+                        flash_set('ok', 'Atendimento validado com sucesso.');
+                    } else {
+                        flash_set('err', 'Não foi possível validar o chamado.');
+                    }
                 }
+            }
+
+        } elseif ($acao === 'validado_em') {
+            $perfilVe = $CRM_CHAMADO_PORTAL ? 'cliente' : (string) ($user['perfil'] ?? 'gestor');
+            $ymdVe    = trim((string) ($_POST['validado_em'] ?? ''));
+            $resVe    = repo_update_chamado_validado_em($id, $ymdVe, $perfilVe);
+            if (op_chamado_detalhe_is_ajax()) {
+                if (!empty($resVe['ok'])) {
+                    op_chamado_mat_json_send([
+                        'ok'          => true,
+                        'err'         => '',
+                        'validado_em' => (string) ($resVe['validado_em'] ?? $ymdVe),
+                        'msg'         => 'Data de validação atualizada.',
+                    ]);
+                }
+                op_chamado_mat_json_send([
+                    'ok'  => false,
+                    'err' => (string) (($resVe['err'] ?? '') !== '' ? $resVe['err'] : 'Não foi possível atualizar a data de validação.'),
+                ], 400);
+            }
+            if (!empty($resVe['ok'])) {
+                flash_set('ok', 'Data de validação atualizada.');
+            } else {
+                flash_set('err', (string) (($resVe['err'] ?? '') !== '' ? $resVe['err'] : 'Não foi possível atualizar a data de validação.'));
             }
 
         } elseif ($acao === 'status') {
@@ -281,7 +315,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errSt = '';
             $okSt  = false;
             $gestaoPlenaSt = in_array(strtolower($perfilSt), ['gestor', 'admin'], true);
-            if (!in_array($novo, $permitidosStatus, true)) {
+            $ymdStatus = null;
+            if ($novo === 'Validado') {
+                $ymdIn = trim((string) ($_POST['validado_em'] ?? ''));
+                if ($ymdIn === '') {
+                    $ymdIn = date('Y-m-d');
+                }
+                $chStVal = repo_chamado($id);
+                $normSt  = repo_chamado_normalizar_data_validacao($ymdIn, (string) ($chStVal['data'] ?? ''));
+                if (!$normSt['ok']) {
+                    $errSt = (string) $normSt['err'];
+                } else {
+                    $ymdStatus = (string) $normSt['ymd'];
+                }
+            }
+            if ($errSt !== '') {
+                $okSt = false;
+            } elseif (!in_array($novo, $permitidosStatus, true)) {
                 $errSt = 'Status inválido para o seu perfil.';
             } elseif ($novo === 'Resolvido' && !$gestaoPlenaSt) {
                 $valRes = repo_validar_chamado_resolvido($id);
@@ -292,21 +342,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $errSt = 'Não foi possível atualizar o status.';
                 }
-            } elseif (repo_update_chamado_status($id, $novo, $perfilSt)) {
+            } elseif (repo_update_chamado_status($id, $novo, $perfilSt, $ymdStatus)) {
                 $okSt = true;
             } else {
                 $errSt = 'Não foi possível atualizar o status.';
-            }
-            if (op_chamado_detalhe_is_ajax()) {
-                if ($okSt) {
-                    op_chamado_mat_json_send([
-                        'ok'     => true,
-                        'err'    => '',
-                        'status' => $novo,
-                        'msg'    => 'Status atualizado para "' . $novo . '".',
-                    ]);
-                }
-                op_chamado_mat_json_send(['ok' => false, 'err' => $errSt !== '' ? $errSt : 'Não foi possível atualizar o status.'], 400);
             }
             if ($okSt) {
                 if ($CRM_CHAMADO_PORTAL && $novo === 'Validado') {
@@ -316,6 +355,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } else {
                 flash_set('err', $errSt !== '' ? $errSt : 'Não foi possível atualizar o status.');
+            }
+            if (op_chamado_detalhe_is_ajax()) {
+                if ($okSt) {
+                    op_chamado_mat_json_send([
+                        'ok'     => true,
+                        'err'    => '',
+                        'status' => $novo,
+                        'msg'    => 'Status atualizado para "' . $novo . '".',
+                        'reload' => $novo === 'Validado',
+                    ]);
+                }
+                op_chamado_mat_json_send(['ok' => false, 'err' => $errSt !== '' ? $errSt : 'Não foi possível atualizar o status.'], 400);
             }
 
         } elseif ($acao === 'responsavel') {
@@ -1817,16 +1868,20 @@ include __DIR__ . '/../includes/head.php';
           <?php if (!empty($chamado['finalizado_operador_em'])): ?>
             <div class="info-row"><span>Finalizado pelo técnico</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['finalizado_operador_em'])) ?></strong></div>
           <?php endif; ?>
-          <?php if (!empty($chamado['validado_em'])): ?>
-            <div class="info-row"><span>Validado em</span><strong><?= date('d/m/Y H:i', strtotime((string) $chamado['validado_em'])) ?></strong></div>
-          <?php endif; ?>
 
           <?php
             $stAtual = trim((string) ($chamado['status'] ?? ''));
             $cliPodeValidar  = $CRM_CHAMADO_PORTAL && in_array($stAtual, ['Resolvido', 'Fechado'], true);
             $cliPodeCancelar = $CRM_CHAMADO_PORTAL && $stAtual !== 'Aberto';
+            $perfilUi        = strtolower((string) ($user['perfil'] ?? ''));
+            $podeEditarValidadoEm = $stAtual === 'Validado'
+                && ($CRM_CHAMADO_PORTAL || $perfilUi === 'admin');
+            $hojeYmdValidacao = date('Y-m-d');
+            $validadoYmdUi = function_exists('repo_chamado_ymd_de_datetime')
+                ? repo_chamado_ymd_de_datetime((string) ($chamado['validado_em'] ?? ''))
+                : '';
             if (!$CRM_CHAMADO_PORTAL) {
-                if (strtolower((string) ($user['perfil'] ?? '')) === 'gestor') {
+                if ($perfilUi === 'gestor') {
                     $statusOpcoesUi = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido'];
                 } else {
                     $statusOpcoesUi = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
@@ -1836,6 +1891,31 @@ include __DIR__ . '/../includes/head.php';
                 }
             }
           ?>
+          <?php if ($cliPodeValidar): ?>
+          <form id="form-validar-chamado" method="post" class="info-row"
+                data-confirm="Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.">
+            <input type="hidden" name="acao" value="validar">
+            <span>Data de validação</span>
+            <span class="info-edit-value" style="flex-direction:column;align-items:flex-end;gap:4px;">
+              <input type="date" name="validado_em" class="input" required
+                     value="<?= htmlspecialchars($hojeYmdValidacao, ENT_QUOTES, 'UTF-8') ?>">
+              <span class="muted" style="font-size:11px;">Esta data define o mês do boletim de medição.</span>
+            </span>
+          </form>
+          <?php elseif ($podeEditarValidadoEm): ?>
+          <form method="post" class="info-row" data-chamado-autosave-form="validado_em">
+            <input type="hidden" name="acao" value="validado_em">
+            <span>Data de validação</span>
+            <span class="info-edit-value" style="flex-direction:column;align-items:flex-end;gap:4px;">
+              <input type="date" name="validado_em" class="input" required
+                     data-chamado-autosave="validado_em"
+                     value="<?= htmlspecialchars($validadoYmdUi !== '' ? $validadoYmdUi : $hojeYmdValidacao, ENT_QUOTES, 'UTF-8') ?>">
+              <span class="muted" style="font-size:11px;">Esta data define o mês do boletim de medição.</span>
+            </span>
+          </form>
+          <?php elseif (!empty($chamado['validado_em'])): ?>
+            <div class="info-row"><span>Validado em</span><strong><?= date('d/m/Y', strtotime((string) $chamado['validado_em'])) ?></strong></div>
+          <?php endif; ?>
           <?php if ($CRM_CHAMADO_PORTAL || $chamadoGestaoBloqueadaValidado): ?>
           <div class="info-row">
             <span>Status</span>
@@ -1848,11 +1928,7 @@ include __DIR__ . '/../includes/head.php';
             <span>Ações</span>
             <span class="info-edit-value" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
               <?php if ($cliPodeValidar): ?>
-              <form method="post"
-                    data-confirm="Confirmar que o atendimento foi concluído satisfatoriamente? O chamado passará ao status Validado.">
-                <input type="hidden" name="acao" value="validar">
-                <button type="submit" class="btn btn-primary btn-sm">Validar</button>
-              </form>
+              <button type="submit" form="form-validar-chamado" class="btn btn-primary btn-sm">Validar</button>
               <?php endif; ?>
               <?php if ($cliPodeCancelar): ?>
               <?php

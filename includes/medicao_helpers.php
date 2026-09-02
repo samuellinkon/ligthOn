@@ -290,6 +290,38 @@ function medicao_bm_export_v2_periodo_ate(string $refYm): string
 }
 
 /**
+ * Meses civis (AAAA-MM) cobertos pelo intervalo de datas, inclusive.
+ *
+ * @return list<string>
+ */
+function medicao_yms_no_periodo(string $dataDe, string $dataAte): array
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDe) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataAte) || $dataDe > $dataAte) {
+        return [];
+    }
+    $cur = substr($dataDe, 0, 7);
+    $end = substr($dataAte, 0, 7);
+    $out = [];
+    while ($cur !== '' && $cur <= $end) {
+        $out[] = $cur;
+        $ts = strtotime($cur . '-01 +1 month');
+        if ($ts === false) {
+            break;
+        }
+        $nxt = date('Y-m', $ts);
+        if ($nxt === $cur) {
+            break;
+        }
+        $cur = $nxt;
+        if (count($out) > 36) {
+            break;
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Data final máxima permitida no período do BM: 1.º dia do mês seguinte
  * (folga para validações feitas no dia após o fecho civil), sem ultrapassar hoje.
  */

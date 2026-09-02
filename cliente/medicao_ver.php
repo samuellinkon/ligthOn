@@ -507,7 +507,7 @@ include __DIR__ . '/../includes/head.php';
       return appendQuery('chamados.php', Object.assign({ medicao_mes: mes }, p));
     }
     if (kind === 'xlsx_detalhes' || kind === 'pdf_anexos') {
-      return appendQuery('chamados.php', Object.assign({ medicao_mes: mes, export: kind }, p));
+      return appendQuery('chamados.php', Object.assign({ f: 'resolvido_bm', medicao_mes: mes, export: kind }, p));
     }
     return null;
   }

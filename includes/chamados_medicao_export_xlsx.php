@@ -1316,13 +1316,29 @@ function bm_med_workbook_build(array $ctx): array
     $det = isset($ctx['detalhe_itens_linhas']) && is_array($ctx['detalhe_itens_linhas'])
         ? array_values($ctx['detalhe_itens_linhas'])
         : [];
-    if ($det === [] && !empty($ctx['bm_linhas']) && is_array($ctx['bm_linhas'])) {
-        $det = bm_med_detalhe_linhas_from_bm_import($ctx['bm_linhas'], (string) ($ctx['ref_ym'] ?? ''));
-    }
     $refYm = preg_match('/^\d{4}-\d{2}$/', (string) ($ctx['ref_ym'] ?? '')) ? (string) $ctx['ref_ym'] : '';
+    $periodoCrmDe  = trim((string) ($ctx['periodo_crm_de'] ?? ''));
+    $periodoCrmAte = trim((string) ($ctx['periodo_crm_ate'] ?? ''));
+    $periodoMesCompleto = $refYm !== ''
+        && $periodoCrmDe === $refYm . '-01'
+        && $periodoCrmAte !== ''
+        && $periodoCrmAte >= date('Y-m-t', strtotime($refYm . '-01 12:00:00') ?: time());
+    if ($det === [] && $periodoMesCompleto && !empty($ctx['bm_linhas']) && is_array($ctx['bm_linhas'])) {
+        $det = bm_med_detalhe_linhas_from_bm_import($ctx['bm_linhas'], $refYm);
+    }
     $matrizIdCustos = (int) ($ctx['matriz_cliente_id'] ?? 0);
-    if ($matrizIdCustos > 0 && $refYm !== '') {
-        $det = bm_med_detalhe_anexar_custos_aprovados($det, $matrizIdCustos, $refYm);
+    $ymsCusto = [];
+    if ($periodoCrmDe !== '' && $periodoCrmAte !== '' && function_exists('medicao_yms_no_periodo')) {
+        $ymsCusto = medicao_yms_no_periodo($periodoCrmDe, $periodoCrmAte);
+    } elseif ($refYm !== '') {
+        $ymsCusto = [$refYm];
+    }
+    if ($matrizIdCustos > 0) {
+        foreach ($ymsCusto as $ymCusto) {
+            if (preg_match('/^\d{4}-\d{2}$/', (string) $ymCusto)) {
+                $det = bm_med_detalhe_anexar_custos_aprovados($det, $matrizIdCustos, (string) $ymCusto);
+            }
+        }
     }
     $det = array_values(array_filter($det, 'bm_med_detalhe_linha_compoe_custo'));
     $nrBol = $refYm !== '' ? str_replace('-', '', $refYm) : date('Ym');
@@ -1341,6 +1357,14 @@ function bm_med_workbook_build(array $ctx): array
     $kpis              = isset($ctx['kpis']) && is_array($ctx['kpis']) ? $ctx['kpis'] : [];
     if ($valorTotalPeriodo <= 0.0 && isset($kpis['valor_utilizado'])) {
         $valorTotalPeriodo = round(max(0.0, (float) $kpis['valor_utilizado']), 2);
+    }
+
+    $bmCompAcum = null;
+    $pDeBm = $periodoCrmDe !== '' ? $periodoCrmDe : trim((string) ($ctx['periodo_de'] ?? ''));
+    $pAteBm = $periodoCrmAte !== '' ? $periodoCrmAte : trim((string) ($ctx['periodo_ate'] ?? ''));
+    if ($matrizIdCustos > 0 && $refYm !== '' && $pDeBm !== '' && $pAteBm !== ''
+        && function_exists('medicao_bm_boletim_v2_compor_linhas')) {
+        $bmCompAcum = medicao_bm_boletim_v2_compor_linhas($matrizIdCustos, $refYm, $pDeBm, $pAteBm);
     }
 
     $c0 = bm_med_capa_boletim_montar(
@@ -1444,6 +1468,18 @@ function bm_med_workbook_build(array $ctx): array
     );
     $sheet->getPageMargins()->setLeft(0.25)->setRight(0.25)->setTop(0.3)->setBottom(0.3);
     $sheet->getHeaderFooter()->setOddFooter('&C&P / &N · ' . $brand);
+
+    if (is_array($bmCompAcum) && function_exists('medicao_bm_boletim_v2_preencher_aba')) {
+        $abaBm = $ss->createSheet(0);
+        medicao_bm_boletim_v2_preencher_aba($abaBm, $bmCompAcum, [
+            'cliente_matriz_id' => $matrizIdCustos,
+            'ref_ym'            => $refYm,
+            'empresa'           => $matrizLb,
+            'periodo_de'        => $pDeBm,
+            'periodo_ate'       => $pAteBm,
+        ]);
+        $ss->setActiveSheetIndex(0);
+    }
 
     return [
         'ss'            => $ss,

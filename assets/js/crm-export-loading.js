@@ -278,6 +278,74 @@
       .finally(hideLoading);
   }
 
+  function periodoFromMedicaoContext(a) {
+    var q = {};
+    var card = a.closest('.medicao-mes-card');
+    if (card) {
+      var deEl = card.querySelector('.medicao-periodo-de');
+      var ateEl = card.querySelector('.medicao-periodo-ate');
+      if (deEl && deEl.value) {
+        q.periodo_de = deEl.value;
+      }
+      if (ateEl && ateEl.value) {
+        q.periodo_ate = ateEl.value;
+      }
+      var mesCard = card.getAttribute('data-medicao-mes') || '';
+      if (mesCard) {
+        q.medicao_mes = mesCard;
+      }
+      return q;
+    }
+    var toolbar = a.closest('.medicao-export-toolbar') || document.getElementById('medicao-ver-toolbar');
+    if (!toolbar) {
+      return q;
+    }
+    var form = toolbar.querySelector('form.medicao-bm-export-form-hidden, form[action*="medicao_export_boletim_bm"]');
+    if (form) {
+      var deInp = form.querySelector('[name="periodo_de"]');
+      var ateInp = form.querySelector('[name="periodo_ate"]');
+      if (deInp && deInp.value) {
+        q.periodo_de = deInp.value;
+      }
+      if (ateInp && ateInp.value) {
+        q.periodo_ate = ateInp.value;
+      }
+    } else {
+      var deAttr = toolbar.getAttribute('data-periodo-de') || '';
+      var ateAttr = toolbar.getAttribute('data-periodo-ate') || '';
+      if (deAttr) {
+        q.periodo_de = deAttr;
+      }
+      if (ateAttr) {
+        q.periodo_ate = ateAttr;
+      }
+    }
+    var mesTb = toolbar.getAttribute('data-medicao-mes') || '';
+    if (mesTb) {
+      q.medicao_mes = mesTb;
+    }
+    return q;
+  }
+
+  function urlWithLiveMedicaoPeriodo(a) {
+    var href = a.getAttribute('href') || a.href || '';
+    var extra = periodoFromMedicaoContext(a);
+    var u = parseUrl(href);
+    if (!u) {
+      return href;
+    }
+    Object.keys(extra).forEach(function (k) {
+      if (extra[k]) {
+        u.searchParams.set(k, extra[k]);
+      }
+    });
+    var exp = (u.searchParams.get('export') || '').toLowerCase();
+    if ((exp === 'xlsx_detalhes' || exp === 'pdf_anexos') && !u.searchParams.get('f')) {
+      u.searchParams.set('f', 'resolvido_bm');
+    }
+    return u.pathname + u.search;
+  }
+
   function shouldSkipLink(a) {
     if (!a || a.tagName !== 'A') {
       return true;
@@ -303,7 +371,7 @@
       ev.stopImmediatePropagation();
     }
     var openTab = a.getAttribute('target') === '_blank';
-    runExport(a.href, { openInNewTab: openTab });
+    runExport(urlWithLiveMedicaoPeriodo(a), { openInNewTab: openTab });
   }
 
   function handleFormSubmit(ev) {

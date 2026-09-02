@@ -543,6 +543,59 @@ function repo_medicao_custos_valor_aprovado(int $matrizId, string $refYm): float
 }
 
 /**
+ * Custos aprovados em meses anteriores a $refYm sem BM importado (mesma chave do boletim).
+ *
+ * @return array<string, array{qtd:float,valor:float}>
+ */
+function repo_medicao_bm_custos_totals_before_ym(int $clienteMatrizId, string $refYm): array
+{
+    if (!repo_medicao_custos_table_exists() || $clienteMatrizId <= 0 || !preg_match('/^\d{4}-\d{2}$/', $refYm)) {
+        return [];
+    }
+    $pdo = db();
+    if (!$pdo) {
+        return [];
+    }
+    try {
+        $sql = '
+            SELECT c.id, c.item_id, c.item_codigo, c.quantidade, c.valor_total
+            FROM medicao_custos c
+            WHERE c.cliente_matriz_id = ?
+              AND c.status = ?
+              AND c.ref_ym < ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM medicao_imports mi
+                  WHERE mi.cliente_matriz_id = ?
+                    AND mi.ref_ym < ?
+                    AND mi.ref_ym = c.ref_ym
+              )
+        ';
+        $st = $pdo->prepare($sql);
+        $st->execute([$clienteMatrizId, 'Aprovado', $refYm, $clienteMatrizId, $refYm]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($rows as $r) {
+        $id     = (int) ($r['id'] ?? 0);
+        $itemId = (int) ($r['item_id'] ?? 0);
+        $key    = medicao_custo_bm_key($id, (string) ($r['item_codigo'] ?? ''), $itemId);
+        if ($key === '') {
+            continue;
+        }
+        if (!isset($out[$key])) {
+            $out[$key] = ['qtd' => 0.0, 'valor' => 0.0];
+        }
+        $out[$key]['qtd']   += (float) ($r['quantidade'] ?? 0);
+        $out[$key]['valor'] += (float) ($r['valor_total'] ?? 0);
+    }
+
+    return $out;
+}
+
+/**
  * @return list<array{id:int,nome:string,codigo:string,unidade:string,valor_unitario:float}>
  */
 function repo_medicao_custo_buscar_itens_catalogo(int $matrizId, string $q, int $limit = 25): array

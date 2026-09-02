@@ -314,6 +314,10 @@
             }
             initial = novo;
             if (data.msg) toastOk(data.msg);
+            if (acao === 'status' && data.reload) {
+              global.location.reload();
+              return;
+            }
             if (acao === 'status' && data.status) {
               updateHeaderChip('.chamado-header-toolbar__chip--status', data.status, 'status');
             }
@@ -356,12 +360,60 @@
     });
   }
 
+  function initMetaDate(inputEl, acao) {
+    if (!inputEl) return;
+
+    var initial = inputEl.value;
+
+    inputEl.addEventListener('change', function () {
+      var novo = inputEl.value;
+      if (novo === initial) return;
+      if (!novo) {
+        inputEl.value = initial;
+        alertMsg('Informe a data de validação.', 'Data de validação');
+        return;
+      }
+
+      inputEl.disabled = true;
+      var fd = new FormData();
+      fd.append('acao', acao);
+      fd.append('ajax', '1');
+      fd.append(inputEl.name, novo);
+
+      postForm(fd)
+        .then(function (data) {
+          if (!data || !data.ok) {
+            inputEl.value = initial;
+            alertMsg((data && data.err) || 'Não foi possível salvar.', 'Data de validação');
+            return;
+          }
+          if (data.validado_em) {
+            inputEl.value = data.validado_em;
+            initial = data.validado_em;
+          } else {
+            initial = novo;
+          }
+          if (data.msg) toastOk(data.msg);
+        })
+        .catch(function (err) {
+          inputEl.value = initial;
+          alertMsg((err && err.message) || 'Erro de rede.', 'Data de validação');
+        })
+        .finally(function () {
+          inputEl.disabled = false;
+        });
+    });
+  }
+
   function initMeta() {
     document.querySelectorAll('[data-chamado-autosave="prioridade"]').forEach(function (el) {
       initMetaSelect(el, 'prioridade');
     });
     document.querySelectorAll('[data-chamado-autosave="status"]').forEach(function (el) {
       initMetaSelect(el, 'status');
+    });
+    document.querySelectorAll('[data-chamado-autosave="validado_em"]').forEach(function (el) {
+      initMetaDate(el, 'validado_em');
     });
   }
 
