@@ -35,7 +35,14 @@ $topTitle    = 'Pontos de iluminação';
 $topSubtitle = 'Postes cadastrados e situação por chamados.';
 $topSearch   = 'Buscar ponto...';
 $topAction   = ['label' => 'Novo poste', 'href' => 'ponto_iluminacao_novo.php', 'icon' => '+'];
-$topActions  = [];
+$topActions  = [
+    [
+        'label' => 'Exportar parque',
+        'href'  => 'pontos_iluminacao_export_xlsx.php',
+        'icon'  => '⇩',
+        'class' => 'btn-secondary js-crm-export-link',
+    ],
+];
 
 include __DIR__ . '/../includes/head.php';
 ?>

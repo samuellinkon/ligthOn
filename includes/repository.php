@@ -1296,8 +1296,33 @@ function repo_pontos_iluminacao_importar_linhas(int $clienteId, array $linhas): 
         return $ret;
     }
 
+    $codigosPlanilha = [];
+    foreach ($linhas as $linha) {
+        $c = trim((string) ($linha['codigo_poste'] ?? ''));
+        if ($c !== '') {
+            $codigosPlanilha[$c] = true;
+        }
+    }
+    $existentes = [];
+    if ($codigosPlanilha !== []) {
+        try {
+            $stEx = $pdo->prepare('SELECT codigo_poste FROM pontos_iluminacao WHERE cliente_id = ?');
+            $stEx->execute([$clienteId]);
+            foreach ($stEx->fetchAll(PDO::FETCH_COLUMN) ?: [] as $codEx) {
+                $existentes[(string) $codEx] = true;
+            }
+        } catch (Throwable $e) {
+            $ret['err'] = 'Erro ao conferir pontos existentes: ' . $e->getMessage();
+
+            return $ret;
+        }
+    }
     $novosAtivos = 0;
     foreach ($linhas as $linha) {
+        $c = trim((string) ($linha['codigo_poste'] ?? ''));
+        if ($c === '' || isset($existentes[$c])) {
+            continue;
+        }
         $stLin = (string) ($linha['status'] ?? 'Ativo');
         if (!in_array($stLin, ['Ativo', 'Inativo'], true)) {
             $stLin = 'Ativo';
@@ -1323,14 +1348,14 @@ function repo_pontos_iluminacao_importar_linhas(int $clienteId, array $linhas): 
         VALUES
             (:cliente_id, :codigo_poste, :identificador_externo, :endereco_completo, :bairro, :referencia, :latitude, :longitude, :status, :observacoes)
         ON DUPLICATE KEY UPDATE
-            identificador_externo = VALUES(identificador_externo),
-            endereco_completo = VALUES(endereco_completo),
-            bairro = VALUES(bairro),
-            referencia = VALUES(referencia),
-            latitude = VALUES(latitude),
-            longitude = VALUES(longitude),
+            identificador_externo = COALESCE(NULLIF(VALUES(identificador_externo), \'\'), identificador_externo),
+            endereco_completo = COALESCE(NULLIF(VALUES(endereco_completo), \'\'), endereco_completo),
+            bairro = COALESCE(NULLIF(VALUES(bairro), \'\'), bairro),
+            referencia = COALESCE(NULLIF(VALUES(referencia), \'\'), referencia),
+            latitude = COALESCE(VALUES(latitude), latitude),
+            longitude = COALESCE(VALUES(longitude), longitude),
             status = VALUES(status),
-            observacoes = VALUES(observacoes)
+            observacoes = COALESCE(NULLIF(VALUES(observacoes), \'\'), observacoes)
     ';
 
     try {

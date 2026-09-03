@@ -41,21 +41,38 @@ function pontos_iluminacao_import_parse_xlsx(string $path): array
         return ['ok' => false, 'erro' => 'Não foi possível abrir o .xlsx. Verifique se o arquivo não está corrompido.', 'linhas' => [], 'avisos' => []];
     }
 
+    @ini_set('memory_limit', '512M');
     $stringsXml = $zip->getFromName('xl/sharedStrings.xml');
     $strings = ($stringsXml !== false && $stringsXml !== '') ? pontos_import_xlsx_shared_strings($stringsXml) : [];
-    $sheetPath = pontos_import_xlsx_first_sheet_path($zip);
-    if ($sheetPath === null) {
+    $sheetPaths = pontos_import_xlsx_worksheet_paths($zip);
+    if ($sheetPaths === []) {
         $zip->close();
         return ['ok' => false, 'erro' => 'Nenhuma aba encontrada no .xlsx.', 'linhas' => [], 'avisos' => []];
     }
-    $sheetXml = $zip->getFromName($sheetPath);
+
+    $ultimoErro = 'Cabeçalho não encontrado. Use o modelo com colunas Código, Latitude e Longitude (Barramento e características do poste são opcionais).';
+    $ultimoAvisos = [];
+    foreach ($sheetPaths as $sheetPath) {
+        $sheetXml = $zip->getFromName($sheetPath);
+        if ($sheetXml === false || $sheetXml === '') {
+            continue;
+        }
+        $parsed = pontos_iluminacao_import_rows_to_linhas(pontos_import_xlsx_sheet_rows($sheetXml, $strings));
+        if ($parsed['ok']) {
+            $zip->close();
+
+            return $parsed;
+        }
+        if (($parsed['erro'] ?? '') !== '') {
+            $ultimoErro = (string) $parsed['erro'];
+        }
+        if (!empty($parsed['avisos']) && is_array($parsed['avisos'])) {
+            $ultimoAvisos = $parsed['avisos'];
+        }
+    }
     $zip->close();
 
-    if ($sheetXml === false || $sheetXml === '') {
-        return ['ok' => false, 'erro' => 'A aba da planilha está vazia ou ilegível.', 'linhas' => [], 'avisos' => []];
-    }
-
-    return pontos_iluminacao_import_rows_to_linhas(pontos_import_xlsx_sheet_rows($sheetXml, $strings));
+    return ['ok' => false, 'erro' => $ultimoErro, 'linhas' => [], 'avisos' => $ultimoAvisos];
 }
 
 /**
@@ -100,15 +117,15 @@ function pontos_iluminacao_import_rows_to_linhas(array $rows): array
     if ($headerIdx === null) {
         return [
             'ok' => false,
-            'erro' => 'Cabeçalho não encontrado. Use o modelo com colunas Código, Latitude, Longitude, Bairro e logradouro.',
+            'erro' => 'Cabeçalho não encontrado. Use o modelo com colunas Código, Latitude e Longitude (Barramento e características do poste são opcionais).',
             'linhas' => [],
             'avisos' => [],
         ];
     }
 
-    $linhas = [];
+    $porCodigo = [];
     $avisos = [];
-    $vistos = [];
+    $nExtras = 0;
     for ($i = $headerIdx + 1, $n = count($rows); $i < $n; $i++) {
         $row = $rows[$i];
         $codigo = pontos_import_cell($row, $map, 'codigo');
@@ -128,47 +145,69 @@ function pontos_iluminacao_import_rows_to_linhas(array $rows): array
             $avisos[] = 'Linha ' . ($i + 1) . ': poste ' . $codigo . ' sem latitude/longitude válida.';
         }
 
-        if (isset($vistos[$codigo])) {
-            $codigo .= '-' . ($i + 1);
-            $avisos[] = 'Linha ' . ($i + 1) . ': código duplicado na planilha, importado como ' . $codigo . '.';
-        }
-        $vistos[$codigo] = true;
-
         $tipoLogradouro = pontos_import_cell($row, $map, 'tipo_logradouro');
         $nomeLogradouro = pontos_import_cell($row, $map, 'nome_logradouro');
         $bairro = pontos_import_cell($row, $map, 'bairro');
         $localidade = pontos_import_cell($row, $map, 'localidade');
         $endereco = pontos_import_montar_endereco($tipoLogradouro, $nomeLogradouro, $bairro, $localidade);
+        $barramento = pontos_import_cell($row, $map, 'barramento');
+        $obsEquip = pontos_import_obs_equipamento($row, $map);
 
-        $obs = pontos_import_observacoes([
-            'Importado da planilha de iluminação',
-            pontos_import_obs_item('Data', pontos_import_formatar_data_excel(pontos_import_cell($row, $map, 'data'))),
-            pontos_import_obs_item('Registro 1', pontos_import_cell($row, $map, 'registro1')),
-            pontos_import_obs_item('Registro 2', pontos_import_cell($row, $map, 'registro2')),
-            pontos_import_obs_item('Foto 1', pontos_import_cell($row, $map, 'foto1')),
-            pontos_import_obs_item('Foto 2', pontos_import_cell($row, $map, 'foto2')),
-            pontos_import_obs_item('Tipo de consumo', pontos_import_cell($row, $map, 'tipo_consumo')),
-            pontos_import_obs_item('Propriedade', pontos_import_cell($row, $map, 'propriedade')),
-            pontos_import_obs_item('ID/Pontos luminosos', pontos_import_cell($row, $map, 'id_pontos_luminosos')),
-            pontos_import_obs_item('Qtd luminárias', pontos_import_cell($row, $map, 'qtd_luminarias')),
-            pontos_import_obs_item('Qtd lâmpadas', pontos_import_cell($row, $map, 'qtd_lampadas')),
-            pontos_import_obs_item('Tecnologia', pontos_import_cell($row, $map, 'tecnologia')),
-            pontos_import_obs_item('Potência', pontos_import_cell($row, $map, 'potencia')),
-        ]);
+        if (isset($porCodigo[$codigo])) {
+            if ($obsEquip !== '') {
+                $porCodigo[$codigo]['observacoes'] = pontos_import_observacoes([
+                    (string) ($porCodigo[$codigo]['observacoes'] ?? ''),
+                    'Luminária extra: ' . $obsEquip,
+                ]);
+            }
+            if (($porCodigo[$codigo]['latitude'] ?? null) === null && $lat !== null) {
+                $porCodigo[$codigo]['latitude'] = $lat;
+            }
+            if (($porCodigo[$codigo]['longitude'] ?? null) === null && $lng !== null) {
+                $porCodigo[$codigo]['longitude'] = $lng;
+            }
+            if (trim((string) ($porCodigo[$codigo]['identificador_externo'] ?? '')) === '' && $barramento !== '') {
+                $porCodigo[$codigo]['identificador_externo'] = $barramento;
+            }
+            if (trim((string) ($porCodigo[$codigo]['endereco_completo'] ?? '')) === '' && $endereco !== '') {
+                $porCodigo[$codigo]['endereco_completo'] = $endereco;
+            }
+            if (trim((string) ($porCodigo[$codigo]['bairro'] ?? '')) === '' && $bairro !== '') {
+                $porCodigo[$codigo]['bairro'] = $bairro;
+            }
+            $nExtras++;
+            continue;
+        }
 
-        $linhas[] = [
+        $porCodigo[$codigo] = [
             'codigo_poste' => $codigo,
-            'identificador_externo' => pontos_import_cell($row, $map, 'barramento'),
+            'identificador_externo' => $barramento,
             'endereco_completo' => $endereco,
             'bairro' => $bairro,
             'referencia' => $referencia,
             'latitude' => $lat,
             'longitude' => $lng,
             'status' => 'Ativo',
-            'observacoes' => $obs,
+            'observacoes' => pontos_import_observacoes([
+                'Importado da planilha de iluminação',
+                pontos_import_obs_item('Data', pontos_import_formatar_data_excel(pontos_import_cell($row, $map, 'data'))),
+                pontos_import_obs_item('Registro 1', pontos_import_cell($row, $map, 'registro1')),
+                pontos_import_obs_item('Registro 2', pontos_import_cell($row, $map, 'registro2')),
+                pontos_import_obs_item('Foto 1', pontos_import_cell($row, $map, 'foto1')),
+                pontos_import_obs_item('Foto 2', pontos_import_cell($row, $map, 'foto2')),
+                pontos_import_obs_item('Tipo de consumo', pontos_import_cell($row, $map, 'tipo_consumo')),
+                pontos_import_obs_item('Propriedade', pontos_import_cell($row, $map, 'propriedade')),
+                pontos_import_obs_item('ID/Pontos luminosos', pontos_import_cell($row, $map, 'id_pontos_luminosos')),
+                $obsEquip,
+            ]),
         ];
     }
 
+    if ($nExtras > 0) {
+        $avisos[] = $nExtras . ' linha(s) com o mesmo Código foram agrupadas no mesmo poste (luminária extra nas observações).';
+    }
+
+    $linhas = array_values($porCodigo);
     if (!$linhas) {
         return ['ok' => false, 'erro' => 'Nenhuma linha válida encontrada para importação.', 'linhas' => [], 'avisos' => $avisos];
     }
@@ -192,8 +231,8 @@ function pontos_import_header_map(array $row): array
         elseif ($h === 'foto2') $map['foto2'] = $idx;
         elseif ($h === 'barramento') $map['barramento'] = $idx;
         elseif ($h === 'referencia') $map['referencia'] = $idx;
-        elseif ($h === 'latitude') $map['latitude'] = $idx;
-        elseif ($h === 'longitude') $map['longitude'] = $idx;
+        elseif ($h === 'latitude' || $h === 'lat') $map['latitude'] = $idx;
+        elseif ($h === 'longitude' || $h === 'long' || $h === 'lng' || $h === 'lon') $map['longitude'] = $idx;
         elseif ($h === 'localidade') $map['localidade'] = $idx;
         elseif ($h === 'tipodelogradourodaluminaria') $map['tipo_logradouro'] = $idx;
         elseif ($h === 'nomedologradourodaluminaria') $map['nome_logradouro'] = $idx;
@@ -203,8 +242,12 @@ function pontos_import_header_map(array $row): array
         elseif ($h === 'idpontosluminosos') $map['id_pontos_luminosos'] = $idx;
         elseif ($h === 'quantidadedeluminarias') $map['qtd_luminarias'] = $idx;
         elseif ($h === 'quantidadedelampadasdaluminaria') $map['qtd_lampadas'] = $idx;
-        elseif ($h === 'tecnologiadaluminaria') $map['tecnologia'] = $idx;
-        elseif ($h === 'potenciadaluminaria') $map['potencia'] = $idx;
+        elseif ($h === 'tecnologiadaluminaria' || $h === 'tecnologia') $map['tecnologia'] = $idx;
+        elseif ($h === 'potenciadaluminaria' || $h === 'potencia') $map['potencia'] = $idx;
+        elseif (str_starts_with($h, 'comprimentodobraco') || $h === 'comprimentodobracextensor') $map['braco'] = $idx;
+        elseif ($h === 'tipodeposte') $map['tipo_poste'] = $idx;
+        elseif ($h === 'materialdoposte') $map['material_poste'] = $idx;
+        elseif (str_starts_with($h, 'alturautil')) $map['altura_util'] = $idx;
     }
 
     return $map;
@@ -290,6 +333,26 @@ function pontos_import_obs_item(string $label, string $value): string
     return $value !== '' ? ($label . ': ' . $value) : '';
 }
 
+/**
+ * Características do equipamento (luminária / poste) para o campo observações.
+ *
+ * @param array<int, mixed> $row
+ * @param array<string, int> $map
+ */
+function pontos_import_obs_equipamento(array $row, array $map): string
+{
+    return pontos_import_observacoes([
+        pontos_import_obs_item('Qtd luminárias', pontos_import_cell($row, $map, 'qtd_luminarias')),
+        pontos_import_obs_item('Qtd lâmpadas', pontos_import_cell($row, $map, 'qtd_lampadas')),
+        pontos_import_obs_item('Tecnologia', pontos_import_cell($row, $map, 'tecnologia')),
+        pontos_import_obs_item('Potência', pontos_import_cell($row, $map, 'potencia')),
+        pontos_import_obs_item('Comprimento do braço', pontos_import_cell($row, $map, 'braco')),
+        pontos_import_obs_item('Tipo de poste', pontos_import_cell($row, $map, 'tipo_poste')),
+        pontos_import_obs_item('Material do poste', pontos_import_cell($row, $map, 'material_poste')),
+        pontos_import_obs_item('Altura útil', pontos_import_cell($row, $map, 'altura_util')),
+    ]);
+}
+
 function pontos_import_observacoes(array $parts): string
 {
     $parts = array_values(array_filter(array_map('trim', $parts), static fn ($v) => $v !== ''));
@@ -314,30 +377,77 @@ function pontos_import_xlsx_shared_strings(string $xml): array
     return $out;
 }
 
-function pontos_import_xlsx_first_sheet_path(ZipArchive $zip): ?string
+function pontos_import_xlsx_rel_target_to_path(string $target): string
 {
+    $target = str_replace('\\', '/', trim($target));
+    if (strpos($target, '/xl/') === 0) {
+        return ltrim($target, '/');
+    }
+    if (strpos($target, 'xl/') === 0) {
+        return $target;
+    }
+
+    return 'xl/' . ltrim($target, '/');
+}
+
+/**
+ * Abas na ordem do workbook (a primeira costuma ser o cadastro).
+ *
+ * @return list<string>
+ */
+function pontos_import_xlsx_worksheet_paths(ZipArchive $zip): array
+{
+    $ridToPath = [];
     $rels = $zip->getFromName('xl/_rels/workbook.xml.rels');
     if ($rels !== false && preg_match_all('/<Relationship\s([^>]+)\/>/u', $rels, $blocks)) {
         foreach ($blocks[1] as $attr) {
             $type = preg_match('/Type="([^"]*)"/u', $attr, $m) ? $m[1] : '';
+            $id = preg_match('/Id="([^"]*)"/u', $attr, $m) ? $m[1] : '';
             $target = preg_match('/Target="([^"]*)"/u', $attr, $m) ? $m[1] : '';
-            if ($target !== '' && strpos($type, 'worksheet') !== false) {
-                $target = str_replace('\\', '/', $target);
-                if (strpos($target, '/xl/') === 0) {
-                    $path = ltrim($target, '/');
-                } elseif (strpos($target, 'xl/') === 0) {
-                    $path = $target;
-                } else {
-                    $path = 'xl/' . ltrim($target, '/');
-                }
-                if ($zip->locateName($path) !== false) {
-                    return $path;
-                }
+            if ($id === '' || $target === '' || strpos($type, 'worksheet') === false) {
+                continue;
+            }
+            $path = pontos_import_xlsx_rel_target_to_path($target);
+            if ($zip->locateName($path) !== false) {
+                $ridToPath[$id] = $path;
             }
         }
     }
 
-    return $zip->locateName('xl/worksheets/sheet1.xml') !== false ? 'xl/worksheets/sheet1.xml' : null;
+    $paths = [];
+    $seen = [];
+    $wb = $zip->getFromName('xl/workbook.xml');
+    if (is_string($wb) && $wb !== '' && preg_match_all('/<sheet\b([^>]+)\/>/u', $wb, $sheets)) {
+        foreach ($sheets[1] as $attr) {
+            $rid = '';
+            if (preg_match('/(?:r:id|r:Id)="([^"]+)"/u', $attr, $m)) {
+                $rid = $m[1];
+            }
+            if ($rid !== '' && isset($ridToPath[$rid]) && !isset($seen[$ridToPath[$rid]])) {
+                $paths[] = $ridToPath[$rid];
+                $seen[$ridToPath[$rid]] = true;
+            }
+        }
+    }
+    foreach ($ridToPath as $path) {
+        if (!isset($seen[$path])) {
+            $paths[] = $path;
+            $seen[$path] = true;
+        }
+    }
+    if ($paths === [] && $zip->locateName('xl/worksheets/sheet1.xml') !== false) {
+        $paths[] = 'xl/worksheets/sheet1.xml';
+    }
+
+    return $paths;
+}
+
+/** @deprecated Use pontos_import_xlsx_worksheet_paths */
+function pontos_import_xlsx_first_sheet_path(ZipArchive $zip): ?string
+{
+    $paths = pontos_import_xlsx_worksheet_paths($zip);
+
+    return $paths[0] ?? null;
 }
 
 /**
@@ -345,48 +455,135 @@ function pontos_import_xlsx_first_sheet_path(ZipArchive $zip): ?string
  */
 function pontos_import_xlsx_sheet_rows(string $sheetXml, array $strings): array
 {
-    $grid = [];
-    $lastColByRow = [];
-
-    if (!preg_match_all('/<row\b([^>]*)>(.*?)<\/row>/su', $sheetXml, $rows, PREG_SET_ORDER)) {
+    if ($sheetXml === '') {
         return [];
     }
-
-    foreach ($rows as $rowMatch) {
-        $rowAttr = $rowMatch[1] ?? '';
-        $rowXml = $rowMatch[2] ?? '';
-        $rowNum = preg_match('/\br="(\d+)"/u', $rowAttr, $mRow) ? (int) $mRow[1] : 0;
-        if ($rowNum <= 0) {
-            $rowNum = count($grid) + 1;
-        }
-        if (!preg_match_all('/<c\b([^>]*)>(.*?)<\/c>/su', $rowXml, $cells, PREG_SET_ORDER)) {
-            continue;
-        }
-        foreach ($cells as $cellMatch) {
-            $cellAttr = $cellMatch[1] ?? '';
-            $cellXml = $cellMatch[2] ?? '';
-            $ref = preg_match('/\br="([^"]+)"/u', $cellAttr, $mRef) ? $mRef[1] : '';
-            if (!preg_match('/^([A-Z]+)(\d+)$/i', $ref, $m)) {
-                continue;
-            }
-            $col = pontos_import_xlsx_col_index($m[1]);
-            $t = preg_match('/\bt="([^"]+)"/u', $cellAttr, $mType) ? $mType[1] : '';
-            $grid[$rowNum][$col] = pontos_import_xlsx_cell_value_fast($cellXml, $t, $strings);
-            $lastColByRow[$rowNum] = max($lastColByRow[$rowNum] ?? 0, $col);
+    if (class_exists(XMLReader::class)) {
+        $fromReader = pontos_import_xlsx_sheet_rows_xmlreader($sheetXml, $strings);
+        if ($fromReader !== []) {
+            return $fromReader;
         }
     }
-    if (!$grid) {
+
+    return pontos_import_xlsx_sheet_rows_regex($sheetXml, $strings);
+}
+
+/**
+ * @return list<list<string>>
+ */
+function pontos_import_xlsx_sheet_rows_xmlreader(string $sheetXml, array $strings): array
+{
+    $reader = new XMLReader();
+    if (!$reader->XML($sheetXml, 'UTF-8', LIBXML_NONET | LIBXML_COMPACT)) {
+        return [];
+    }
+    $grid = [];
+    $lastColByRow = [];
+    $seq = 0;
+    while ($reader->read()) {
+        if ($reader->nodeType !== XMLReader::ELEMENT || $reader->localName !== 'row') {
+            continue;
+        }
+        if ($reader->isEmptyElement) {
+            continue;
+        }
+        $rowNum = (int) $reader->getAttribute('r');
+        if ($rowNum <= 0) {
+            $rowNum = ++$seq;
+        }
+        $rowXml = $reader->readOuterXML();
+        pontos_import_xlsx_collect_row_cells($rowXml, $strings, $rowNum, $grid, $lastColByRow);
+    }
+    $reader->close();
+
+    return pontos_import_xlsx_grid_to_rows($grid, $lastColByRow);
+}
+
+/**
+ * @return list<list<string>>
+ */
+function pontos_import_xlsx_sheet_rows_regex(string $sheetXml, array $strings): array
+{
+    $grid = [];
+    $lastColByRow = [];
+    $offset = 0;
+    $len = strlen($sheetXml);
+    $seq = 0;
+    while ($offset < $len && preg_match('/<row\b([^>]*)>(.*?)<\/row>/su', $sheetXml, $rowMatch, PREG_OFFSET_CAPTURE, $offset)) {
+        $rowAttr = $rowMatch[1][0] ?? '';
+        $rowInner = $rowMatch[2][0] ?? '';
+        $offset = (int) $rowMatch[0][1] + strlen($rowMatch[0][0]);
+        $rowNum = preg_match('/\br="(\d+)"/u', $rowAttr, $mRow) ? (int) $mRow[1] : 0;
+        if ($rowNum <= 0) {
+            $rowNum = ++$seq;
+        }
+        pontos_import_xlsx_collect_row_cells('<row' . $rowAttr . '>' . $rowInner . '</row>', $strings, $rowNum, $grid, $lastColByRow);
+    }
+
+    return pontos_import_xlsx_grid_to_rows($grid, $lastColByRow);
+}
+
+/**
+ * @param array<int, array<int, string>> $grid
+ * @param array<int, int> $lastColByRow
+ */
+function pontos_import_xlsx_collect_row_cells(
+    string $rowXml,
+    array $strings,
+    int $rowNum,
+    array &$grid,
+    array &$lastColByRow
+): void {
+    if (!preg_match_all('/<c\b([^>]*)>(.*?)<\/c>/su', $rowXml, $cells, PREG_SET_ORDER)) {
+        return;
+    }
+    foreach ($cells as $cellMatch) {
+        $cellAttr = $cellMatch[1] ?? '';
+        $cellXml = $cellMatch[2] ?? '';
+        $ref = preg_match('/\br="([^"]+)"/u', $cellAttr, $mRef) ? $mRef[1] : '';
+        if (!preg_match('/^([A-Z]+)(\d+)$/i', $ref, $m)) {
+            continue;
+        }
+        $col = pontos_import_xlsx_col_index($m[1]);
+        if ($col < 0 || $col > 80) {
+            continue;
+        }
+        $t = preg_match('/\bt="([^"]+)"/u', $cellAttr, $mType) ? $mType[1] : '';
+        $val = pontos_import_xlsx_cell_value_fast($cellXml, $t, $strings);
+        if ($val === '') {
+            continue;
+        }
+        $grid[$rowNum][$col] = $val;
+        $lastColByRow[$rowNum] = max($lastColByRow[$rowNum] ?? 0, $col);
+    }
+}
+
+/**
+ * @param array<int, array<int, string>> $grid
+ * @param array<int, int> $lastColByRow
+ * @return list<list<string>>
+ */
+function pontos_import_xlsx_grid_to_rows(array $grid, array $lastColByRow): array
+{
+    if ($grid === []) {
         return [];
     }
     ksort($grid);
     $out = [];
     foreach ($grid as $rnum => $cols) {
-        $last = $lastColByRow[$rnum] ?? (count($cols) - 1);
+        $last = min(80, $lastColByRow[$rnum] ?? (count($cols) - 1));
         $row = [];
+        $has = false;
         for ($i = 0; $i <= $last; $i++) {
-            $row[] = (string) ($cols[$i] ?? '');
+            $cell = (string) ($cols[$i] ?? '');
+            if ($cell !== '') {
+                $has = true;
+            }
+            $row[] = $cell;
         }
-        $out[] = $row;
+        if ($has) {
+            $out[] = $row;
+        }
     }
 
     return $out;

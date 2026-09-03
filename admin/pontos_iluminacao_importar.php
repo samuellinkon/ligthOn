@@ -121,7 +121,7 @@ include __DIR__ . '/../includes/head.php';
     <form class="card js-crm-import-form" method="post" action="pontos_iluminacao_importar.php?cliente_id=<?= (int) $clienteId ?>" enctype="multipart/form-data" data-import-msg="Importando parque de iluminação…">
       <div class="panel-head">
         <h4>Enviar planilha</h4>
-        <span class="panel-sub">Use o arquivo “Cadastro Ipojuca Janeiro 2026” como base.</span>
+        <span class="panel-sub">Use o cadastro georreferenciado de Ipojuca (.xlsx). A chave é o <strong>Código</strong> do poste — os chamados já ligados não se soltam.</span>
       </div>
       <div class="panel-body form form-grid">
         <div class="form-group full">
@@ -137,12 +137,13 @@ include __DIR__ . '/../includes/head.php';
         <div class="form-group full">
           <label for="planilha">Arquivo</label>
           <input type="file" id="planilha" name="planilha" class="input" accept=".xlsx,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" required>
-          <span class="hint">Aceita .xlsx, .csv ou .txt. O importador atualiza postes já existentes pelo código e insere os novos.</span>
+          <span class="hint">Aceita .xlsx, .csv ou .txt. Atualiza postes existentes pelo <strong>Código</strong> (não pelo barramento), cria os novos e grava características extras nas observações. Endereço já cadastrado só muda se a planilha trouxer logradouro/bairro.</span>
         </div>
       </div>
       <div class="panel-body">
         <div class="form-actions" style="padding:0;border:0;background:transparent;">
           <a class="btn btn-secondary" href="pontos_iluminacao.php?cliente_id=<?= (int) $clienteId ?>">Cancelar</a>
+          <a class="btn btn-secondary js-crm-export-link" href="pontos_iluminacao_export_xlsx.php?cliente_id=<?= (int) $clienteId ?>">Exportar parque</a>
           <button class="btn btn-primary" type="submit">Importar dados</button>
         </div>
       </div>
@@ -155,7 +156,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="panel-body">
         <p class="muted" style="line-height:1.6;margin-top:0;">
-          A importação usa o layout do parque de iluminação de Ipojuca. O cabeçalho pode estar nas primeiras linhas da planilha, como no arquivo base.
+          A importação usa o layout do parque de Ipojuca. O cabeçalho pode estar nas primeiras linhas. O <strong>Código</strong> identifica o poste (os chamados ficam no mesmo ponto). Linhas com o mesmo Código (várias luminárias) entram no mesmo cadastro.
         </p>
         <div class="table-wrap" style="border:1px solid var(--border);border-radius:12px;">
           <table>
@@ -163,11 +164,13 @@ include __DIR__ . '/../includes/head.php';
               <tr><th>Campo da planilha</th><th>Destino no sistema</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>Código</code></td><td>ID/código do poste</td></tr>
+              <tr><td><code>Código</code></td><td>ID/código do poste (chave da atualização)</td></tr>
               <tr><td><code>Barramento</code></td><td>Identificador externo</td></tr>
               <tr><td><code>Latitude</code> / <code>Longitude</code></td><td>Coordenadas do mapa</td></tr>
-              <tr><td><code>Tipo/Nome do logradouro</code>, <code>Bairro</code>, <code>Localidade</code></td><td>Endereço do poste</td></tr>
-              <tr><td><code>Foto1</code>, <code>Foto2</code>, tecnologia e consumo</td><td>Observações do cadastro</td></tr>
+              <tr><td><code>Tipo/Nome do logradouro</code>, <code>Bairro</code>, <code>Localidade</code></td><td>Endereço (só grava se a planilha trouxer)</td></tr>
+              <tr><td><code>Qtd luminárias</code>, <code>Tecnologia</code>, <code>Potência</code></td><td>Observações</td></tr>
+              <tr><td><code>Comprimento do braço</code>, <code>Tipo/Material do poste</code>, <code>Altura útil</code></td><td>Observações</td></tr>
+              <tr><td><code>Foto1</code>, <code>Foto2</code>, consumo e propriedade</td><td>Observações (se existirem na planilha)</td></tr>
             </tbody>
           </table>
         </div>

@@ -55,6 +55,12 @@ $clienteNovoPonto = $clienteIdUrl > 0 ? $clienteIdUrl : $scopeId;
 $topAction   = ['label' => 'Novo poste', 'href' => 'ponto_iluminacao_novo.php?cliente_id=' . (int) $clienteNovoPonto, 'icon' => '+'];
 $topActions  = [
     ['label' => 'Importar parque', 'href' => 'pontos_iluminacao_importar.php?cliente_id=' . (int) $clienteNovoPonto, 'icon' => '⇪'],
+    [
+        'label' => 'Exportar parque',
+        'href'  => 'pontos_iluminacao_export_xlsx.php?cliente_id=' . (int) $clienteNovoPonto,
+        'icon'  => '⇩',
+        'class' => 'btn-secondary js-crm-export-link',
+    ],
 ];
 
 include __DIR__ . '/../includes/head.php';
