@@ -1292,7 +1292,9 @@ function medicao_bm_boletim_v2_compor_linhas(
     $priorBm    = [];
     foreach ([$priorBmRaw, $priorCrmRaw, $priorCustosRaw] as $src) {
         foreach ($src as $c => $vals) {
-            $bk = medicao_bm_boletim_v2_key_from_cod((string) $c);
+            $bk = function_exists('medicao_bm_boletim_remap_key_catalogo')
+                ? medicao_bm_boletim_remap_key_catalogo((string) $c, $matrizId)
+                : medicao_bm_boletim_v2_key_from_cod((string) $c);
             if ($bk === '') {
                 $bk = medicao_bm_boletim_v2_key_string($c);
             }

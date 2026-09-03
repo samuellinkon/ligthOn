@@ -561,6 +561,33 @@ function medicao_bm_boletim_key_from_cod(string $normCod, int $fallbackItemId = 
     return $n;
 }
 
+/**
+ * Se a chave for ID:{item_id}, troca pelo código do catálogo (ex.: 1.1).
+ */
+function medicao_bm_boletim_remap_key_catalogo(string $k, int $matrizId): string
+{
+    $k = medicao_bm_boletim_key_string($k);
+    if ($k === '') {
+        return '';
+    }
+    if (strpos($k, 'ID:') !== 0) {
+        $bk = medicao_bm_boletim_key_from_cod($k);
+        return $bk !== '' ? $bk : $k;
+    }
+    $itemId = (int) substr($k, 3);
+    if ($itemId <= 0 || $matrizId <= 0 || !function_exists('repo_cliente_item_por_id')) {
+        return $k;
+    }
+    $item = repo_cliente_item_por_id($itemId, $matrizId);
+    $cod  = trim((string) ($item['codigo'] ?? ''));
+    if ($cod === '' || strtoupper($cod) === 'CUSTO') {
+        return $k;
+    }
+    $bk = medicao_bm_boletim_key_from_cod($cod, $itemId);
+
+    return $bk !== '' ? $bk : $k;
+}
+
 /** Código de exibição / lookup a partir da chave interna. */
 function medicao_bm_boletim_cod_from_key(string $k): string
 {

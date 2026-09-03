@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/medicao_helpers.php';
 
 function repo_medicao_custos_table_exists(): bool
 {
@@ -543,7 +544,9 @@ function repo_medicao_custos_valor_aprovado(int $matrizId, string $refYm): float
 }
 
 /**
- * Custos aprovados em meses anteriores a $refYm sem BM importado (mesma chave do boletim).
+ * Custos aprovados em meses anteriores a $refYm (mesma chave do boletim).
+ * Se o mês já tiver planilha importada com qtd > 0 no mesmo item, o custo não entra
+ * (evita duplicar 2.2). Itens só no custo (ex.: 1.1 gestão) continuam somando.
  *
  * @return array<string, array{qtd:float,valor:float}>
  */
@@ -558,31 +561,59 @@ function repo_medicao_bm_custos_totals_before_ym(int $clienteMatrizId, string $r
     }
     try {
         $sql = '
-            SELECT c.id, c.item_id, c.item_codigo, c.quantidade, c.valor_total
+            SELECT c.id, c.item_id, c.item_codigo, c.quantidade, c.valor_total, c.ref_ym
             FROM medicao_custos c
             WHERE c.cliente_matriz_id = ?
               AND c.status = ?
               AND c.ref_ym < ?
-              AND NOT EXISTS (
-                  SELECT 1 FROM medicao_imports mi
-                  WHERE mi.cliente_matriz_id = ?
-                    AND mi.ref_ym < ?
-                    AND mi.ref_ym = c.ref_ym
-              )
         ';
         $st = $pdo->prepare($sql);
-        $st->execute([$clienteMatrizId, 'Aprovado', $refYm, $clienteMatrizId, $refYm]);
+        $st->execute([$clienteMatrizId, 'Aprovado', $refYm]);
         $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable $e) {
         return [];
+    }
+
+    $importKeysByYm = [];
+    try {
+        $stImp = $pdo->prepare('
+            SELECT mi.ref_ym, TRIM(mil.item_codigo) AS item_codigo
+            FROM medicao_imports mi
+            INNER JOIN medicao_import_linhas mil ON mil.import_id = mi.id
+            WHERE mi.cliente_matriz_id = ?
+              AND mi.ref_ym < ?
+              AND TRIM(mil.item_codigo) <> \'\'
+              AND COALESCE(mil.qtd_medido_periodo, 0) > 0
+        ');
+        $stImp->execute([$clienteMatrizId, $refYm]);
+        foreach ($stImp->fetchAll(PDO::FETCH_ASSOC) ?: [] as $ir) {
+            $ym = (string) ($ir['ref_ym'] ?? '');
+            $codImp = trim((string) ($ir['item_codigo'] ?? ''));
+            if ($ym === '' || $codImp === '') {
+                continue;
+            }
+            $ik = function_exists('medicao_bm_boletim_key_from_cod')
+                ? medicao_bm_boletim_key_from_cod($codImp)
+                : strtoupper($codImp);
+            if ($ik === '') {
+                continue;
+            }
+            $importKeysByYm[$ym][$ik] = true;
+        }
+    } catch (Throwable $e) {
+        $importKeysByYm = [];
     }
 
     $out = [];
     foreach ($rows as $r) {
         $id     = (int) ($r['id'] ?? 0);
         $itemId = (int) ($r['item_id'] ?? 0);
-        $key    = medicao_custo_bm_key($id, (string) ($r['item_codigo'] ?? ''), $itemId);
+        $ym     = (string) ($r['ref_ym'] ?? '');
+        $key    = medicao_custo_bm_key($id, (string) ($r['item_codigo'] ?? ''), $itemId, $clienteMatrizId);
         if ($key === '') {
+            continue;
+        }
+        if ($ym !== '' && !empty($importKeysByYm[$ym][$key])) {
             continue;
         }
         if (!isset($out[$key])) {
@@ -647,9 +678,29 @@ function medicao_custo_fmt_quantidade(float $valor): string
     return rtrim(rtrim($fmt, '0'), ',');
 }
 
+/** Código de catálogo quando o lançamento veio vazio ou com o placeholder CUSTO. */
+function medicao_custo_resolver_codigo(string $itemCodigo, int $itemId = 0, int $matrizId = 0): string
+{
+    $cod = trim($itemCodigo);
+    if ($cod !== '' && strtoupper($cod) !== 'CUSTO') {
+        return $cod;
+    }
+    if ($itemId > 0 && $matrizId > 0 && function_exists('repo_cliente_item_por_id')) {
+        $item = repo_cliente_item_por_id($itemId, $matrizId);
+        $fromCat = trim((string) ($item['codigo'] ?? ''));
+        if ($fromCat !== '' && strtoupper($fromCat) !== 'CUSTO') {
+            return $fromCat;
+        }
+    }
+
+    return $cod;
+}
+
 function medicao_custo_bm_codigo_exibir(array $custo): string
 {
-    $cod = trim((string) ($custo['item_codigo'] ?? ''));
+    $matrizId = (int) ($custo['cliente_matriz_id'] ?? 0);
+    $itemId   = (int) ($custo['item_id'] ?? 0);
+    $cod      = medicao_custo_resolver_codigo((string) ($custo['item_codigo'] ?? ''), $itemId, $matrizId);
     if ($cod !== '' && strtoupper($cod) !== 'CUSTO') {
         return $cod;
     }
@@ -657,25 +708,20 @@ function medicao_custo_bm_codigo_exibir(array $custo): string
     return 'CUSTO-' . (int) ($custo['id'] ?? 0);
 }
 
-function medicao_custo_bm_key(int $custoId, string $itemCodigo, int $itemId = 0): string
+function medicao_custo_bm_key(int $custoId, string $itemCodigo, int $itemId = 0, int $matrizId = 0): string
 {
-    $cod = trim($itemCodigo);
+    $cod = medicao_custo_resolver_codigo($itemCodigo, $itemId, $matrizId);
+    $keyFn = function_exists('medicao_bm_boletim_key_from_cod')
+        ? 'medicao_bm_boletim_key_from_cod'
+        : (function_exists('medicao_bm_boletim_v2_key_from_cod') ? 'medicao_bm_boletim_v2_key_from_cod' : null);
     if ($cod !== '' && strtoupper($cod) !== 'CUSTO') {
-        if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
-            return medicao_bm_boletim_v2_key_from_cod($cod, $itemId);
-        }
-
-        return $cod;
+        return $keyFn !== null ? $keyFn($cod, $itemId) : $cod;
     }
     if ($itemId > 0) {
-        if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
-            return medicao_bm_boletim_v2_key_from_cod('', $itemId);
-        }
-
-        return 'ID:' . $itemId;
+        return $keyFn !== null ? $keyFn('', $itemId) : ('ID:' . $itemId);
     }
-    if (function_exists('medicao_bm_boletim_v2_key_from_cod')) {
-        return medicao_bm_boletim_v2_key_from_cod('CUSTO:' . $custoId);
+    if ($keyFn !== null) {
+        return $keyFn('CUSTO:' . $custoId);
     }
 
     return 'CUSTO:' . $custoId;
@@ -719,7 +765,10 @@ function medicao_bm_boletim_v2_anexar_custos_aprovados(array $rows, float &$valo
         if ($mv <= 0.0 && $qtd <= 0.0) {
             continue;
         }
-        $k       = medicao_custo_bm_key($id, (string) ($c['item_codigo'] ?? ''), $itemId);
+        $k       = medicao_custo_bm_key($id, (string) ($c['item_codigo'] ?? ''), $itemId, $matrizId);
+        if (function_exists('medicao_bm_boletim_remap_key_catalogo')) {
+            $k = medicao_bm_boletim_remap_key_catalogo($k, $matrizId);
+        }
         $kStr    = $keyStringFn($k);
         $cod     = medicao_custo_bm_codigo_exibir($c);
         $nome    = trim((string) ($c['descricao'] ?? ''));
