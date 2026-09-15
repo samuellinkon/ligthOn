@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/flash.php';
+require_once __DIR__ . '/../includes/upload.php';
 
 $user = require_auth('cliente');
 require_once __DIR__ . '/../includes/modules.php';
@@ -41,7 +42,30 @@ if ($id > 0) {
     $ponto = array_merge($ponto, $pontoDb);
 }
 
+$pontoImagens = ($id > 0) ? repo_ponto_iluminacao_imagens_list($id) : [];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $acao = (string) ($_POST['acao'] ?? '');
+
+    if ($acao === 'excluir_imagem' || $acao === 'definir_principal') {
+        $imgId = (int) ($_POST['imagem_id'] ?? 0);
+        $pontoIdPost = (int) ($_POST['ponto_id'] ?? 0);
+        $pDel = ($pontoIdPost > 0) ? repo_ponto_iluminacao($pontoIdPost) : null;
+        if ($pDel && $imgId > 0 && repo_ponto_iluminacao_pertence_empresa($pontoIdPost, $scopeRaiz)) {
+            $ok = $acao === 'excluir_imagem'
+                ? repo_ponto_iluminacao_imagem_excluir($imgId, $pontoIdPost)
+                : repo_ponto_iluminacao_imagem_definir_principal($imgId, $pontoIdPost);
+            flash_set($ok ? 'ok' : 'err', $ok
+                ? ($acao === 'excluir_imagem' ? 'Imagem removida.' : 'Imagem principal atualizada.')
+                : ($acao === 'excluir_imagem' ? 'Não foi possível remover a imagem.' : 'Não foi possível definir a imagem principal.'));
+            header('Location: ponto_iluminacao_novo.php?id=' . $pontoIdPost);
+            exit;
+        }
+        flash_set('err', 'Requisição inválida.');
+        header('Location: pontos_iluminacao.php');
+        exit;
+    }
+
     $clienteSalvar = (int) ($_POST['cliente_id'] ?? 0);
     if ($clienteSalvar <= 0) {
         $clienteSalvar = $userClienteId;
@@ -64,13 +88,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'status' => $_POST['status'] ?? 'Ativo',
         'observacoes' => $_POST['observacoes'] ?? '',
     ]);
-    if ($save['ok']) {
-        flash_set('ok', 'Ponto de iluminação salvo.');
-        header('Location: pontos_iluminacao.php');
+    if (!$save['ok']) {
+        flash_set('err', $save['err']);
+        header('Location: ponto_iluminacao_novo.php' . ($id > 0 ? '?id=' . $id : ''));
         exit;
     }
-    flash_set('err', $save['err']);
-    header('Location: ponto_iluminacao_novo.php' . ($id > 0 ? '?id=' . $id : ''));
+
+    $pontoSalvoId = (int) $save['id'];
+    $uploadMsgs = [];
+    $uploadErrs = [];
+    $dir = upload_dir_ponto_iluminacao($pontoSalvoId);
+
+    if (!empty($_FILES['imagem_principal']['name']) && (int) ($_FILES['imagem_principal']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $f = $_FILES['imagem_principal'];
+        if (!upload_extensao_imagem((string) ($f['name'] ?? ''))) {
+            $uploadErrs[] = 'Imagem principal: use PNG, JPG, JPEG, GIF ou WEBP.';
+        } else {
+            $r = upload_gravar_arquivo($f, $dir);
+            if ($r['ok']) {
+                $ins = repo_ponto_iluminacao_imagem_inserir(
+                    $pontoSalvoId,
+                    (string) $r['nome_original'],
+                    (string) $r['nome_arquivo'],
+                    $r['mime'] ?? null,
+                    (int) ($r['tamanho'] ?? 0),
+                    true
+                );
+                if ($ins['ok']) {
+                    $uploadMsgs[] = 'Imagem principal enviada.';
+                } else {
+                    @unlink($dir . DIRECTORY_SEPARATOR . $r['nome_arquivo']);
+                    $uploadErrs[] = 'Imagem principal: ' . $ins['err'];
+                }
+            } else {
+                $uploadErrs[] = 'Imagem principal: ' . ($r['msg'] ?? 'falha no upload.');
+            }
+        }
+    }
+
+    $secOk = 0;
+    if (!empty($_FILES['imagens_secundarias']['name']) && is_array($_FILES['imagens_secundarias']['name'])) {
+        $sec = $_FILES['imagens_secundarias'];
+        $n = count($sec['name']);
+        for ($i = 0; $i < $n; $i++) {
+            if (($sec['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            $single = [
+                'name'     => $sec['name'][$i],
+                'type'     => $sec['type'][$i] ?? '',
+                'tmp_name' => $sec['tmp_name'][$i],
+                'error'    => $sec['error'][$i],
+                'size'     => $sec['size'][$i],
+            ];
+            if (!upload_extensao_imagem((string) ($single['name'] ?? ''))) {
+                $uploadErrs[] = (string) ($single['name'] ?? 'arquivo') . ': só imagens (PNG, JPG, GIF, WEBP).';
+                continue;
+            }
+            $r = upload_gravar_arquivo($single, $dir);
+            if ($r['ok']) {
+                $ins = repo_ponto_iluminacao_imagem_inserir(
+                    $pontoSalvoId,
+                    (string) $r['nome_original'],
+                    (string) $r['nome_arquivo'],
+                    $r['mime'] ?? null,
+                    (int) ($r['tamanho'] ?? 0),
+                    false
+                );
+                if ($ins['ok']) {
+                    $secOk++;
+                } else {
+                    @unlink($dir . DIRECTORY_SEPARATOR . $r['nome_arquivo']);
+                    $uploadErrs[] = (string) $r['nome_original'] . ': ' . $ins['err'];
+                }
+            } else {
+                $uploadErrs[] = (string) ($single['name'] ?? '') . ': ' . ($r['msg'] ?? 'erro');
+            }
+        }
+        if ($secOk > 0) {
+            $uploadMsgs[] = $secOk . ' imagem(ns) secundária(s) enviada(s).';
+        }
+    }
+
+    if ($uploadErrs !== []) {
+        flash_set('err', 'Poste salvo, mas houve problema(s) no envio de fotos: ' . implode(' ', $uploadErrs));
+    } elseif ($uploadMsgs !== []) {
+        flash_set('ok', 'Ponto salvo. ' . implode(' ', $uploadMsgs));
+    } else {
+        flash_set('ok', 'Ponto de iluminação salvo.');
+    }
+    header('Location: ponto_iluminacao_novo.php?id=' . $pontoSalvoId);
     exit;
 }
 
@@ -87,7 +194,7 @@ include __DIR__ . '/../includes/head.php';
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
 <section class="content">
-  <form class="card" method="post" action="ponto_iluminacao_novo.php<?= $id > 0 ? '?id=' . (int) $id : '' ?>" autocomplete="off">
+  <form id="form-poste" class="card" method="post" enctype="multipart/form-data" action="ponto_iluminacao_novo.php<?= $id > 0 ? '?id=' . (int) $id : '' ?>" autocomplete="off">
     <input type="hidden" name="id" value="<?= (int) ($ponto['id'] ?? 0) ?>">
     <input type="hidden" name="cliente_id" value="<?= (int) ($ponto['cliente_id'] ?? $userClienteId) ?>">
     <div class="panel-head">
@@ -145,13 +252,79 @@ include __DIR__ . '/../includes/head.php';
         <label for="observacoes">Observações</label>
         <textarea id="observacoes" name="observacoes" class="textarea" rows="3" placeholder="Observações do ponto (opcional)"><?= htmlspecialchars((string) ($ponto['observacoes'] ?? '')) ?></textarea>
       </div>
+
+      <?php if ($id > 0): ?>
+      <div class="form-group full" style="border-top:1px solid var(--border-soft);padding-top:16px;margin-top:4px;">
+        <h4 style="margin:0 0 8px;font-size:16px;">Fotos do poste</h4>
+        <p class="muted" style="margin:0 0 14px;font-size:13px;">Uma imagem <strong>principal</strong> (destaque) e quantas <strong>secundárias</strong> precisar. Formatos: PNG, JPG, GIF ou WEBP (máx. <?= htmlspecialchars(upload_formatar_tamanho(UPLOAD_MAX_BYTES)) ?> por arquivo).</p>
+
+        <?php if (!empty($pontoImagens)): ?>
+        <div class="ponto-img-galeria" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px;">
+          <?php foreach ($pontoImagens as $im): ?>
+          <div class="ponto-img-card" style="border:1px solid var(--border-soft);border-radius:10px;overflow:hidden;background:#fafafe;">
+            <a href="ponto_iluminacao_imagem.php?id=<?= (int) $im['id'] ?>" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#eef;">
+              <img src="ponto_iluminacao_imagem.php?id=<?= (int) $im['id'] ?>" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">
+            </a>
+            <div style="padding:8px;font-size:11px;">
+              <?php if (!empty($im['principal'])): ?>
+                <span class="badge success" style="font-size:10px;">Principal</span>
+              <?php else: ?>
+                <button type="submit" form="form-img-principal-<?= (int) $im['id'] ?>" class="action primary" style="font-size:11px;padding:4px 8px;">Usar como principal</button>
+              <?php endif; ?>
+              <button type="submit" form="form-img-excluir-<?= (int) $im['id'] ?>" class="action danger" style="font-size:11px;padding:4px 8px;margin:4px 0 0;display:inline-block;">Excluir</button>
+              <?php
+                $nomO = (string) ($im['nome_original'] ?? '');
+                $nomC = strlen($nomO) > 30 ? substr($nomO, 0, 27) . '…' : $nomO;
+              ?>
+              <div class="muted" style="margin-top:6px;word-break:break-all;" title="<?= htmlspecialchars($nomO) ?>"><?= htmlspecialchars($nomC) ?></div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <div class="form-group full">
+          <label for="imagem_principal">Nova imagem principal</label>
+          <input type="file" id="imagem_principal" name="imagem_principal" class="input" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp">
+          <small class="muted" style="display:block;margin-top:6px;">Se já existir uma principal, ela passa a ser secundária ao enviar outra.</small>
+        </div>
+        <div class="form-group full">
+          <label for="imagens_secundarias">Novas imagens secundárias</label>
+          <input type="file" id="imagens_secundarias" name="imagens_secundarias[]" class="input" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp" multiple>
+        </div>
+      </div>
+      <?php else: ?>
+      <div class="form-group full">
+        <p class="muted" style="margin:0;font-size:13px;">Após salvar o poste pela primeira vez, edite-o de novo para enviar a foto principal e as secundárias.</p>
+      </div>
+      <?php endif; ?>
     </div>
 
     <div class="form-actions">
       <a href="pontos_iluminacao.php" class="btn btn-secondary">Cancelar</a>
-      <button type="submit" class="btn btn-primary">Salvar ponto</button>
+      <button type="submit" form="form-poste" class="btn btn-primary">Salvar ponto</button>
     </div>
   </form>
+  <?php if ($id > 0 && !empty($pontoImagens)): ?>
+  <?php
+    $imgFormAction = 'ponto_iluminacao_novo.php?id=' . (int) $id;
+    foreach ($pontoImagens as $im):
+      $imgId = (int) $im['id'];
+  ?>
+  <?php if (empty($im['principal'])): ?>
+  <form id="form-img-principal-<?= $imgId ?>" method="post" action="<?= htmlspecialchars($imgFormAction) ?>" style="display:none;">
+    <input type="hidden" name="acao" value="definir_principal">
+    <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
+    <input type="hidden" name="imagem_id" value="<?= $imgId ?>">
+  </form>
+  <?php endif; ?>
+  <form id="form-img-excluir-<?= $imgId ?>" method="post" action="<?= htmlspecialchars($imgFormAction) ?>" style="display:none;" data-confirm="Remover esta imagem?" data-confirm-danger>
+    <input type="hidden" name="acao" value="excluir_imagem">
+    <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
+    <input type="hidden" name="imagem_id" value="<?= $imgId ?>">
+  </form>
+  <?php endforeach; ?>
+  <?php endif; ?>
 </section>
 
 <script>

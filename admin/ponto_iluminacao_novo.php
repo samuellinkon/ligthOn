@@ -214,7 +214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash_set('ok', 'Ponto de iluminação salvo.');
     }
 
-    header('Location: pontos_iluminacao.php?cliente_id=' . $postClienteId);
+    header('Location: ponto_iluminacao_novo.php?id=' . $pontoSalvoId . '&cliente_id=' . $postClienteId);
     exit;
 }
 
@@ -231,7 +231,7 @@ include __DIR__ . '/../includes/head.php';
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
 <section class="content">
-  <form class="card" method="post" enctype="multipart/form-data"
+  <form id="form-poste" class="card" method="post" enctype="multipart/form-data"
         action="ponto_iluminacao_novo.php<?= $id > 0 ? '?id=' . (int) $id . '&cliente_id=' . (int) $clienteId : '?cliente_id=' . (int) $clienteId ?>" autocomplete="off">
     <input type="hidden" name="id" value="<?= (int) ($ponto['id'] ?? 0) ?>">
     <div class="panel-head">
@@ -317,19 +317,9 @@ include __DIR__ . '/../includes/head.php';
               <?php if (!empty($im['principal'])): ?>
                 <span class="badge success" style="font-size:10px;">Principal</span>
               <?php else: ?>
-                <form method="post" style="display:inline;margin:0;" action="ponto_iluminacao_novo.php?id=<?= (int) $id ?>&amp;cliente_id=<?= (int) $clienteId ?>">
-                  <input type="hidden" name="acao" value="definir_principal">
-                  <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
-                  <input type="hidden" name="imagem_id" value="<?= (int) $im['id'] ?>">
-                  <button type="submit" class="action primary" style="font-size:11px;padding:4px 8px;">Usar como principal</button>
-                </form>
+                <button type="submit" form="form-img-principal-<?= (int) $im['id'] ?>" class="action primary" style="font-size:11px;padding:4px 8px;">Usar como principal</button>
               <?php endif; ?>
-              <form method="post" style="display:inline;margin:4px 0 0;" action="ponto_iluminacao_novo.php?id=<?= (int) $id ?>&amp;cliente_id=<?= (int) $clienteId ?>" data-confirm="Remover esta imagem?" data-confirm-danger>
-                <input type="hidden" name="acao" value="excluir_imagem">
-                <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
-                <input type="hidden" name="imagem_id" value="<?= (int) $im['id'] ?>">
-                <button type="submit" class="action danger" style="font-size:11px;padding:4px 8px;">Excluir</button>
-              </form>
+              <button type="submit" form="form-img-excluir-<?= (int) $im['id'] ?>" class="action danger" style="font-size:11px;padding:4px 8px;margin:4px 0 0;display:inline-block;">Excluir</button>
               <?php
                 $nomO = (string) ($im['nome_original'] ?? '');
                 $nomC = strlen($nomO) > 30 ? substr($nomO, 0, 27) . '…' : $nomO;
@@ -360,9 +350,29 @@ include __DIR__ . '/../includes/head.php';
 
     <div class="form-actions">
       <a href="pontos_iluminacao.php?cliente_id=<?= (int) $clienteId ?>" class="btn btn-secondary">Cancelar</a>
-      <button type="submit" class="btn btn-primary">Salvar poste</button>
+      <button type="submit" form="form-poste" class="btn btn-primary">Salvar poste</button>
     </div>
   </form>
+  <?php if ($id > 0 && !empty($pontoImagens)): ?>
+  <?php
+    $imgFormAction = 'ponto_iluminacao_novo.php?id=' . (int) $id . '&amp;cliente_id=' . (int) $clienteId;
+    foreach ($pontoImagens as $im):
+      $imgId = (int) $im['id'];
+  ?>
+  <?php if (empty($im['principal'])): ?>
+  <form id="form-img-principal-<?= $imgId ?>" method="post" action="<?= $imgFormAction ?>" style="display:none;">
+    <input type="hidden" name="acao" value="definir_principal">
+    <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
+    <input type="hidden" name="imagem_id" value="<?= $imgId ?>">
+  </form>
+  <?php endif; ?>
+  <form id="form-img-excluir-<?= $imgId ?>" method="post" action="<?= $imgFormAction ?>" style="display:none;" data-confirm="Remover esta imagem?" data-confirm-danger>
+    <input type="hidden" name="acao" value="excluir_imagem">
+    <input type="hidden" name="ponto_id" value="<?= (int) $id ?>">
+    <input type="hidden" name="imagem_id" value="<?= $imgId ?>">
+  </form>
+  <?php endforeach; ?>
+  <?php endif; ?>
 </section>
 
 <script>
