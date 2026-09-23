@@ -81,15 +81,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('err', $parse['erro'] !== '' ? $parse['erro'] : 'Falha ao interpretar a planilha.');
         } else {
             $imp = repo_cliente_itens_importar_linhas($clienteId, $parse['linhas']);
-            $msg = $imp['inseridos'] . ' linha(s) importada(s).';
-            if ($imp['ignorados'] > 0) {
+            $partes = [];
+            if (($imp['inseridos'] ?? 0) > 0) {
+                $partes[] = $imp['inseridos'] . ' inserida(s)';
+            }
+            if (($imp['atualizados'] ?? 0) > 0) {
+                $partes[] = $imp['atualizados'] . ' nome(s) atualizado(s)';
+            }
+            $msg = $partes !== [] ? implode(', ', $partes) . '.' : 'Nenhuma linha processada.';
+            if (($imp['ignorados'] ?? 0) > 0) {
                 $msg .= ' ' . $imp['ignorados'] . ' ignorada(s).';
             }
             $avisos = array_merge($parse['avisos'], $imp['erros']);
             if ($avisos) {
                 $msg .= ' Avisos: ' . implode(' ', array_slice($avisos, 0, 5));
             }
-            flash_set($imp['inseridos'] > 0 ? 'ok' : 'err', $msg);
+            $okFlash = (($imp['inseridos'] ?? 0) + ($imp['atualizados'] ?? 0)) > 0;
+            flash_set($okFlash ? 'ok' : 'err', $msg);
         }
     }
 
@@ -167,7 +175,7 @@ include __DIR__ . '/../includes/head.php';
       </div>
       <div class="panel-body">
         <p class="muted" style="line-height:1.6;margin-top:0;">
-          A planilha importa produtos e serviços para o catálogo da empresa raiz. Unidades vinculadas compartilham o catálogo da matriz. Itens são gravados como <strong>ativos</strong>. Código duplicado na mesma empresa é rejeitado com aviso.
+          A planilha importa produtos e serviços para o catálogo da empresa raiz. Unidades vinculadas compartilham o catálogo da matriz. Itens novos são gravados como <strong>ativos</strong>. Se o <strong>código</strong> já existir, apenas o <strong>nome</strong> (e descrições, se preenchidas) é atualizado — estoque, saldo, valor, unidade e tipo não mudam.
         </p>
         <div class="table-wrap" style="border:1px solid var(--border);border-radius:12px;">
           <table>
@@ -176,7 +184,7 @@ include __DIR__ . '/../includes/head.php';
             </thead>
             <tbody>
               <tr><td><code>Tipo</code> / <code>tipo</code></td><td>Sim</td><td><code>produto</code> ou <code>servico</code> (aceita Produto / Serviço)</td></tr>
-              <tr><td><code>Nome</code> / <code>nome</code></td><td>Sim</td><td>Filtro de água / Instalação</td></tr>
+              <tr><td><code>Nome</code> / <code>nome</code></td><td>Sim</td><td>Até 2000 caracteres (especificação completa do item)</td></tr>
               <tr><td><code>Código</code> / <code>codigo</code></td><td>Não</td><td>SKU-001</td></tr>
               <tr><td><code>Unidade</code> / <code>unidade</code></td><td>Não</td><td>UN, M, KG, H (padrão UN)</td></tr>
               <tr><td><code>Valor unit. (R$)</code> / <code>valor_unitario</code></td><td>Não</td><td>19,90 ou 19.90</td></tr>

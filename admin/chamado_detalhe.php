@@ -306,11 +306,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($CRM_CHAMADO_PORTAL) {
                 $permitidosStatus = ['Validado'];
             } elseif (strtolower($perfilSt) === 'gestor') {
-                $permitidosStatus = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido'];
+                $permitidosStatus = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido'];
             } elseif (strtolower($perfilSt) === 'admin') {
-                $permitidosStatus = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
+                $permitidosStatus = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
             } else {
-                $permitidosStatus = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
+                $permitidosStatus = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
             }
             $errSt = '';
             $okSt  = false;
@@ -1882,9 +1882,9 @@ include __DIR__ . '/../includes/head.php';
                 : '';
             if (!$CRM_CHAMADO_PORTAL) {
                 if ($perfilUi === 'gestor') {
-                    $statusOpcoesUi = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido'];
+                    $statusOpcoesUi = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido'];
                 } else {
-                    $statusOpcoesUi = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
+                    $statusOpcoesUi = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
                 }
                 if ($stAtual !== '' && !in_array($stAtual, $statusOpcoesUi, true)) {
                     $statusOpcoesUi[] = $stAtual;

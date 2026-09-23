@@ -197,6 +197,17 @@ function chamado_os_validar_obrigatorios(array $post): array
     return $erros;
 }
 
+/** Pré-chamado do técnico: só a descrição é obrigatória; origem e problema ficam para o gestor. @return list<string> */
+function chamado_os_validar_pre_chamado(array $post): array
+{
+    $erros = [];
+    if (trim((string) ($post['descricao'] ?? '')) === '') {
+        $erros[] = 'Informe a descrição do chamado.';
+    }
+
+    return $erros;
+}
+
 function chamado_os_sanitize_cpf(?string $cpf): ?string
 {
     if ($cpf === null || $cpf === '') {

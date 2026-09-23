@@ -34,12 +34,19 @@ if (!isset($ch_os_mostrar_preview_mapa)) {
 if (!isset($ch_os_ocultar_solicitante)) {
     $ch_os_ocultar_solicitante = false;
 }
+if (!isset($ch_os_botao_minha_localizacao)) {
+    $ch_os_botao_minha_localizacao = false;
+}
 if (!isset($ch_os_readonly_endereco)) {
     $ch_os_readonly_endereco = chamado_os_endereco_ja_cadastrado($ch_os_vals);
 }
 if (!isset($ch_os_geocode_api_url)) {
     $ch_os_geocode_api_url = 'geocode_nominatim_api.php';
 }
+if (!isset($ch_os_classificacao_obrigatoria)) {
+    $ch_os_classificacao_obrigatoria = true;
+}
+$ch_os_classificacao_obrigatoria = (bool) $ch_os_classificacao_obrigatoria;
 if (!isset($ch_os_preview_default_view)) {
     $ch_os_preview_default_view = null;
 }
@@ -192,7 +199,12 @@ if ($ch_os_preview_default_view === 'map') {
     <div class="os-section-body">
       <div class="form-grid form-grid--os-pane">
         <p class="os-pane-sub">Endereço</p>
-        <?php if (!$chOsReadonlyAddr && !chamado_tem_endereco_cadastrado($ch_os_vals, $ch_os_ponto_atual)): ?>
+        <?php if (!empty($ch_os_botao_minha_localizacao) && !$chOsReadonlyAddr): ?>
+        <div class="form-group full" style="margin-bottom:4px;">
+          <button type="button" class="btn btn-secondary" id="os-btn-minha-localizacao">Usar minha localização</button>
+          <p class="muted" id="os-minha-localizacao-status" style="font-size:13px;margin:8px 0 0;" hidden></p>
+        </div>
+        <?php elseif (!$chOsReadonlyAddr && !chamado_tem_endereco_cadastrado($ch_os_vals, $ch_os_ponto_atual)): ?>
         <p class="muted" style="font-size:13px;margin:0 0 10px;line-height:1.45;">
           Nenhum endereço cadastrado neste chamado — preencha os campos abaixo ou selecione um poste de iluminação (alterações gravadas automaticamente).
         </p>
@@ -274,8 +286,8 @@ if ($ch_os_preview_default_view === 'map') {
 
         <p class="os-pane-sub os-pane-sub--divider">Classificação</p>
         <div class="form-group">
-          <label for="os_origem"><?= $ch_os_req('Origem da OS', true) ?></label>
-          <select id="os_origem" name="origem_os" class="select" required>
+          <label for="os_origem"><?= $ch_os_req('Origem da OS', $ch_os_classificacao_obrigatoria) ?></label>
+          <select id="os_origem" name="origem_os" class="select"<?= $ch_os_classificacao_obrigatoria ? ' required' : '' ?>>
             <option value="">Selecione...</option>
             <?php foreach ($origOpts as $val => $lab): ?>
               <option value="<?= htmlspecialchars((string) $val, ENT_QUOTES, 'UTF-8') ?>"<?= $origOsValor === (string) $val ? ' selected' : '' ?>><?= htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') ?></option>
@@ -283,8 +295,8 @@ if ($ch_os_preview_default_view === 'map') {
           </select>
         </div>
         <div class="form-group">
-          <label for="os_problema"><?= $ch_os_req('Problema', true) ?></label>
-          <select id="os_problema" name="problema_os" class="select" required>
+          <label for="os_problema"><?= $ch_os_req('Problema', $ch_os_classificacao_obrigatoria) ?></label>
+          <select id="os_problema" name="problema_os" class="select"<?= $ch_os_classificacao_obrigatoria ? ' required' : '' ?>>
             <option value="">Selecione...</option>
             <?php foreach ($probOpts as $val => $lab): ?>
               <option value="<?= htmlspecialchars((string) $val, ENT_QUOTES, 'UTF-8') ?>"<?= ((string) ($ch_os_vals['problema_os'] ?? '') === (string) $val) ? ' selected' : '' ?>><?= htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') ?></option>

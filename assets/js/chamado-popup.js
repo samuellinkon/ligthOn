@@ -5,7 +5,7 @@
   'use strict';
 
   var SUCCESS_STATUSES = ['Resolvido', 'Fechado', 'Validado'];
-  var WARNING_STATUSES = ['Em andamento', 'Aguardando Aprovação'];
+  var WARNING_STATUSES = ['Em andamento', 'Pré-chamado', 'Aguardando Aprovação'];
 
   function escapeHtml(s) {
     if (s === null || s === undefined) return '';

@@ -7,6 +7,7 @@
   var STATUS_BADGE_CLASS = {
     Aberto: 'open',
     'Em andamento': 'progress',
+    'Pré-chamado': 'draft',
     'Aguardando Aprovação': 'waiting',
     Resolvido: 'done',
     Validado: 'done',

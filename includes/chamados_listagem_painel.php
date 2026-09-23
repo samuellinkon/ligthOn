@@ -338,6 +338,8 @@ if (db_ok()) {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Aberto'));
     } elseif ($f === 'andamento') {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Em andamento'));
+    } elseif ($f === 'pre' || $f === 'pre_chamado') {
+        $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Pré-chamado'));
     } elseif ($f === 'aguardando') {
         $lista = array_values(array_filter($lista, fn ($c) => ($c['status'] ?? '') === 'Aguardando Aprovação'));
     } elseif ($f === 'resolvidos') {
@@ -1196,7 +1198,7 @@ $topSearch   = $CRM_CHAMADOS_IS_OPERADOR
     ? 'Buscar por ID ou assunto...'
     : 'Buscar por ID, título ou prefeitura...';
 $topAction   = $CRM_CHAMADOS_IS_OPERADOR
-    ? ['label' => 'Início', 'href' => 'index.php', 'icon' => '←']
+    ? ['label' => 'Novo pré-chamado', 'href' => 'chamado_novo.php', 'icon' => '+']
     : ['label' => 'Novo chamado', 'href' => 'chamado_novo.php', 'icon' => '+'];
 
 $chPanelSidebar = $CRM_CHAMADOS_IS_CLIENTE
@@ -1555,6 +1557,7 @@ include __DIR__ . '/head.php';
             <option value="ativos"<?= $f === 'ativos' ? ' selected' : '' ?>>Em fluxo (exc. Validado/Cancelado)</option>
             <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
             <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
+            <option value="pre"<?= $f === 'pre' || $f === 'pre_chamado' ? ' selected' : '' ?>>Pré-chamado</option>
             <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
             <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
             <option value="validados"<?= $f === 'validados' ? ' selected' : '' ?>>Validado</option>
@@ -1600,6 +1603,7 @@ include __DIR__ . '/head.php';
             <option value="ativos"<?= $f === 'ativos' ? ' selected' : '' ?>>Em fluxo (exc. Validado/Cancelado)</option>
             <option value="abertos"<?= $f === 'abertos' ? ' selected' : '' ?>>Abertos</option>
             <option value="andamento"<?= $f === 'andamento' ? ' selected' : '' ?>>Em andamento</option>
+            <option value="pre"<?= $f === 'pre' || $f === 'pre_chamado' ? ' selected' : '' ?>>Pré-chamado</option>
             <option value="aguardando"<?= $f === 'aguardando' ? ' selected' : '' ?>>Aguardando Aprovação</option>
             <option value="resolvidos"<?= $f === 'resolvidos' ? ' selected' : '' ?>>Resolvidos</option>
             <option value="validados"<?= $f === 'validados' ? ' selected' : '' ?>>Validado</option>

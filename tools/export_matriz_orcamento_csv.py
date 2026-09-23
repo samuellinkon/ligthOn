@@ -94,7 +94,7 @@ def classify(item: object, col1: object, desc: object, un: object) -> tuple[str,
 
 
 def trim_fields(
-    nome_full: str, desc_extra: str | None, col1: str, max_nome: int = 160, max_desc: int = 500
+    nome_full: str, desc_extra: str | None, col1: str, max_nome: int = 2000, max_desc: int = 500
 ) -> tuple[str, str | None]:
     nome_full = nome_full.strip()
     nome = nome_full

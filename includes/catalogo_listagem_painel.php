@@ -512,7 +512,7 @@ $metricCardClass = static function (bool $active): string {
       </div>
       <div class="form-group">
         <label for="modal_nome">Nome</label>
-        <input type="text" id="modal_nome" name="nome" class="input" required maxlength="160" placeholder="Nome do item ou serviço">
+        <input type="text" id="modal_nome" name="nome" class="input" required maxlength="2000" placeholder="Nome do item ou serviço">
       </div>
       <div class="form-group">
         <label for="modal_codigo">Código</label>

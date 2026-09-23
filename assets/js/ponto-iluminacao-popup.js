@@ -4,7 +4,7 @@
 (function (global) {
   'use strict';
 
-  var OPEN_STATUSES = ['Aberto', 'Em andamento', 'Aguardando Aprovação'];
+  var OPEN_STATUSES = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação'];
   var PRIORITY_RANK = { Urgente: 4, Alta: 3, Normal: 2, Baixa: 1 };
 
   function escapeHtml(s) {

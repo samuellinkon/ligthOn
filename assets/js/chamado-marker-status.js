@@ -14,6 +14,7 @@
     'Em Progresso': 'progress',
     'Em execução': 'progress',
     'Enviada ao cliente': 'progress',
+    'Pré-chamado': 'draft',
     'Aguardando Aprovação': 'waiting',
     Pendente: 'waiting',
     Normal: 'waiting',
@@ -46,6 +47,7 @@
     done: { fill: '#22c55e', stroke: '#15803d' },
     progress: { fill: '#f59e0b', stroke: '#d97706' },
     waiting: { fill: '#a855f7', stroke: '#7e22ce' },
+    draft: { fill: '#f97316', stroke: '#c2410c' },
     urgent: { fill: '#ef4444', stroke: '#dc2626' },
     plain: { fill: '#64748b', stroke: '#475569' },
   };

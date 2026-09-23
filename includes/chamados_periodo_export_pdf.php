@@ -541,13 +541,14 @@ function chamados_periodo_anexos_export_html(
 
     $nAberto      = (int) ($porSt['Aberto'] ?? 0);
     $nAndamento   = (int) ($porSt['Em andamento'] ?? 0);
+    $nPreChamado  = (int) ($porSt['Pré-chamado'] ?? 0);
     $nAguardando  = (int) ($porSt['Aguardando Aprovação'] ?? $porSt['Aguardando Finalização'] ?? $porSt['Aguardando'] ?? 0);
     $nResolvido   = (int) ($porSt['Resolvido'] ?? 0);
     $nFechado     = (int) ($porSt['Fechado'] ?? 0);
     $nCancelado   = (int) ($porSt['Cancelado'] ?? 0);
 
     /** Pendentes operacionais: ainda em circuito (não resolvido/fechado/ cancelado). */
-    $nPendentes = $nAberto + $nAndamento + $nAguardando;
+    $nPendentes = $nAberto + $nAndamento + $nPreChamado + $nAguardando;
 
     /** KPI «Resolvidos»: encerramentos com conclusão (Resolvido + Fechado). */
     $nResolvidosKpi = $nResolvido + $nFechado;

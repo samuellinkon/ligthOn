@@ -155,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db_ok() && $empresaId > 0) {
             $falhas[] = $upEnvio['err'];
         }
 
-        if (empty($falhas) && ($countFotosAntes + $salvos) < 1) {
+        if (empty($falhas) && (string) ($ch['status'] ?? '') !== 'Pré-chamado' && ($countFotosAntes + $salvos) < 1) {
             $falhas[] = 'Inclua pelo menos uma foto do atendimento antes de concluir o chamado.';
         }
 
@@ -468,6 +468,7 @@ foreach ($anexos as $ax) {
 }
 $qtdFotosExistentes = count($imagensOp);
 $statusCh           = (string) ($chamado['status'] ?? '');
+$preChamado         = $statusCh === 'Pré-chamado';
 $jaEnviadoGestor    = !empty($chamado['finalizado_operador_em'])
     || $statusCh === 'Aguardando Aprovação';
 $opEdicaoEncerrada  = operador_chamado_materiais_fotos_bloqueados($chamado);
@@ -747,6 +748,7 @@ $topbarHideTitle = true;
       <form id="op-os-form" class="op-card op-card--primary" method="post" enctype="multipart/form-data"
             data-max-file-bytes="<?= (int) UPLOAD_MAX_BYTES ?>"
             data-fotos-salvas="<?= (int) $qtdFotosExistentes ?>"
+            data-foto-opcional="<?= $preChamado ? '1' : '0' ?>"
             data-ja-enviado-gestor="<?= $jaEnviadoGestor ? '1' : '0' ?>"
             data-chamado-id="<?= (int) $id ?>">
         <input type="hidden" name="acao" id="op-form-acao" value="">
@@ -1097,6 +1099,7 @@ $topbarHideTitle = true;
 
   var maxBytes = parseInt(opForm.getAttribute('data-max-file-bytes') || '15728640', 10) || 15728640;
   var fotosSalvas = parseInt(opForm.getAttribute('data-fotos-salvas') || '0', 10) || 0;
+  var fotoOpcional = opForm.getAttribute('data-foto-opcional') === '1';
 
   function countFotosNoGrid() {
     return photoGrid ? photoGrid.querySelectorAll('.op-photo-grid__item').length : 0;
@@ -1509,7 +1512,7 @@ $topbarHideTitle = true;
       alertMsg(pendMat.join('\n'), 'Itens do chamado');
       return;
     }
-    if (totalFotosAtendimento() < 1) {
+    if (!fotoOpcional && totalFotosAtendimento() < 1) {
       alertMsg('Inclua pelo menos uma foto do atendimento antes de concluir o chamado.', 'Enviar ao gestor');
       return;
     }

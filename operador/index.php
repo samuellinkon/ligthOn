@@ -15,7 +15,7 @@ $empresaId = operador_empresa_id($user);
 $operadorId = (int) ($user['id'] ?? 0);
 
 /** Em atendimento no mapa / resumo: não só "Aberto", senão chamados "Em andamento" ou "Aguardando" somem do painel. */
-$statusOperadorMapa = ['Aberto', 'Em andamento', 'Aguardando Aprovação'];
+$statusOperadorMapa = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação'];
 
 $chamadosAbertos = [];
 $mapPins = [];
@@ -59,8 +59,8 @@ $dash = db_ok() && $empresaId > 0 && $operadorId > 0
 $mapEmptyMsg = null;
 if (count($mapPins) === 0 && $loadLeaflet) {
     if (count($chamadosAbertos) === 0) {
-        $mapEmptyMsg = 'Nenhum chamado em Aberto, Em andamento ou Aguardando Aprovação está atribuído a você. '
-            . 'Peça ao gestor para vincular técnicos no chamado (equipe / responsável).';
+        $mapEmptyMsg = 'Nenhum chamado em Aberto, Em andamento, Pré-chamado ou Aguardando Aprovação está atribuído a você. '
+            . 'Peça ao gestor para vincular técnicos no chamado (equipe / responsável), ou abra um pré-chamado.';
     } elseif ($chamadosAtivosSemGps > 0) {
         $mapEmptyMsg = 'Você tem ' . (int) $chamadosAtivosSemGps . ' chamado(s) atribuído(s) sem latitude e longitude. '
             . 'Abra o chamado e informe a localização para aparecer no mapa.';
@@ -139,7 +139,7 @@ include __DIR__ . '/../includes/head.php';
       <?php require __DIR__ . '/../includes/partials/chamados_mapa_legenda.php'; ?>
       <div id="chamados-map" role="region" aria-label="Mapa dos chamados atribuídos ao operador"></div>
       <p class="muted" style="font-size:12px;margin-top:10px;margin-bottom:0;">
-        Pins: chamados <strong>atribuídos a você</strong>, em <strong>Aberto</strong>, <strong>Em andamento</strong> ou <strong>Aguardando Aprovação</strong>, com coordenadas. A lista ao lado conta os mesmos status (com ou sem GPS).
+        Pins: chamados <strong>atribuídos a você</strong>, em <strong>Aberto</strong>, <strong>Em andamento</strong>, <strong>Pré-chamado</strong> ou <strong>Aguardando Aprovação</strong>, com coordenadas. A lista ao lado conta os mesmos status (com ou sem GPS).
       </p>
     </div>
   </div>

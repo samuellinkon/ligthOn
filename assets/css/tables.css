@@ -222,6 +222,9 @@ table.chamados-admin-list tbody td {
 .badge.status-aguardando,
 .badge.status-pendente { background: rgba(239, 159, 39, 0.13); color: var(--warning); }
 
+.badge.draft,
+.badge.status-pre-chamado { background: rgba(249, 115, 22, 0.14); color: #c2410c; }
+
 .badge.done,
 .badge.status-done,
 .badge.status-resolvido,

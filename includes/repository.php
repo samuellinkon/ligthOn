@@ -332,7 +332,7 @@ function repo_clientes(): array
             (SELECT COUNT(*) FROM chamados ch WHERE ch.cliente_id = c.id" . _repo_chamados_sql_apenas_ativos('ch') . ") AS chamados,
             (SELECT COUNT(*) FROM chamados ch
               WHERE ch.cliente_id = c.id
-                AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')" . _repo_chamados_sql_apenas_ativos('ch') . ") AS pendentes
+                AND ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação')" . _repo_chamados_sql_apenas_ativos('ch') . ") AS pendentes
         FROM clientes c
         ORDER BY c.id
     ";
@@ -1050,7 +1050,7 @@ function repo_pontos_iluminacao_list(int $clienteId, bool $escopoEmpresa = false
                 pi.*,
                 c.empresa AS cliente_empresa,
                 COUNT(ch.id) AS chamados_total,
-                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
             FROM pontos_iluminacao pi
             JOIN clientes c ON c.id = pi.cliente_id
             LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
@@ -1116,7 +1116,7 @@ function repo_pontos_iluminacao_list_paginated(
         $stCount = $pdo->prepare("
             SELECT COUNT(*) FROM (
                 SELECT pi.id,
-                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
                 FROM pontos_iluminacao pi
                 LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
                 WHERE $sqlWhere
@@ -1137,7 +1137,7 @@ function repo_pontos_iluminacao_list_paginated(
                 pi.*,
                 c.empresa AS cliente_empresa,
                 COUNT(ch.id) AS chamados_total,
-                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
             FROM pontos_iluminacao pi
             JOIN clientes c ON c.id = pi.cliente_id
             LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
@@ -1792,7 +1792,7 @@ function repo_ponto_iluminacao_mapa_detalhe(int $id): ?array
             $st = $pdo->prepare("
                 SELECT
                     COUNT(ch.id) AS chamados_total,
-                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                    SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
                 FROM chamados ch
                 WHERE ch.ponto_iluminacao_id = ?
             ");
@@ -1936,7 +1936,7 @@ function repo_pontos_iluminacao_estatisticas_escopo(int $clienteId, bool $escopo
             SELECT COUNT(DISTINCT pi.id) AS total
             FROM pontos_iluminacao pi
             INNER JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
-                AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')
+                AND ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação')
             WHERE $sqlWhere
         ");
         $stCh->execute($params);
@@ -2041,7 +2041,7 @@ function repo_pontos_iluminacao_mapa_bounds_count(
                     SELECT pi.id
                     FROM pontos_iluminacao pi
                     INNER JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
-                        AND ch.status IN ('Aberto','Em andamento','Aguardando Aprovação')
+                        AND ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação')
                     WHERE $sqlWhere
                     GROUP BY pi.id
                 ) sub
@@ -2231,7 +2231,7 @@ function repo_pontos_iluminacao_mapa_proximo(
                         pi.longitude,
                         pi.status,
                         pi.bairro,
-                        SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                        SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
                     FROM pontos_iluminacao pi
                     LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
                     WHERE $sqlWhere
@@ -2313,7 +2313,7 @@ function _repo_pontos_iluminacao_mapa_bounds_points(
                 pi.longitude,
                 pi.status,
                 pi.bairro,
-                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
+                SUM(CASE WHEN ch.status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS chamados_abertos
             FROM pontos_iluminacao pi
             LEFT JOIN chamados ch ON ch.ponto_iluminacao_id = pi.id
             WHERE $sqlWhere
@@ -2403,7 +2403,7 @@ function _repo_pontos_iluminacao_mapa_bounds_grid(
             FROM pontos_iluminacao pi
             LEFT JOIN (
                 SELECT ponto_iluminacao_id,
-                    SUM(CASE WHEN status IN ('Aberto','Em andamento','Aguardando Aprovação') THEN 1 ELSE 0 END) AS abertos
+                    SUM(CASE WHEN status IN ('Aberto','Em andamento','Pré-chamado','Aguardando Aprovação') THEN 1 ELSE 0 END) AS abertos
                 FROM chamados
                 GROUP BY ponto_iluminacao_id
             ) ch_open ON ch_open.ponto_iluminacao_id = pi.id
@@ -3700,6 +3700,9 @@ function repo_chamados_operador_list(int $empresaRaizId, string $filtro, string 
 
     if ($filtro === 'andamento') {
         $where[] = 'ch.status IN (\'Aberto\',\'Em andamento\')';
+    } elseif ($filtro === 'pre' || $filtro === 'pre_chamado') {
+        $where[] = 'ch.status = ?';
+        $params[] = 'Pré-chamado';
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
         $params[] = 'Aguardando Aprovação';
@@ -3805,12 +3808,12 @@ function repo_dashboard_operador_stats(int $empresaRaizId, int $operadorUserId):
     $abertos = $andamento = $urgentes = 0;
     foreach ($res['rows'] as $ch) {
         $st = (string) ($ch['status'] ?? '');
-        if ($st === 'Aberto') {
+        if ($st === 'Aberto' || $st === 'Pré-chamado') {
             $abertos++;
         } elseif ($st === 'Em andamento') {
             $andamento++;
         }
-        if (in_array($st, ['Aberto', 'Em andamento', 'Aguardando Aprovação'], true)
+        if (in_array($st, ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação'], true)
             && in_array((string) ($ch['prioridade'] ?? ''), ['Alta', 'Urgente'], true)) {
             $urgentes++;
         }
@@ -3964,6 +3967,9 @@ function repo_chamados_portal_list(
 
     if ($filtro === 'andamento') {
         $where[] = 'ch.status IN (\'Aberto\',\'Em andamento\')';
+    } elseif ($filtro === 'pre' || $filtro === 'pre_chamado') {
+        $where[] = 'ch.status = ?';
+        $params[] = 'Pré-chamado';
     } elseif ($filtro === 'aguardando') {
         $where[] = 'ch.status = ?';
         $params[] = 'Aguardando Aprovação';
@@ -4005,7 +4011,7 @@ function repo_chamados_portal_list(
             $orderBy = 'ch.aberto_em ASC, ch.id ASC';
             break;
         case 'status':
-            $orderBy = "FIELD(ch.status, 'Aberto', 'Em andamento', 'Aguardando Aprovação', 'Cancelado', 'Resolvido', 'Fechado'), ch.aberto_em DESC, ch.id DESC";
+            $orderBy = "FIELD(ch.status, 'Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Cancelado', 'Resolvido', 'Fechado'), ch.aberto_em DESC, ch.id DESC";
             break;
         case 'prioridade':
             $orderBy = "FIELD(ch.prioridade, 'Urgente', 'Alta', 'Normal', 'Baixa'), ch.aberto_em DESC, ch.id DESC";
@@ -4118,6 +4124,9 @@ function _repo_chamados_admin_sql_where(
     } elseif ($filtro === 'andamento') {
         $where[]  = 'ch.status = ?';
         $params[] = 'Em andamento';
+    } elseif ($filtro === 'pre' || $filtro === 'pre_chamado') {
+        $where[]  = 'ch.status = ?';
+        $params[] = 'Pré-chamado';
     } elseif ($filtro === 'aguardando') {
         $where[]  = 'ch.status = ?';
         $params[] = 'Aguardando Aprovação';
@@ -7407,7 +7416,7 @@ function repo_chamado_cliente_reabrir(int $id, int $matrizId): bool
 
 function repo_update_chamado_status(int $id, string $status, ?string $perfilActor = null, ?string $validadoEmYmd = null): bool
 {
-    static $allowed = ['Aberto', 'Em andamento', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
+    static $allowed = ['Aberto', 'Em andamento', 'Pré-chamado', 'Aguardando Aprovação', 'Resolvido', 'Validado', 'Fechado', 'Cancelado'];
     if (!in_array($status, $allowed, true)) {
         return false;
     }
@@ -8392,7 +8401,7 @@ function repo_cliente_item_campos_normalizados(
         return substr($s, 0, $max);
     };
 
-    $nome = $cut($nome, 160);
+    $nome = $cut($nome, 2000);
     $desc = $desc !== '' ? $cut($desc, 500) : '';
     $unid = $cut($unid, 20);
     if ($unid === '') {
@@ -8707,14 +8716,74 @@ function repo_cliente_servico_delete(int $clienteId, int $servicoId): bool
 }
 
 /**
+ * Na importação: atualiza só nome (e descrições se preenchidas), sem mexer em estoque/valor/tipo.
+ *
+ * @return array{ok: bool, err: string}
+ */
+function repo_cliente_item_atualizar_nome_importacao(
+    int $clienteId,
+    int $itemId,
+    string $nome,
+    ?string $descricao,
+    ?string $descricaoSimplificada
+): array {
+    $pdo = db();
+    if (!$pdo || $clienteId <= 0 || $itemId <= 0) {
+        return ['ok' => false, 'err' => 'Dados inválidos.'];
+    }
+    $clienteId = repo_cliente_catalogo_dono_id($clienteId);
+    if ($clienteId <= 0) {
+        return ['ok' => false, 'err' => 'Empresa inválida para o catálogo.'];
+    }
+    [$nomeNorm, $descNorm] = repo_cliente_item_campos_normalizados($nome, $descricao, 'UN', null);
+    if ($nomeNorm === '') {
+        return ['ok' => false, 'err' => 'Informe o nome.'];
+    }
+
+    try {
+        if ($descNorm !== null) {
+            $st = $pdo->prepare(
+                'UPDATE cliente_itens SET nome = ?, descricao = ?
+                 WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+            );
+            $ok = $st->execute([$nomeNorm, $descNorm, $itemId, $clienteId, $clienteId]);
+        } else {
+            $st = $pdo->prepare(
+                'UPDATE cliente_itens SET nome = ?
+                 WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+            );
+            $ok = $st->execute([$nomeNorm, $itemId, $clienteId, $clienteId]);
+        }
+        if (!$ok || $st->rowCount() < 1) {
+            // rowCount 0 pode ser nome idêntico; confere existência
+            $chk = $pdo->prepare(
+                'SELECT id FROM cliente_itens WHERE id = ? AND (cliente_id = ? OR empresa_id = ?) LIMIT 1'
+            );
+            $chk->execute([$itemId, $clienteId, $clienteId]);
+            if (!$chk->fetch(PDO::FETCH_ASSOC)) {
+                return ['ok' => false, 'err' => 'Item não encontrado.'];
+            }
+        }
+        if ($descricaoSimplificada !== null && trim($descricaoSimplificada) !== '') {
+            repo_cliente_item_gravar_descricao_simplificada($pdo, $itemId, $clienteId, $descricaoSimplificada);
+        }
+
+        return ['ok' => true, 'err' => ''];
+    } catch (Throwable $e) {
+        return ['ok' => false, 'err' => $e->getMessage()];
+    }
+}
+
+/**
  * Grava linhas normalizadas do catálogo (importação CSV/XLSX).
+ * Código existente: atualiza só nome/descrições (não altera estoque, valor, unidade nem tipo).
  *
  * @param list<array{tipo?: string, nome?: string, codigo?: string, unidade?: string, valor_unitario?: float|int|string, estoque_capacidade?: float|int|string, estoque_saldo?: float|int|string, saldo_informado?: bool, descricao?: string, _linha_plan?: int}> $linhas
- * @return array{inseridos: int, ignorados: int, erros: list<string>}
+ * @return array{inseridos: int, atualizados: int, ignorados: int, erros: list<string>}
  */
 function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): array
 {
-    $ret = ['inseridos' => 0, 'ignorados' => 0, 'erros' => []];
+    $ret = ['inseridos' => 0, 'atualizados' => 0, 'ignorados' => 0, 'erros' => []];
     $pdo = db();
     if (!$pdo || $clienteId <= 0) {
         $ret['erros'][] = 'Banco ou cliente inválido.';
@@ -8756,6 +8825,28 @@ function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): arra
         $desc    = trim((string) ($lin['descricao'] ?? ''));
         $descSimp = trim((string) ($lin['descricao_simplificada'] ?? ''));
 
+        if ($codigo !== '') {
+            $existente = repo_cliente_item_row_por_codigo($clienteId, $codigo, false);
+            if ($existente !== null) {
+                $itemId = (int) ($existente['id'] ?? 0);
+                $rUp = repo_cliente_item_atualizar_nome_importacao(
+                    $clienteId,
+                    $itemId,
+                    $nome,
+                    $desc !== '' ? $desc : null,
+                    $descSimp !== '' ? $descSimp : null
+                );
+                if ($rUp['ok']) {
+                    $ret['atualizados']++;
+                } else {
+                    $ret['ignorados']++;
+                    $ret['erros'][] = "$label: " . ($rUp['err'] ?: 'falha ao atualizar nome');
+                }
+
+                continue;
+            }
+        }
+
         $r = repo_cliente_item_salvar(
             $clienteId,
             null,
@@ -8784,7 +8875,7 @@ function repo_cliente_itens_importar_linhas(int $clienteId, array $linhas): arra
 /**
  * Importa CSV/TSV (cabeçalho: tipo,nome,codigo,unidade,valor_unitario,estoque_saldo,descricao).
  *
- * @return array{inseridos: int, ignorados: int, erros: list<string>}
+ * @return array{inseridos: int, atualizados: int, ignorados: int, erros: list<string>}
  */
 function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): array
 {
@@ -8792,9 +8883,10 @@ function repo_cliente_itens_importar_csv(int $clienteId, string $conteudo): arra
     $parse = catalogo_import_parse_csv_content($conteudo);
     if (!$parse['ok']) {
         return [
-            'inseridos' => 0,
-            'ignorados' => 0,
-            'erros'     => array_filter(array_merge(
+            'inseridos'   => 0,
+            'atualizados' => 0,
+            'ignorados'   => 0,
+            'erros'       => array_filter(array_merge(
                 [$parse['erro'] !== '' ? $parse['erro'] : 'Falha ao interpretar CSV.'],
                 $parse['avisos']
             )),
